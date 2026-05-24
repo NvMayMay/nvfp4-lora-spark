@@ -1,0 +1,10 @@
+# Training stack. vLLM is intentionally not pinned here; it goes in a separate serve venv.
+# causal-conv1d is also not pinned here because it needs --no-build-isolation; see README.
+
+torch>=2.12
+transformers>=5.8.1
+peft>=0.19.1
+accelerate>=1.5
+safetensors>=0.5
+huggingface-hub>=0.28
+matplotlib>=3.10

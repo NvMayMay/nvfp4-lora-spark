@@ -1,0 +1,14 @@
+[compare] 100 prompts common to both files
+
+identical completions:  21/100
+differing completions: 79/100 (79.0%)
+
+=== first 15 differing prompts ===
+
+--- prompt: 'A doctor prescribes 250 mg of aspirin every 8 hours. The total daily dose is'
+
+Generated: 2026-05-24
+Base model:   nemotron-3-super-a12b-nvfp4 (CUTLASS, enforce-eager)
+FT model:     nemotron-3-super-a12b-nvfp4-ich-v1.0 (merged, CUTLASS, enforce-eager)
+Prompts:      100 (mix of ICH/regulatory + generic, see scripts/distinguish_ft.py PROMPTS)
+Decoding:     temperature=0, max_tokens=64
