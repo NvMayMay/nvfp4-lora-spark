@@ -1,8 +1,5 @@
 """NVFP4LoRALinear - frozen NVFP4 base weight + trainable bf16 LoRA delta.
 
-Implements the architecture both Opus and GPT-5.5 subagents converged on (see
-`Research/nvfp4_lora_spark/agent_outputs/SYNTHESIS.md`):
-
 - Base weight: NVFP4-quantized, stored as (qdata, scales, per_tensor_scale) - never trained.
 - LoRA path: bf16 `lora_A` (r, in) and `lora_B` (out, r), trainable.
 - Forward: y = (dequant(W) @ x.T).T + scale * (x @ A.T) @ B.T
@@ -19,6 +16,7 @@ which is wrong here).
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Optional
 
 import torch
@@ -26,6 +24,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .dequant import dequantize_nvfp4_weight
+
+
+_EVAL_CACHE_LIMIT_BYTES = 30 * 1024**3
+_EVAL_CACHE_BYTES_RESERVED = 0
 
 
 class _DequantLinear(torch.autograd.Function):
@@ -39,7 +41,7 @@ class _DequantLinear(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x, weight_uint8, weight_scale_fp8, weight_scale_2_fp32, group_size: int):
-        ctx.save_for_backward(x, weight_uint8, weight_scale_fp8, weight_scale_2_fp32)
+        ctx.save_for_backward(weight_uint8, weight_scale_fp8, weight_scale_2_fp32)
         ctx.group_size = group_size
         W_bf16 = dequantize_nvfp4_weight(
             weight_uint8, weight_scale_fp8, weight_scale_2_fp32,
@@ -50,7 +52,7 @@ class _DequantLinear(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        x, weight_uint8, weight_scale_fp8, weight_scale_2_fp32 = ctx.saved_tensors
+        weight_uint8, weight_scale_fp8, weight_scale_2_fp32 = ctx.saved_tensors
         group_size = ctx.group_size
 
         grad_x = None
@@ -76,7 +78,7 @@ class NVFP4LoRALinear(nn.Module):
         weight_scale_fp8: (out, in/group_size) float8_e4m3fn.
         weight_scale_2_fp32: scalar float32.
         group_size: NVFP4 group size, default 16.
-        bias: optional bias tensor (trainable; if you want frozen bias, set requires_grad=False after construction).
+        bias: optional bias tensor, frozen by default.
         r: LoRA rank; if 0, LoRA path is disabled (frozen linear only).
         lora_alpha: LoRA scaling factor; effective scale = lora_alpha / r.
         lora_dropout: dropout applied to the LoRA path input (not the base path).
@@ -130,9 +132,12 @@ class NVFP4LoRALinear(nn.Module):
             self.lora_dropout = nn.Identity()
 
         # Eval-mode bf16 weight cache (populated lazily on first eval forward; cleared on train())
-        # Materializes the dequantized base weight once for fast `F.linear` reuse. Skips the per-forward
-        # custom-autograd dequant cost when we don't need gradients.
+        # Materializes the dequantized base weight once for fast `F.linear` reuse. On Super-120B,
+        # caching every module would silently build a huge bf16 shadow, so allocation is capped
+        # per process and skipped once the heuristic budget is exhausted.
         self._eval_weight: Optional[torch.Tensor] = None
+        self._eval_weight_bytes = 0
+        self._eval_cache_warned = False
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Base path: training uses custom autograd (dequant recomputed in backward, no bf16 shadow saved);
@@ -143,11 +148,38 @@ class NVFP4LoRALinear(nn.Module):
             )
         else:
             if self._eval_weight is None or self._eval_weight.dtype != x.dtype:
-                self._eval_weight = dequantize_nvfp4_weight(
-                    self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32,
-                    group_size=self.group_size, out_dtype=x.dtype,
-                )
-            y = F.linear(x, self._eval_weight, bias=None)
+                global _EVAL_CACHE_BYTES_RESERVED
+                if self._eval_weight is not None:
+                    _EVAL_CACHE_BYTES_RESERVED = max(0, _EVAL_CACHE_BYTES_RESERVED - self._eval_weight_bytes)
+                    self._eval_weight = None
+                    self._eval_weight_bytes = 0
+
+                est_cache_bytes = self.out_features * self.in_features * 2
+                if _EVAL_CACHE_BYTES_RESERVED + est_cache_bytes <= _EVAL_CACHE_LIMIT_BYTES:
+                    self._eval_weight = dequantize_nvfp4_weight(
+                        self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32,
+                        group_size=self.group_size, out_dtype=x.dtype,
+                    )
+                    self._eval_weight_bytes = est_cache_bytes
+                    _EVAL_CACHE_BYTES_RESERVED += est_cache_bytes
+                    base_weight = self._eval_weight
+                else:
+                    if not self._eval_cache_warned:
+                        warnings.warn(
+                            "Skipping NVFP4LoRALinear eval bf16 cache because the estimated "
+                            "process-wide cache would exceed 30 GB; recomputing this module "
+                            "on each eval forward instead.",
+                            RuntimeWarning,
+                            stacklevel=2,
+                        )
+                        self._eval_cache_warned = True
+                    base_weight = dequantize_nvfp4_weight(
+                        self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32,
+                        group_size=self.group_size, out_dtype=x.dtype,
+                    )
+            else:
+                base_weight = self._eval_weight
+            y = F.linear(x, base_weight, bias=None)
         # LoRA delta
         if self.r > 0:
             lora_out = F.linear(self.lora_dropout(x), self.lora_A)  # (..., r)
@@ -160,7 +192,11 @@ class NVFP4LoRALinear(nn.Module):
     def train(self, mode: bool = True):
         # Clear the eval-mode bf16 cache when switching back to training so we don't leak the shadow.
         if mode:
+            global _EVAL_CACHE_BYTES_RESERVED
+            if self._eval_weight is not None:
+                _EVAL_CACHE_BYTES_RESERVED = max(0, _EVAL_CACHE_BYTES_RESERVED - self._eval_weight_bytes)
             self._eval_weight = None
+            self._eval_weight_bytes = 0
         return super().train(mode)
 
     @property

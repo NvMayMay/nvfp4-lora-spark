@@ -3,9 +3,9 @@
 # with the native-FP4 CUTLASS MoE backend (VLLM_CUTLASS). RECOMMENDED PATH.
 #
 # Measured throughput (single-stream, sequential /v1/completions):
-#   ~12-14 tok/s, flat across prompt lengths 12-456 tokens
+#   ~11-14 tok/s, flat across prompt lengths 12-456 tokens
 #
-# vs the EMULATION fallback (see run_super_base_inference.sh): ~18-20x faster.
+# vs the EMULATION fallback (see run_super_base_inference.sh): ~18x faster.
 #
 # Every flag below is load-bearing on Spark (GB10, sm_121, 128 GB UMA):
 #   --moe-backend cutlass    -> selects VLLM_CUTLASS (CutlassExpertsFp4); the
@@ -21,10 +21,10 @@
 #                                GB physical ceiling. At default 0.92, KV cache
 #                                budget is 36.99 GiB which works but leaves
 #                                less headroom; 0.70 is comfortable.
-#   --max-model-len 2048 etc. -> tight knobs; CUTLASS uses much less working
-#                                memory than EMULATION so we could likely raise
-#                                these, but 2048 is plenty for the publication
-#                                bench.
+#   --max-model-len 2048 etc. -> conservative default. The README
+#                                prompt=2048 + output=2048 cells require
+#                                MAX_MODEL_LEN=4096 for apples-to-apples
+#                                comparison.
 #
 # CAVEAT: This serves the BASE model only. vLLM 0.21's CUTLASS kernel does
 # NOT support LoRA (`CutlassExpertsFp4.supports_lora() = False`). For Super-FT
@@ -33,7 +33,7 @@
 # backend with the broken Triton fused_moe_lora kernel (requires upstream fix);
 # or (c) custom FastAPI server with our training-side NVFP4LoRALinear.
 #
-# See ../docs/PERFORMANCE_ROADMAP.md and DECISION_LOG D024-D025 for full context.
+# See ../docs/PERFORMANCE_ROADMAP.md and serve/diagnostics/README.md for full context.
 
 set -euo pipefail
 

@@ -2,13 +2,13 @@
 # Serve Nemotron-3-Super-120B-A12B-NVFP4 base inference on DGX Spark via vLLM.
 #
 # This is the WORKING recipe discovered after the diagnostic campaign documented
-# in DECISION_LOG D016-D020. Every flag below is load-bearing on this hardware
+# in serve/diagnostics/README.md. Every flag below is load-bearing on this hardware
 # (Spark GB10, sm_121, 128 GB UMA); changing them risks OOM or vLLM internal
 # errors. See LESSONS.md for the why-of-each-flag explanation.
 #
 # CAVEAT: This serves the BASE model only. LoRA serving is currently blocked
-# by a vLLM Triton MoE LoRA kernel bug (see DECISION_LOG D019). For Super-FT
-# LoRA serving, use the custom FastAPI server in serve/fastapi_super/.
+# by a vLLM Triton MoE LoRA kernel bug. For Super-FT LoRA serving, use the
+# merge-then-serve CUTLASS workflow documented in serve/README.md.
 #
 # Expected timing:
 #   - Weight load: ~8 min (74.80 GiB of NVFP4 weights from disk)

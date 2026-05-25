@@ -27,7 +27,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-VENV_PY=/path/to/venvs/serve/bin/python
+VENV_PY="${VENV_PY:-/path/to/venvs/serve/bin/python}"
 
 measure() {
   local tag="$1"

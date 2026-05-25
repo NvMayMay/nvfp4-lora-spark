@@ -12,7 +12,7 @@ sm_121 (Blackwell consumer / DGX Spark). Only `MARLIN`, `EMULATION`, and
 `VLLM_CUTLASS` accept this device in 0.21.
 
 **Fix**: pass `--moe-backend cutlass` (recommended for Super; gets
-~12-14 tok/s with native NVFP4 path). If you hit memory issues, use
+~11-14 tok/s with native NVFP4 path). If you hit memory issues, use
 `--enforce-eager` to skip the CUDA graph capture phase.
 
 ### `ValueError: NvFp4 MoE backend 'VLLM_CUTLASS' does not support the deployment configuration since kernel does not support LoRA`
@@ -39,8 +39,8 @@ backend, weights are still in raw NVFP4 packed form; the kernel
 dereferences off-end and crashes during dummy warmup.
 
 **Fix**: don't combine `--enable-lora` with `--moe-backend emulation`.
-The merge-then-serve workflow above avoids this entirely. Upstream issue
-draft: `Research/nvfp4_lora_spark/vllm_issue_draft_fused_moe_lora_emulation_bug.md`.
+The merge-then-serve workflow above avoids this entirely. The upstream bug is
+the Triton fused MoE LoRA kernel assuming a Marlin-format weight layout.
 
 ### `ValueError: No available memory for the cache blocks. Try increasing gpu_memory_utilization`
 
@@ -107,6 +107,80 @@ and training is effectively infeasible at any useful sequence length.
 **Fix**: rebuild with `MAX_JOBS=1 pip install --no-build-isolation causal-conv1d==1.6.2.post1`.
 The `MAX_JOBS=1` cap prevents nvcc from being OOM-killed during
 parallel compilation on the 128 GB unified pool.
+
+### `NVRM: ... Out of memory [NV_ERR_NO_MEMORY] ... _memdescAllocInternal` during model load
+
+**Signature**: dozens to hundreds of `NV_ERR_NO_MEMORY` lines in
+`/var/log/kern.log` while loading Super-120B (or any large NVFP4 model),
+typically in a burst that ends when the load completes. Often coalesced
+by the kernel into a `message repeated N times` line. As a concrete
+example, the v1.0 release's measurement runs logged a 174-event burst
+during the Super-120B training load and a 225-event burst across two
+Super merged-FT inference loads; both bursts self-resolved within the
+load window and the downstream training and inference completed cleanly.
+
+**Cause**: NVRM/GSP allocation bookkeeping or backing-resource pressure
+surfaced through the `_memdescAllocInternal` allocator path. The custom
+NVFP4 loader registers ~40K module-level CUDA buffers/Parameters for
+Super (packed weight, per-group scale, per-tensor scale, plus LoRA A/B
+matrices per NVFP4 module). Loading them in rapid succession stresses
+the underlying NVRM allocation paths; individual allocations fail and
+retry, eventually succeed. The burst is benign if it self-resolves; if
+it cascades on a long-running boot with accumulated NVRM/GSP state, it
+can wedge the GPU and force a hard reboot (see the next entry).
+
+**Mitigations**:
+
+1. The training scripts now set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+   automatically. PyTorch's expandable segments use larger contiguous
+   virtual-address ranges, which reduces allocator-side fragmentation;
+   it does not eliminate every NVRM backing allocation, but it is a
+   low-risk pre-mitigation worth keeping.
+2. Always run large training from a clean boot. Do not run vLLM serves,
+   model merges, or repeated benchmarks in the same boot before training.
+   Confirm no stale GPU workers with `pgrep -af 'python|vllm'`.
+3. Watch the kernel ring during load and the first few optimizer steps
+   with `journalctl -k -f -g 'NVRM|Xid'` or `tail -f /var/log/kern.log`.
+   If a burst appears during load and stops once load completes, the
+   burst was harmless. If a new NVRM burst or any `NVRM: Xid ...` event
+   appears AFTER training has begun, abort and reboot before retrying.
+4. The real fix is a loader-side allocation refactor (coalesce per-module
+   buffers into a few pooled CUDA tensors and register module buffers as
+   views). Queued for v1.1; see [PERFORMANCE_ROADMAP.md](PERFORMANCE_ROADMAP.md).
+
+### Hard reboot during training with no Python traceback
+
+**Signature**: training log stops cleanly after a normal step line; no
+Python traceback, no `CUDA out of memory`, and PyTorch memory was well
+below the 128 GB unified-memory ceiling. Kernel logs (`/var/log/kern.log`)
+show NVIDIA RM errors such as:
+
+- `NVRM: ... Out of memory [NV_ERR_NO_MEMORY] ... _memdescAllocInternal ... mem_desc.c:1359`
+- `NVRM: ... kgrctxAllocCtxBuffers ... kernel_graphics_object.c:215`
+- optional earlier `NVRM: Xid ... 31 ... MMU Fault`
+
+**Cause**: NVRM/GSP allocation bookkeeping or backing-resource exhaustion
+or fragmentation after a long boot with heavy prior GPU workloads (vLLM
+serves, large model loads, repeated benchmarks). The training process
+itself was not OOM; `torch.cuda.max_memory_allocated()` only tracks the
+PyTorch allocator, not driver-internal RM/GSP allocation paths (the
+`_memdescAllocInternal` path and the underlying sysmem / FB-memory
+backing resources).
+
+**Fix / prevention**:
+
+1. **Reboot before any long training run.** Do not run vLLM serving,
+   model merges, or exploratory benchmarks in the same boot before a
+   long training job.
+2. **Start training from a clean shell** (no stale Python or vLLM
+   workers) and avoid background GPU pollers.
+3. **Smoke test 5-10 optimizer steps first** while watching
+   `dmesg`/`/var/log/kern.log` for new `NV_ERR_NO_MEMORY`, `Xid`, or
+   PCIe AER bursts. Abort and reboot if any appear.
+4. **journald cannot be relied on** for crash recovery: on Spark, after
+   a hard reboot the previous boot's journal often loses the actual
+   crash window. `/var/log/kern.log` and `/var/log/syslog` (plain
+   logrotate files) preserve the real timeline; check those first.
 
 ## Merge script (`scripts/merge_lora_into_nvfp4.py`)
 

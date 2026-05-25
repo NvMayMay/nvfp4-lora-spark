@@ -1,36 +1,60 @@
 #!/usr/bin/env python3
-"""Day 1 correctness gate: our NVFP4 dequant vs torchao's reference.
+"""Day 1 correctness gate: local NVFP4 dequant vs torchao's reference.
 
-Loads one NVFP4 layer from Nemotron-3-Nano-30B-A3B-NVFP4 on disk, dequants via our
-hand-rolled function, and compares against torchao's `NVFP4Tensor`. If they agree to
-cosine sim > 0.9999 (per SYNTHESIS.md Day 1 gate), the dequant impl is correct and
+Loads one NVFP4 layer from Nemotron-3-Nano-30B-A3B-NVFP4 on disk, dequants via the
+local function, and compares against torchao's `NVFP4Tensor`. If they agree to
+0.9999 < cosine sim <= 1.0001, the dequant impl is correct and
 we can proceed to the LoRA wrapping.
 
 The packing-order ambiguity (low-nibble-first vs high-nibble-first) is resolved
-empirically: if cosine > 0.9999 with the default `_unpack_nibbles` ordering, we're
-good. If not, retry with the other order.
+empirically: if 0.9999 < cosine <= 1.0001 with the default `_unpack_nibbles`
+ordering, the packing matches. If not, retry with the other order.
 """
+from __future__ import annotations
+
 import sys
 import os
 
 # Make package importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import argparse
 import json
-import torch
-import torch.nn.functional as F
-import safetensors
-
-from nvfp4_lora.dequant import dequantize_nvfp4_weight
 
 
-MODEL_DIR = "/path/to/Models/Nemotron-3-Nano-30B-A3B-NVFP4"
 # Layer 0 mixer in_proj is NVFP4-quantized (not in the exclude list)
 LAYER_PREFIX = "backbone.layers.0.mixer.in_proj"
 
 
-def load_layer_tensors(prefix: str) -> dict[str, torch.Tensor]:
-    idx = json.load(open(f"{MODEL_DIR}/model.safetensors.index.json"))
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Compare local NVFP4 dequantization against torchao for one Nano layer.",
+    )
+    parser.add_argument(
+        "--model-dir",
+        default=os.environ.get("NVFP4_SMOKE_MODEL_DIR"),
+        help="Path to Nemotron-3-Nano-30B-A3B-NVFP4. Can also be set via NVFP4_SMOKE_MODEL_DIR.",
+    )
+    args = parser.parse_args()
+    if not args.model_dir:
+        parser.print_usage(sys.stderr)
+        print(
+            "error: provide --model-dir /path/to/Nemotron-3-Nano-30B-A3B-NVFP4 "
+            "or set NVFP4_SMOKE_MODEL_DIR",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if not os.path.exists(os.path.join(args.model_dir, "model.safetensors.index.json")):
+        print(
+            f"error: no model.safetensors.index.json under {args.model_dir}; check --model-dir",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return args
+
+
+def load_layer_tensors(model_dir: str, prefix: str) -> dict[str, torch.Tensor]:
+    idx = json.load(open(f"{model_dir}/model.safetensors.index.json"))
     wm = idx["weight_map"]
     needed = {
         "weight": f"{prefix}.weight",
@@ -40,13 +64,15 @@ def load_layer_tensors(prefix: str) -> dict[str, torch.Tensor]:
     tensors = {}
     for short, key in needed.items():
         shard = wm[key]
-        with safetensors.safe_open(f"{MODEL_DIR}/{shard}", framework="pt", device="cpu") as f:
+        with safetensors.safe_open(f"{model_dir}/{shard}", framework="pt", device="cpu") as f:
             tensors[short] = f.get_tensor(key)
     return tensors
 
 
 def cosine_sim(a: torch.Tensor, b: torch.Tensor) -> float:
-    return F.cosine_similarity(a.flatten().float(), b.flatten().float(), dim=0).item()
+    a64 = a.flatten().to(torch.float64)
+    b64 = b.flatten().to(torch.float64)
+    return (torch.dot(a64, b64) / (torch.linalg.vector_norm(a64) * torch.linalg.vector_norm(b64))).item()
 
 
 def rms_rel_err(a: torch.Tensor, b: torch.Tensor) -> float:
@@ -85,9 +111,16 @@ def torchao_reference(weight_u8, weight_scale_fp8, weight_scale_2) -> torch.Tens
 
 
 def main():
+    args = parse_args()
+    global torch, F, safetensors, dequantize_nvfp4_weight
+    import torch
+    import torch.nn.functional as F
+    import safetensors
+    from nvfp4_lora.dequant import dequantize_nvfp4_weight
+
     print(f"=== Day 1 dequant correctness gate ===")
     print(f"layer: {LAYER_PREFIX}")
-    t = load_layer_tensors(LAYER_PREFIX)
+    t = load_layer_tensors(args.model_dir, LAYER_PREFIX)
     print(f"  weight        : {tuple(t['weight'].shape)} {t['weight'].dtype}")
     print(f"  weight_scale  : {tuple(t['weight_scale'].shape)} {t['weight_scale'].dtype}")
     print(f"  weight_scale_2: shape={tuple(t['weight_scale_2'].shape)} {t['weight_scale_2'].dtype} value={float(t['weight_scale_2'])}")
@@ -105,14 +138,8 @@ def main():
     print("\n--- torchao reference ---")
     W_ref = torchao_reference(t["weight"], t["weight_scale"], t["weight_scale_2"])
     if W_ref is None:
-        print("  torchao reference unavailable - falling back to manual sanity")
-        # Sanity: confirm finite + non-trivial std
-        if torch.isfinite(W_ours).all() and W_ours.std().item() > 1e-6:
-            print("  PASS-SANITY (no torchao reference but ours is finite and non-zero)")
-            return 0
-        else:
-            print("  FAIL-SANITY (dequant produced non-finite or all-zero output)")
-            return 1
+        print("  FAIL: torchao reference is required for dequant_correctness.py")
+        return 1
     print(f"  W_ref shape={tuple(W_ref.shape)} dtype={W_ref.dtype}")
     print(f"  W_ref stats: min={W_ref.min().item():.4f} max={W_ref.max().item():.4f} mean={W_ref.mean().item():.4f}")
 
@@ -126,11 +153,16 @@ def main():
     print(f"  max_abs: {max_abs:.4e}")
 
     threshold = 0.9999
-    if cos > threshold:
-        print(f"\nPASS (cosine > {threshold})")
+    upper_slack = 1.0001
+    if threshold < cos <= upper_slack:
+        print(f"\nPASS ({threshold} < cosine <= {upper_slack})")
         return 0
     else:
-        print(f"\nFAIL (cosine < {threshold}) - likely packing order is wrong; try swapping low/high in _unpack_nibbles")
+        print(
+            f"\nFAIL (expected {threshold} < cosine <= {upper_slack}) - "
+            "likely packing order is wrong or numeric comparison is unstable; "
+            "try swapping low/high in _unpack_nibbles"
+        )
         return 2
 
 

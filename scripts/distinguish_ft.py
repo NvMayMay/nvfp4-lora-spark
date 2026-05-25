@@ -1,43 +1,34 @@
 """
-P1.5.3 + P1.5.4 distinguishing-prompt test for a merged FT model.
+Distinguishing-prompt test for a merged FT model.
 
-Sends a fixed list of prompts to TWO vLLM servers (base and merged-FT)
-and compares outputs. Reports:
+Sends a fixed list of prompts to a vLLM server (base or merged-FT), saves
+the completions to JSONL, then compares two JSONL files to report:
 
-- Whether merged-FT outputs differ visibly from base on the same prompts
-  (distinguishing test, qualitative).
-- Token-level overlap rate between base and merged-FT at temperature=0
-  (quantitative: 1.0 means identical outputs, lower means FT signal is
-  visible).
-- Per-prompt completion text dumped to a JSONL file.
+- Number of prompts whose completions differ between base and FT (qualitative
+  distinguishing signal at temperature=0).
+- Per-prompt diff for visual inspection.
 
-Usage:
-  # Start base CUTLASS server (port 8000)
-  ./serve/run_super_base_inference_cutlass.sh &
-  # Wait, then start merged-FT server on port 8001
-  PORT=8001 SERVED_NAME=ft ./serve/run_super_ft_merged.sh &
-  # Wait, then:
-  python scripts/distinguish_ft.py \\
-      --base-url http://localhost:8000 \\
-      --base-model nemotron-3-super-a12b-nvfp4 \\
-      --ft-url http://localhost:8001 \\
-      --ft-model ft \\
-      --output-jsonl distinguish_results.jsonl
+The bundled prompt list mixes 29 ICH/regulatory domain prompts with 71
+synthetic "Filler prompt N for statistical sample:" scaffolding entries.
 
-(In practice we run one server at a time on Spark since two won't fit
-in memory; restart between base and FT, save outputs, then compare.)
+Run one vLLM server at a time on a Spark-class box; collect base first,
+restart with the merged model, collect FT, then compare. CLI:
 
-For a single-server flow:
-  python scripts/distinguish_ft.py --single-server \\
-      --base-url http://localhost:8000 \\
-      --base-model <model_name> \\
-      --output-jsonl base_outputs.jsonl
-  # restart server with merged model, then
-  python scripts/distinguish_ft.py --single-server \\
-      --base-url http://localhost:8000 \\
-      --base-model <model_name> \\
-      --output-jsonl ft_outputs.jsonl
-  python scripts/distinguish_ft.py --compare base_outputs.jsonl ft_outputs.jsonl
+  # 1. With the base server running on port 8000:
+  python scripts/distinguish_ft.py collect \\
+      --url http://localhost:8000 \\
+      --model nemotron-3-super-a12b-nvfp4 \\
+      --output-jsonl /tmp/base_outputs.jsonl
+
+  # 2. Restart with the merged-FT model on port 8000:
+  python scripts/distinguish_ft.py collect \\
+      --url http://localhost:8000 \\
+      --model nemotron-3-super-a12b-nvfp4+ich_v1_0 \\
+      --output-jsonl /tmp/ft_outputs.jsonl
+
+  # 3. Compare:
+  python scripts/distinguish_ft.py compare \\
+      /tmp/base_outputs.jsonl /tmp/ft_outputs.jsonl
 """
 
 from __future__ import annotations
@@ -118,20 +109,30 @@ def call_completion(url, model, prompt, max_tokens=64, temperature=0.0, timeout=
 
 def collect(url, model, output_jsonl, max_tokens):
     print(f"[collect] {url} model={model} -> {output_jsonl}")
-    out = open(output_jsonl, "w")
-    for i, prompt in enumerate(PROMPTS):
-        try:
-            res = call_completion(url, model, prompt, max_tokens=max_tokens)
-        except Exception as e:
-            res = {"prompt": prompt, "error": repr(e)}
-        out.write(json.dumps(res) + "\n")
-        out.flush()
-        if "completion" in res:
-            preview = res["completion"][:60].replace("\n", " ")
-            print(f"  [{i+1:3d}/{len(PROMPTS)}] {res.get('latency_s', 0):.1f}s {preview!r}")
-        else:
-            print(f"  [{i+1:3d}/{len(PROMPTS)}] ERROR: {res['error']}")
-    out.close()
+    n_failed = 0
+    with open(output_jsonl, "w") as out:
+        for i, prompt in enumerate(PROMPTS):
+            try:
+                res = call_completion(url, model, prompt, max_tokens=max_tokens)
+            except Exception as e:
+                res = {"prompt": prompt, "error": repr(e)}
+            if "error" in res:
+                n_failed += 1
+            out.write(json.dumps(res) + "\n")
+            out.flush()
+            if "completion" in res:
+                preview = res["completion"][:60].replace("\n", " ")
+                print(f"  [{i+1:3d}/{len(PROMPTS)}] {res.get('latency_s', 0):.1f}s {preview!r}")
+            else:
+                print(f"  [{i+1:3d}/{len(PROMPTS)}] ERROR: {res['error']}")
+
+    n_total = len(PROMPTS)
+    if n_failed == n_total:
+        print(f"ERROR: all {n_total} requests failed; check that server at {url} is reachable")
+        return 3
+    if n_failed > 0:
+        print(f"WARNING: {n_failed}/{n_total} requests failed; output JSONL has partial data")
+    return 0
 
 
 def compare(base_jsonl, ft_jsonl):
@@ -189,7 +190,7 @@ def main():
 
     args = ap.parse_args()
     if args.cmd == "collect":
-        collect(args.url, args.model, args.output_jsonl, args.max_tokens)
+        sys.exit(collect(args.url, args.model, args.output_jsonl, args.max_tokens))
     elif args.cmd == "compare":
         compare(args.base_jsonl, args.ft_jsonl)
 

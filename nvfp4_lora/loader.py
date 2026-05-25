@@ -1,6 +1,5 @@
 """Loader: walk a Nemotron-3 NVFP4 checkpoint and replace target Linears with NVFP4LoRALinear.
 
-Approach (per SYNTHESIS.md Day 2):
 1. Use `accelerate.init_empty_weights()` to construct the model architecture without
    allocating any weight memory.
 2. Walk the model and replace each NVFP4-quantized Linear with our `NVFP4LoRALinear`:
@@ -388,6 +387,12 @@ def load_nemotron_with_nvfp4_lora(
     if counts.get("lora_demoted_fp8", 0):
         msg += f" ({counts['lora_demoted_fp8']} LoRA targets demoted to frozen on FP8 path)"
     print(msg)
+    if r > 0 and counts["lora"] == 0:
+        raise SystemExit(
+            "No NVFP4 LoRA target modules were installed. "
+            f"Tried suffixes: {list(target_lora_suffixes)}. "
+            "Check target_lora_suffixes for typos or unsupported target modules."
+        )
 
     print("=== loader: loading non-NVFP4 weights (norms, embeddings, Mamba, conv1d, lm_head) ===")
     n = load_non_nvfp4_weights(model, model_dir, device=device, dtype=dtype)

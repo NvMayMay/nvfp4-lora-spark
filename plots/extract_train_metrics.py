@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pull per-step metrics from each Day-5* training log into a single JSON for plotting.
+"""Pull per-step metrics from shipped training logs into a single JSON for plotting.
 
 Why parse the log instead of reading training_progress.json? The on-disk JSON only carries
 the loss tail (last 500); we need the full series (with cuda_alloc and elapsed wall time)
@@ -7,39 +7,42 @@ across all steps. The training script prints every 10 steps with a regex-friendl
 so we recover the full picture from the log.
 
 Outputs: train_metrics.json next to this script. Re-run any time the underlying logs grow.
+
+Use `--root /path/to/research` for the directory containing the training log files
+and `--adapters /path/to/adapters` for the directory containing adapter outputs.
 """
+import argparse
 import json, os, re, sys
 from pathlib import Path
 
-ROOT = Path("/path/to/research")
-ADAPTERS = Path("/path/to/work/Sandbox/adapters")
 
-RUNS = {
-    "super_nvfp4": {
-        "model": "Nemotron-3-Super-120B-A12B-NVFP4",
-        "base_dtype": "nvfp4",
-        "log": ROOT / "day5_super_train.log",
-        "adapter": ADAPTERS / "nemotron_3_super_nvfp4_lora_ichv31_1epoch",
-        "label": "Super-120B (NVFP4)",
-        "color": "#1f77b4",
-    },
-    "nano_nvfp4": {
-        "model": "Nemotron-3-Nano-30B-A3B-NVFP4",
-        "base_dtype": "nvfp4",
-        "log": ROOT / "day5b_nano_train.log",
-        "adapter": ADAPTERS / "nemotron_3_nano_nvfp4_lora_ichv31_1epoch",
-        "label": "Nano-30B (NVFP4)",
-        "color": "#2ca02c",
-    },
-    "nano_bf16": {
-        "model": "Nemotron-3-Nano-30B-A3B-BF16",
-        "base_dtype": "bf16",
-        "log": ROOT / "day5c_nano_bf16_train.log",
-        "adapter": ADAPTERS / "nemotron_3_nano_bf16_lora_ichv31_1epoch",
-        "label": "Nano-30B (BF16)",
-        "color": "#d62728",
-    },
-}
+def build_runs(root: Path, adapters: Path) -> dict:
+    return {
+        "super_nvfp4": {
+            "model": "Nemotron-3-Super-120B-A12B-NVFP4",
+            "base_dtype": "nvfp4",
+            "log": root / "train_super_nvfp4.log",
+            "adapter": adapters / "nemotron_3_super_nvfp4_lora_ichv31_1epoch",
+            "label": "Super-120B (NVFP4)",
+            "color": "#1f77b4",
+        },
+        "nano_nvfp4": {
+            "model": "Nemotron-3-Nano-30B-A3B-NVFP4",
+            "base_dtype": "nvfp4",
+            "log": root / "train_nano_nvfp4.log",
+            "adapter": adapters / "nemotron_3_nano_nvfp4_lora_ichv31_1epoch",
+            "label": "Nano-30B (NVFP4)",
+            "color": "#2ca02c",
+        },
+        "nano_bf16": {
+            "model": "Nemotron-3-Nano-30B-A3B-BF16",
+            "base_dtype": "bf16",
+            "log": root / "train_nano_bf16.log",
+            "adapter": adapters / "nemotron_3_nano_bf16_lora_ichv31_1epoch",
+            "label": "Nano-30B (BF16)",
+            "color": "#d62728",
+        },
+    }
 
 STEP_RE = re.compile(
     r"step\s+(\d+)/(\d+):\s+loss=([\d.]+)\s+avg20=([\d.]+)\s+elapsed=([\d.]+)m\s+eta=([\d.]+)h\s+cuda_alloc=([\d.]+)GB"
@@ -103,8 +106,17 @@ def parse_log(path: Path) -> dict:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, default=None,
+                        help="directory containing train_super_nvfp4.log, train_nano_nvfp4.log, and train_nano_bf16.log")
+    parser.add_argument("--adapters", type=Path, default=None,
+                        help="directory containing adapter output subdirectories")
+    args = parser.parse_args()
+    if args.root is None or args.adapters is None:
+        parser.error("--root and --adapters are required")
+
     out = {}
-    for key, meta in RUNS.items():
+    for key, meta in build_runs(args.root, args.adapters).items():
         parsed = parse_log(meta["log"])
         out[key] = {**{k: v for k, v in meta.items() if k != "log" and k != "adapter"}, **parsed}
         out[key]["log"] = str(meta["log"])

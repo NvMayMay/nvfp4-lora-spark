@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Day 5c: bf16 Nano-30B LoRA training on ICH v3.1 - quant ablation baseline for Day 5b.
 
-Mirror of `day5b_nano_full_train.py` but loads the bf16 base (no NVFP4 quantization) and
+Mirror of `train_nano_nvfp4.py` but loads the bf16 base (no NVFP4 quantization) and
 uses stock PEFT LoRA instead of `NVFP4LoRALinear`. Identical hyperparams + data + chat
 template + max_len so the only delta between Day 5b and Day 5c is the weight precision
 on the frozen base.
@@ -18,7 +18,11 @@ Memory budget on Spark (Nano-30B bf16):
   comfortable headroom for max_len=1536, batch_size=1, grad_accum=4.
 """
 import sys, os, json, time
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Larger contiguous VA ranges reduce NVRM descriptor pool churn during model
+# load on GB10 unified memory. Must be set before torch.cuda is initialized.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer

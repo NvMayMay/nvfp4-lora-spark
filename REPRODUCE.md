@@ -19,21 +19,35 @@ export the variable.
 - **CUDA driver/runtime**: CUDA 13.0
 - **OS**: Linux 6.17 aarch64 (Ubuntu kernel)
 
+## Smoke tests (first-run correctness gates)
+
+Run these against the Nano model before the full training/merge pipeline.
+
+```bash
+# CPU-only dequant round-trip; needs torchao
+python smoke_tests/dequant_correctness.py --model-dir models/Nemotron-3-Nano-30B-A3B-NVFP4
+
+# Forward-parity smoke; needs torch
+python smoke_tests/linear_smoke.py --model-dir models/Nemotron-3-Nano-30B-A3B-NVFP4
+
+# Loader smoke (loads a real Nano-sized model; needs ~25 GB free GPU)
+python smoke_tests/loader_smoke.py --model-dir models/Nemotron-3-Nano-30B-A3B-NVFP4
+```
+
 ## Software stack (versions verified 2026-05-24)
 
-| Component | Version |
-|-----------|---------|
-| Python | 3.12.3 |
-| PyTorch | 2.11.0+cu130 |
-| vLLM | 0.21.0 |
-| transformers | 5.8.1 |
-| peft | 0.19.1 |
-| safetensors | 0.7.0 |
-| nvidia-modelopt | 0.44.0 |
-| flashinfer-python | 0.6.8.post1 |
-| accelerate | 1.13.0 |
-| huggingface-hub | 1.14.0 |
-| causal-conv1d | 1.6.2.post1 (built from source, see below) |
+| Environment | Python | PyTorch | Key packages |
+|-------------|--------|---------|--------------|
+| Training venv | 3.12.3 | 2.12.0 | transformers 5.8.1, peft 0.19.1, safetensors 0.7.0, nvidia-modelopt 0.44.0, accelerate 1.13.0, huggingface-hub 1.14.0, causal-conv1d 1.6.2.post1 |
+| Serving venv | 3.12.3 | 2.11.0+cu130 | vLLM 0.21.0, flashinfer-python 0.6.8.post1 |
+
+Serving env install:
+
+```bash
+python -m venv .venv-serve
+source .venv-serve/bin/activate
+pip install vllm==0.21.0 flashinfer-python==0.6.8.post1 'torch==2.11.*'
+```
 
 ## Build `causal-conv1d` from source (required for training)
 
@@ -52,8 +66,8 @@ during parallel compilation on the 128 GB unified pool.
 
 | Artifact | Source | Hash |
 |----------|--------|------|
-| Base: `Nemotron-3-Super-120B-A12B-NVFP4` | [HuggingFace](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4) | (HF revision pinned in scripts) |
-| Trained Super-FT adapter (example) | Bundled at `adapters/super_ich_v1_0/` | `sha256: 3d2ada8a624c797f764268d5da4dfb9621fc681e863c475c97ca4856112418b3` |
+| Base: `Nemotron-3-Super-120B-A12B-NVFP4` | [HuggingFace](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4) | (HF main at time of v1.0 release) |
+| Trained Super-FT adapter (example) | Trained yourself via `train/train_super_nvfp4.py` - not shipped | |
 | Merged Super-FT NVFP4 (example) | Produced by `scripts/merge_lora_into_nvfp4.py` | (hash recorded in `merge_manifest.json` after merge) |
 
 The training data for the Super-FT example adapter is private clinical/
@@ -62,10 +76,28 @@ on your own domain corpus following the recipe in `train/train_super_nvfp4.py`.
 
 ## Reproducing the headline numbers
 
+### Operational note: clean-boot before large training
+
+The NVRM driver on GB10 has a finite memory-descriptor pool in its GSP
+firmware heap. Long-running boots that mix vLLM serves, model merges,
+and repeated benchmarks accumulate descriptor-pool pressure. Loading a
+large NVFP4 model (Super-120B in particular) under that accumulated
+pressure can wedge the GPU and force a hard reboot.
+
+Recommended pre-training procedure:
+
+1. Reboot the host.
+2. Confirm no stale Python or vLLM workers (`pgrep -af python`).
+3. Run the training script directly (no co-tenant GPU jobs).
+4. Watch `/var/log/kern.log` for `NVRM ... NV_ERR_NO_MEMORY` during the
+   model-load phase. A short burst is benign; a sustained cascade is the
+   signal to abort and reboot. See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+   for the exact signature and mitigation.
+
 ### Train
 
 ```bash
-hf download nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4 \
+huggingface-cli download nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4 \
     --local-dir models/Nemotron-3-Super-120B-A12B-NVFP4
 python train/train_super_nvfp4.py    # edit paths at top of file
 ```
@@ -76,14 +108,16 @@ AdamW lr=1e-4, gradient checkpointing on. Final train loss 0.81.
 
 ### Merge LoRA into NVFP4 base
 
+Point `--lora-adapter-dir` at your own trained adapter directory.
+
 ```bash
 python scripts/merge_lora_into_nvfp4.py \
     --base-model-dir models/Nemotron-3-Super-120B-A12B-NVFP4 \
-    --lora-adapter-dir adapters/super_ich_v1_0 \
+    --lora-adapter-dir <your-adapter-dir> \
     --output-dir models/Nemotron-3-Super-120B-A12B-NVFP4-ich-v1.0
 ```
 
-Measured wall: ~25 min on Spark for all 17 shards (~90 s/shard).
+Measured wall: ~18 min on Spark for all 17 shards (~63 s/shard mean per the shipped merge_manifest.json).
 Writes per-shard manifest (with source/output sha256 + per-tensor stats)
 and `merge_stats.jsonl` for downstream validation.
 
@@ -92,20 +126,23 @@ and `merge_stats.jsonl` for downstream validation.
 ```bash
 python scripts/validate_merge.py \
     --base-model-dir models/Nemotron-3-Super-120B-A12B-NVFP4 \
-    --merged-model-dir models/Nemotron-3-Super-120B-A12B-NVFP4-ich-v1.0
+    --merged-model-dir models/Nemotron-3-Super-120B-A12B-NVFP4-ich-v1.0 \
+    --lora-adapter-dir <your-adapter-dir>
 ```
 
 Reports: tokenizer/config integrity (must be byte-identical to base),
 coverage (merged tensor count vs adapter target count), per-tensor
-delta-to-quant-step audit, merge cosine similarity, no-op fraction.
+delta-to-quant-step audit, merge cosine similarity, no-op fraction, and
+adapter consistency for `alpha_over_r` plus translated LoRA target count.
 
 ### Serve Super base (no FT) via CUTLASS
 
 ```bash
-./serve/run_super_base_inference_cutlass.sh
+MODEL_DIR=models/Nemotron-3-Super-120B-A12B-NVFP4 \
+    ./serve/run_super_base_inference_cutlass.sh
 ```
 
-Measured throughput: ~12-14 tok/s, flat across prompt lengths
+Measured throughput: ~11-14 tok/s, flat across prompt lengths
 12-456 tokens, output lengths 32-256 tokens. See
 `serve/diagnostics/bench_cutlass_eager_super_base_*.jsonl`.
 
@@ -116,7 +153,7 @@ MODEL_DIR=models/Nemotron-3-Super-120B-A12B-NVFP4-ich-v1.0 \
     ./serve/run_super_ft_merged.sh
 ```
 
-Same throughput as base CUTLASS (~12-14 tok/s). The FT behavior is
+Same throughput as base CUTLASS (~11-14 tok/s). The FT behavior is
 baked into the served weights.
 
 ### Distinguishing test (FT vs base)
@@ -147,10 +184,9 @@ base models are under the [NVIDIA Nemotron Open Model License](https://www.nvidi
 which is more restrictive than standard OSS licenses.
 
 **What we publish**:
-- The training pipeline, scripts, LoRA adapter, merge script, and serve
-  recipes are all Apache 2.0 (our own code/data).
-- The example LoRA adapter at `adapters/super_ich_v1_0/` is Apache 2.0
-  (our trained weights, derived from the base).
+- The training pipeline, scripts, merge script, and serve recipes are
+  Apache 2.0 (our own code/data).
+- The example LoRA adapter is not shipped in this repository.
 
 **What we do NOT publish**:
 - The merged Super-FT NVFP4 checkpoint produced by `merge_lora_into_nvfp4.py`.

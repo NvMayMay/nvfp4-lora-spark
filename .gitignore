@@ -26,9 +26,4 @@ adapters/
 
 # training byproducts
 *.log
-plots/train_metrics.json
 plots/eval_results.json
-
-# rendered plots are tracked, but stub renders are temporary
-# uncomment if you want plots regenerated from logs only:
-# plots/*.png

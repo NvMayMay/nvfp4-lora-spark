@@ -1,5 +1,5 @@
 """
-Merge a PEFT LoRA adapter into an NVFP4 base model and re-emit as a new
+Merge a PEFT LoRA adapter into a Nano or Super NVFP4 base model and re-emit as a new
 NVFP4 safetensors directory that vLLM can serve directly.
 
 Designed for Nemotron-3 NVFP4 models (Nano, Super) on DGX Spark, but
@@ -31,7 +31,7 @@ Usage
         --base-model-dir /path/to/Nemotron-3-Super-120B-A12B-NVFP4 \\
         --lora-adapter-dir /path/to/adapter \\
         --output-dir /path/to/Nemotron-3-Super-120B-A12B-NVFP4-merged \\
-        [--shards 0,1,2 | --shards all] \\
+        [--shards 1,2,3 | --shards all] \\
         [--resume]
 """
 
@@ -48,30 +48,53 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-import torch
-from safetensors import safe_open
-from safetensors.torch import save_file
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-ADAPTER_PREFIX = "base_model.model.model."
+ADAPTER_PREFIX = "base_model.model."
 BASE_PREFIX = "backbone."
+torch = None
+safe_open = None
+save_file = None
+
+
+def ensure_runtime_imports():
+    global torch, safe_open, save_file
+    if torch is None:
+        import torch as torch_mod
+        from safetensors import safe_open as safe_open_mod
+        from safetensors.torch import save_file as save_file_mod
+
+        torch = torch_mod
+        safe_open = safe_open_mod
+        save_file = save_file_mod
 
 
 def adapter_key_to_base_key(akey: str) -> str:
     """Convert an adapter tensor key to the corresponding base weight key.
 
-    Example:
-      base_model.model.model.layers.1.mixer.experts.0.up_proj.lora_A.weight
+    Examples:
+      base_model.model.backbone.layers.1.mixer.experts.0.up_proj.lora_A.weight
+      base_model.model.model.backbone.layers.1.mixer.experts.0.up_proj.lora_A.weight
       -> backbone.layers.1.mixer.experts.0.up_proj.weight
     """
     if not akey.startswith(ADAPTER_PREFIX):
-        return None
+        raise ValueError(
+            f"adapter key {akey!r} does not start with {ADAPTER_PREFIX!r}; "
+            "expected keys produced by the v1.0 Nano/Super training scripts"
+        )
     tail = akey[len(ADAPTER_PREFIX):]
-    return BASE_PREFIX + re.sub(r"\.lora_[AB]\.weight$", ".weight", tail)
+    if tail.startswith("model."):
+        tail = tail[len("model."):]
+    m = re.search(r"\.lora_[AB]\.weight$", tail)
+    if m is None:
+        raise ValueError(f"adapter key {akey!r} does not look like a PEFT LoRA tensor")
+    base_key = tail[:m.start()] + ".weight"
+    if not base_key.startswith(BASE_PREFIX):
+        base_key = BASE_PREFIX + base_key
+    return base_key
 
 
 def file_sha256(path: Path, block_size: int = 1024 * 1024) -> str:
@@ -83,6 +106,40 @@ def file_sha256(path: Path, block_size: int = 1024 * 1024) -> str:
                 break
             h.update(buf)
     return h.hexdigest()
+
+
+def parse_shard_selection(shards_arg: str, n_shards: int) -> list[int]:
+    """Parse comma-separated 1-based shard indices into 0-based indices."""
+    shards_arg = shards_arg.strip()
+    valid_range = f"1-{n_shards}"
+    if shards_arg.lower() == "all":
+        return list(range(n_shards))
+
+    selected = []
+    seen = set()
+    for raw_token in shards_arg.split(","):
+        token = raw_token.strip()
+        if not token:
+            raise SystemExit(
+                f"--shards must contain comma-separated shard numbers in valid range "
+                f"{valid_range}; offending input: {shards_arg!r}"
+            )
+        if re.fullmatch(r"[1-9]\d*", token) is None:
+            raise SystemExit(
+                f"--shards entries must be integers in valid range {valid_range}; "
+                f"offending input: {shards_arg!r}"
+            )
+        shard_num = int(token)
+        if shard_num < 1 or shard_num > n_shards:
+            raise SystemExit(
+                f"--shards entries must be in valid range {valid_range}; "
+                f"offending input: {shards_arg!r}"
+            )
+        shard_idx = shard_num - 1
+        if shard_idx not in seen:
+            selected.append(shard_idx)
+            seen.add(shard_idx)
+    return selected
 
 
 def load_adapter(adapter_dir: Path):
@@ -104,16 +161,16 @@ def load_adapter(adapter_dir: Path):
 
     for af in adapter_files:
         with safe_open(af, framework="pt") as sf:
+            translated_keys = []
             for akey in sf.keys():
                 base_key = adapter_key_to_base_key(akey)
-                if base_key is None:
-                    print(f"WARN: adapter key has unexpected prefix, skipping: {akey}")
-                    continue
+                translated_keys.append(base_key)
                 side = re.search(r"\.lora_([AB])\.weight$", akey)
                 if not side:
                     continue
                 tensor = sf.get_tensor(akey)
                 lora_map[base_key][side.group(1)] = tensor
+            assert all(k.startswith(BASE_PREFIX) for k in translated_keys)
 
     # Validate: every base_key has both A and B
     missing = [k for k, ab in lora_map.items() if "A" not in ab or "B" not in ab]
@@ -296,7 +353,9 @@ def process_shard(
                 n_passthrough += 1
 
     # Write output shard with metadata
-    save_file(out_tensors, str(output_shard_path), metadata={"format": "pt"})
+    output_metadata = dict(metadata_passthrough)
+    output_metadata.setdefault("format", "pt")
+    save_file(out_tensors, str(output_shard_path), metadata=output_metadata)
     elapsed = time.time() - shard_start
 
     return {
@@ -338,6 +397,7 @@ def main():
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
 
+    ensure_runtime_imports()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device)
 
@@ -379,10 +439,7 @@ def main():
     print(f"[merge] LoRA coverage OK: 100% of {len(targeted_keys)} targets matched in base")
 
     # Shard selection
-    if args.shards == "all":
-        selected = list(range(len(shard_files)))
-    else:
-        selected = [int(x) - 1 for x in args.shards.split(",")]
+    selected = parse_shard_selection(args.shards, len(shard_files))
 
     # Resume support: read existing manifest if present
     manifest_path = args.output_dir / "merge_manifest.json"
@@ -404,7 +461,8 @@ def main():
         done_shards = set()
 
     stats_log_path = args.output_dir / manifest["stats_log_path"]
-    stats_log_f = open(stats_log_path, "a")
+    stats_log_mode = "a" if args.resume and manifest_path.exists() else "w"
+    stats_log_f = open(stats_log_path, stats_log_mode)
     metadata_passthrough = {}
 
     # Process selected shards

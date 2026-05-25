@@ -7,8 +7,8 @@ latency and tokens/sec. Writes results to a JSONL file and prints a summary.
 Usage:
   python bench_vllm.py [--model nemotron-3-super-a12b-nvfp4]
                         [--output-tag base|lora]
-                        [--lora-served-name SOMETHING]
-                        [--cells PROMPT_LEN,OUTPUT_LEN,...]
+
+                        [--cells "32,32;128,64;..."]
 """
 
 import argparse
@@ -86,7 +86,7 @@ def main():
     ap.add_argument(
         "--cells",
         default=None,
-        help="comma-separated prompt_len,output_len pairs e.g. 32,32;128,64",
+        help="semicolon-separated prompt_len,output_len pairs, e.g. 32,32;128,64",
     )
     args = ap.parse_args()
 

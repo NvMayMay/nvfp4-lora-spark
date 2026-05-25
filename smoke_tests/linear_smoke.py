@@ -10,40 +10,71 @@ Verifies:
 5. LoRA params receive gradients; base buffers do not.
 6. With LoRA r=0 (frozen-only), backward still works and lora params don't exist.
 """
+from __future__ import annotations
+
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import argparse
 import json
-import torch
-import torch.nn.functional as F
-import safetensors
-
-from nvfp4_lora.dequant import dequantize_nvfp4_weight
-from nvfp4_lora.linear import NVFP4LoRALinear
 
 
-MODEL_DIR = "/path/to/Models/Nemotron-3-Nano-30B-A3B-NVFP4"
 LAYER_PREFIX = "backbone.layers.0.mixer.in_proj"
 
 
-def load_tensors(prefix: str) -> dict[str, torch.Tensor]:
-    idx = json.load(open(f"{MODEL_DIR}/model.safetensors.index.json"))
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run NVFP4LoRALinear forward and backward smoke checks on one Nano layer.",
+    )
+    parser.add_argument(
+        "--model-dir",
+        default=os.environ.get("NVFP4_SMOKE_MODEL_DIR"),
+        help="Path to Nemotron-3-Nano-30B-A3B-NVFP4. Can also be set via NVFP4_SMOKE_MODEL_DIR.",
+    )
+    args = parser.parse_args()
+    if not args.model_dir:
+        parser.print_usage(sys.stderr)
+        print(
+            "error: provide --model-dir /path/to/Nemotron-3-Nano-30B-A3B-NVFP4 "
+            "or set NVFP4_SMOKE_MODEL_DIR",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if not os.path.exists(os.path.join(args.model_dir, "model.safetensors.index.json")):
+        print(
+            f"error: no model.safetensors.index.json under {args.model_dir}; check --model-dir",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return args
+
+
+def load_tensors(model_dir: str, prefix: str) -> dict[str, torch.Tensor]:
+    idx = json.load(open(f"{model_dir}/model.safetensors.index.json"))
     wm = idx["weight_map"]
     record = {}
     for suffix in ("weight", "weight_scale", "weight_scale_2"):
         key = f"{prefix}.{suffix}"
         shard = wm[key]
-        with safetensors.safe_open(f"{MODEL_DIR}/{shard}", framework="pt", device="cpu") as f:
+        with safetensors.safe_open(f"{model_dir}/{shard}", framework="pt", device="cpu") as f:
             record[key] = f.get_tensor(key)
     return record
 
 
 def main():
+    args = parse_args()
+    global torch, F, safetensors, dequantize_nvfp4_weight, NVFP4LoRALinear
+    import torch
+    import torch.nn.functional as F
+    import safetensors
+    from nvfp4_lora.dequant import dequantize_nvfp4_weight
+    from nvfp4_lora.linear import NVFP4LoRALinear
+
     print("=== Day 1 NVFP4LoRALinear smoke ===")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}")
 
-    record = load_tensors(LAYER_PREFIX)
+    record = load_tensors(args.model_dir, LAYER_PREFIX)
     weight_u8 = record[f"{LAYER_PREFIX}.weight"]
     out_feat = weight_u8.shape[0]      # 10304
     in_feat = weight_u8.shape[1] * 2   # 2688

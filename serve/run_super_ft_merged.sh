@@ -3,14 +3,18 @@
 #
 # This is the recommended path for Super-FT serving (training-side LoRA
 # adapter merged into the NVFP4 base, then re-emitted as a new NVFP4
-# checkpoint, then served via VLLM_CUTLASS at full ~12-14 tok/s).
+# checkpoint, then served via VLLM_CUTLASS at full ~11-14 tok/s).
 #
 # Use:
 #   1. Train a LoRA adapter via the recipes in train/
 #   2. Merge it into the base: scripts/merge_lora_into_nvfp4.py
 #   3. Point MODEL_DIR at the merged output, run this script.
 #
-# Throughput: same as base CUTLASS, ~12-14 tok/s on Spark.
+# Throughput: same as base CUTLASS, ~11-14 tok/s on Spark.
+#
+# To reproduce the concurrency numbers, raise MAX_NUM_SEQS. MAX_MODEL_LEN=2048
+# is the conservative default; the README prompt=2048 + output=2048 cells
+# require MAX_MODEL_LEN=4096 for apples-to-apples comparison.
 #
 # Trade-off vs dynamic LoRA: this approach BAKES the FT behavior into the
 # served checkpoint. If you need multiple adapters at runtime, either
@@ -33,9 +37,9 @@ vllm serve "$MODEL_DIR" \
     --host "$HOST" --port "$PORT" \
     --tensor-parallel-size 1 \
     --dtype bfloat16 \
-    --max-model-len 2048 \
-    --max-num-batched-tokens 128 \
-    --max-num-seqs 1 \
+    --max-model-len "${MAX_MODEL_LEN:-2048}" \
+    --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS:-128}" \
+    --max-num-seqs "${MAX_NUM_SEQS:-1}" \
     --gpu-memory-utilization 0.70 \
     --enforce-eager \
     --moe-backend cutlass

@@ -3,12 +3,20 @@
 identical completions:  21/100
 differing completions: 79/100 (79.0%)
 
-=== first 15 differing prompts ===
+Caveat: of the 100 prompts, 29 are domain prompts (ICH/regulatory) and 71 are
+synthetic "Filler prompt N for statistical sample:" scaffolding used to inflate
+the statistical-sample size. Of the 79 differing completions, much of the drift
+is on filler prompts (LoRA distribution shift) rather than on domain answers.
+For qualitative FT signal, inspect the 29 domain prompts directly via:
 
---- prompt: 'A doctor prescribes 250 mg of aspirin every 8 hours. The total daily dose is'
+  python scripts/distinguish_ft.py compare \
+      results/distinguishing_v1/super_base_outputs.jsonl \
+      results/distinguishing_v1/super_ich_v1_0_outputs.jsonl
+
+That will print the diff for every prompt with differing completions.
 
 Generated: 2026-05-24
 Base model:   nemotron-3-super-a12b-nvfp4 (CUTLASS, enforce-eager)
-FT model:     nemotron-3-super-a12b-nvfp4-ich-v1.0 (merged, CUTLASS, enforce-eager)
+FT model:     nemotron-3-super-a12b-nvfp4+ich_v1_0 (merged, CUTLASS, enforce-eager)
 Prompts:      100 (mix of ICH/regulatory + generic, see scripts/distinguish_ft.py PROMPTS)
 Decoding:     temperature=0, max_tokens=64

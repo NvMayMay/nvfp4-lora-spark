@@ -1,7 +1,7 @@
 """
 P1.5 validation suite for a merged NVFP4 model.
 
-Runs the codex-required validation checks on a merged checkpoint produced
+Runs the standard validation checks on a merged checkpoint produced
 by `scripts/merge_lora_into_nvfp4.py`:
 
   P1.5.1: Layerwise delta-to-quant-step audit (was done inline by merge
@@ -27,11 +27,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import struct
 import sys
 from collections import Counter
 from pathlib import Path
 
-import torch
+from merge_lora_into_nvfp4 import adapter_key_to_base_key
 
 
 # Files we expect to be byte-identical between base and merged dirs.
@@ -61,10 +62,48 @@ def file_sha256(path: Path, block_size: int = 1024 * 1024) -> str:
     return h.hexdigest()
 
 
+def expected_shard_count(base_model_dir: Path) -> int:
+    index_path = base_model_dir / "model.safetensors.index.json"
+    if not index_path.exists():
+        raise FileNotFoundError(f"missing base model safetensors index: {index_path}")
+    with open(index_path) as f:
+        index = json.load(f)
+    weight_map = index.get("weight_map")
+    if not isinstance(weight_map, dict):
+        raise ValueError(f"{index_path} does not contain a weight_map object")
+    return len(set(weight_map.values()))
+
+
+def adapter_manifest_values(adapter_dir: Path) -> tuple[float, int]:
+    with open(adapter_dir / "adapter_config.json") as f:
+        cfg = json.load(f)
+    if "r" not in cfg or "lora_alpha" not in cfg:
+        raise ValueError(f"adapter_config.json missing r or lora_alpha: {cfg}")
+    alpha_over_r = float(cfg["lora_alpha"]) / float(cfg["r"])
+
+    adapter_files = sorted(adapter_dir.glob("adapter_model*.safetensors"))
+    if not adapter_files:
+        raise FileNotFoundError(f"no adapter_model*.safetensors in {adapter_dir}")
+
+    targets = set()
+    for adapter_file in adapter_files:
+        with open(adapter_file, "rb") as f:
+            header_len = struct.unpack("<Q", f.read(8))[0]
+            header = json.loads(f.read(header_len))
+        for adapter_key in header:
+            if adapter_key != "__metadata__":
+                targets.add(adapter_key_to_base_key(adapter_key))
+    return alpha_over_r, len(targets)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-model-dir", required=True, type=Path)
     ap.add_argument("--merged-model-dir", required=True, type=Path)
+    ap.add_argument(
+        "--lora-adapter-dir", "--adapter-dir", dest="lora_adapter_dir", type=Path,
+        help="Optional adapter directory used to verify manifest alpha/r and target count",
+    )
     ap.add_argument(
         "--noop-warn-frac", default=0.10, type=float,
         help="Warn if more than this fraction of merged tensors are near-zero updates",
@@ -120,18 +159,50 @@ def main():
     total_merged = sum(s["n_merged"] for s in manifest["shards"])
     total_passthrough = sum(s["n_passthrough"] for s in manifest["shards"])
     expected = manifest["n_lora_targets"]
-    print(f"  shards processed: {n_shards}/17 (expected 17)")
+    expected_shards = expected_shard_count(args.base_model_dir)
+    print(f"  shards processed: {n_shards}/{expected_shards} (expected {expected_shards})")
     print(f"  tensors merged: {total_merged}")
     print(f"  tensors passthrough: {total_passthrough}")
     print(f"  expected LoRA targets in adapter: {expected}")
-    if n_shards != 17:
-        failures.append(f"only {n_shards}/17 shards processed")
+    if n_shards != expected_shards:
+        failures.append(f"only {n_shards}/{expected_shards} shards processed")
     if total_merged != expected:
         failures.append(
             f"merged count {total_merged} != expected adapter LoRA targets {expected}"
         )
     else:
         print(f"  [ok]   merged count matches expected adapter LoRA targets")
+
+    if args.lora_adapter_dir is None:
+        print("  alpha_over_r / adapter consistency: SKIPPED (no --lora-adapter-dir)")
+    else:
+        try:
+            adapter_alpha_over_r, adapter_targets = adapter_manifest_values(args.lora_adapter_dir)
+            manifest_alpha_over_r = float(manifest["alpha_over_r"])
+            print(
+                "  alpha_over_r / adapter consistency: "
+                f"manifest={manifest_alpha_over_r:g} adapter={adapter_alpha_over_r:g}"
+            )
+            if abs(manifest_alpha_over_r - adapter_alpha_over_r) > 1e-12:
+                failures.append(
+                    f"alpha_over_r mismatch: manifest {manifest_alpha_over_r:g} "
+                    f"!= adapter {adapter_alpha_over_r:g}"
+                )
+                print("  [FAIL] alpha_over_r does not match adapter_config.json")
+            else:
+                print("  [ok]   alpha_over_r matches adapter_config.json")
+
+            print(f"  adapter unique translated LoRA targets: {adapter_targets}")
+            if expected != adapter_targets:
+                failures.append(
+                    f"manifest n_lora_targets {expected} != adapter translated targets {adapter_targets}"
+                )
+                print("  [FAIL] manifest n_lora_targets does not match adapter")
+            else:
+                print("  [ok]   manifest n_lora_targets matches adapter")
+        except Exception as e:
+            failures.append(f"adapter consistency check failed: {e!r}")
+            print(f"  [FAIL] adapter consistency check failed: {e!r}")
 
     # P1.5.1 + P1.5.2 + P1.5.6: per-tensor stats analysis
     stats_path = args.merged_model_dir / manifest["stats_log_path"]

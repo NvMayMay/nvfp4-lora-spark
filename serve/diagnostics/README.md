@@ -54,13 +54,14 @@ what was learned:
    per-expert weight repack has a transient memory peak that exceeds the 130
    GB physical ceiling.
 2. **vLLM 0.21 + Super-NVFP4 + EMULATION backend** DOES work for base inference
-   with the right knobs (see `serve/run_super_base_inference.sh` or DECISION_LOG
-   D018 for the exact command). Throughput is impractically slow (~0.7 tok/s).
-3. **vLLM 0.21 native-FP4 backends** (FLASHINFER_*, VLLM_CUTLASS) are NOT
-   compiled for sm_121 (Blackwell consumer / Spark) in 0.21.0. All five
-   reject at oracle stage with *"kernel does not support current device cuda"*.
+   with the right knobs; see `serve/run_super_base_inference.sh` for the exact
+   command. Throughput is impractically slow (~0.7 tok/s).
+3. **vLLM 0.21 native-FP4 backends** split on sm_121: FLASHINFER_TRTLLM and
+   FLASHINFER_CUTEDSL reject with *"kernel does not support current device
+   cuda"*, while FLASHINFER_CUTLASS and VLLM_CUTLASS are accepted.
+   VLLM_CUTLASS is the recommended Super recipe (~11-14 tok/s).
 4. **vLLM 0.21 Triton MoE LoRA kernel** crashes with `illegal memory access`
    on the EMULATION backend. So LoRA serving via vLLM is blocked on Spark
    regardless of memory.
 
-See the project DECISION_LOG (D016-D020) for the full investigation.
+See this directory's diagnostic scripts and logs for the full investigation.

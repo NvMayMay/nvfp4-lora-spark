@@ -1,0 +1,146 @@
+{
+  "variant": "super",
+  "model_dir": "/path/to/Models/Nemotron-3-Super-120B-A12B-NVFP4",
+  "trials": [
+    {
+      "fits": true,
+      "peak_gb": 92.96,
+      "median_step_s": 130.22,
+      "all_step_s": [
+        130.4,
+        130.22,
+        129.93
+      ],
+      "batch": 1,
+      "max_len": 1024
+    },
+    {
+      "fits": true,
+      "peak_gb": 93.24,
+      "median_step_s": 137.94,
+      "all_step_s": [
+        137.94,
+        137.43,
+        138.26
+      ],
+      "batch": 1,
+      "max_len": 1536
+    },
+    {
+      "fits": true,
+      "peak_gb": 93.51,
+      "median_step_s": 139.15,
+      "all_step_s": [
+        139.29,
+        138.89,
+        139.15
+      ],
+      "batch": 1,
+      "max_len": 2048
+    },
+    {
+      "fits": true,
+      "peak_gb": 99.18,
+      "median_step_s": 143.24,
+      "all_step_s": [
+        142.85,
+        143.24,
+        143.72
+      ],
+      "batch": 1,
+      "max_len": 4096
+    },
+    {
+      "fits": true,
+      "peak_gb": 93.51,
+      "median_step_s": 139.85,
+      "all_step_s": [
+        139.82,
+        140.0,
+        139.85
+      ],
+      "batch": 2,
+      "max_len": 1024
+    },
+    {
+      "fits": true,
+      "peak_gb": 96.26,
+      "median_step_s": 143.08,
+      "all_step_s": [
+        143.03,
+        143.08,
+        143.15
+      ],
+      "batch": 2,
+      "max_len": 1536
+    },
+    {
+      "fits": true,
+      "peak_gb": 99.17,
+      "median_step_s": 146.97,
+      "all_step_s": [
+        146.97,
+        146.74,
+        147.05
+      ],
+      "batch": 2,
+      "max_len": 2048
+    },
+    {
+      "fits": true,
+      "peak_gb": 110.83,
+      "median_step_s": 163.19,
+      "all_step_s": [
+        168.04,
+        162.16,
+        163.19
+      ],
+      "batch": 2,
+      "max_len": 4096
+    },
+    {
+      "fits": true,
+      "peak_gb": 99.15,
+      "median_step_s": 146.77,
+      "all_step_s": [
+        146.58,
+        146.94,
+        146.77
+      ],
+      "batch": 4,
+      "max_len": 1024
+    },
+    {
+      "fits": true,
+      "peak_gb": 104.97,
+      "median_step_s": 153.77,
+      "all_step_s": [
+        153.77,
+        152.68,
+        153.99
+      ],
+      "batch": 4,
+      "max_len": 1536
+    },
+    {
+      "fits": true,
+      "peak_gb": 110.79,
+      "median_step_s": 355.44,
+      "all_step_s": [
+        354.48,
+        355.44,
+        415.4
+      ],
+      "batch": 4,
+      "max_len": 2048
+    },
+    {
+      "batch": 4,
+      "max_len": 4096,
+      "fits": false,
+      "error": "SIGKILL (system unified-memory limit; not catchable by Python)",
+      "peak_gb": null,
+      "median_step_s": null
+    }
+  ]
+}

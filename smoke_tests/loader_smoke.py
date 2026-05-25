@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Day 2 loader smoke: build Nemotron-3-Nano with NVFP4LoRALinear modules + 2-batch LoRA train.
 
-Per SYNTHESIS Day 2 gate:
 1. Loader builds the model via init_empty_weights + module replacement + non-NVFP4 weight load.
 2. 2-batch forward + backward produces finite loss.
 3. Trainable params = LoRA params only (frozen NVFP4 storage + frozen non-target modules).
@@ -12,24 +11,53 @@ list, kept in bf16). The NVFP4 modules are expert up_proj/down_proj and Mamba in
 For Day 2 we target a small subset of expert MLP layers via suffix matching, which validates
 the NVFP4 LoRA path. Day 3+ will add bf16-Linear LoRA targeting for the attention path.
 """
+from __future__ import annotations
+
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import gc
-import torch
-import torch.nn.functional as F
-
-from nvfp4_lora.loader import load_nemotron_with_nvfp4_lora
-from nvfp4_lora.linear import NVFP4LoRALinear
+import argparse
 
 
-MODEL_DIR = "/path/to/Models/Nemotron-3-Nano-30B-A3B-NVFP4"
 TARGET_SUFFIXES = ("up_proj", "down_proj")
 R = 8
 LORA_ALPHA = 16
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Load Nano with NVFP4LoRALinear modules and run a short LoRA train smoke.",
+    )
+    parser.add_argument(
+        "--model-dir",
+        default=os.environ.get("NVFP4_SMOKE_MODEL_DIR"),
+        help="Path to Nemotron-3-Nano-30B-A3B-NVFP4. Can also be set via NVFP4_SMOKE_MODEL_DIR.",
+    )
+    args = parser.parse_args()
+    if not args.model_dir:
+        parser.print_usage(sys.stderr)
+        print(
+            "error: provide --model-dir /path/to/Nemotron-3-Nano-30B-A3B-NVFP4 "
+            "or set NVFP4_SMOKE_MODEL_DIR",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if not os.path.exists(os.path.join(args.model_dir, "model.safetensors.index.json")):
+        print(
+            f"error: no model.safetensors.index.json under {args.model_dir}; check --model-dir",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return args
+
+
 def main():
+    args = parse_args()
+    global torch, load_nemotron_with_nvfp4_lora, NVFP4LoRALinear
+    import torch
+    from nvfp4_lora.loader import load_nemotron_with_nvfp4_lora
+    from nvfp4_lora.linear import NVFP4LoRALinear
+
     print("=== Day 2 loader smoke (Nemotron-3-Nano + NVFP4LoRALinear) ===")
     device = torch.device("cuda")
 
@@ -41,7 +69,7 @@ def main():
 
     print(f"\n--- loading model with LoRA targets {TARGET_SUFFIXES}, r={R}, alpha={LORA_ALPHA} ---")
     model = load_nemotron_with_nvfp4_lora(
-        MODEL_DIR,
+        args.model_dir,
         target_lora_suffixes=TARGET_SUFFIXES,
         r=R,
         lora_alpha=LORA_ALPHA,
@@ -74,7 +102,7 @@ def main():
     # 2-batch smoke
     print("\n--- 2-batch forward + backward ---")
     from transformers import AutoTokenizer
-    tok = AutoTokenizer.from_pretrained(MODEL_DIR, trust_remote_code=True)
+    tok = AutoTokenizer.from_pretrained(args.model_dir, trust_remote_code=True)
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
     prompts = [
@@ -124,7 +152,7 @@ def main():
     # PEFT-style adapter_config.json
     import json
     cfg = {
-        "base_model_name_or_path": MODEL_DIR,
+        "base_model_name_or_path": args.model_dir,
         "peft_type": "LORA",
         "task_type": "CAUSAL_LM",
         "r": R,

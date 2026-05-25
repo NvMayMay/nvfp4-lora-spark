@@ -1,6 +1,6 @@
 # Performance roadmap: closing the NVFP4-to-BF16 throughput gap
 
-The current `NVFP4LoRALinear` runs at roughly **11x slower per step** than a stock bf16 LoRA path on Nano-30B (measured: 4.2 s/step bf16 vs 43.8 s/step NVFP4 at batch=1, max_len=1536, identical hyperparams). The gap isn't fundamental, it's an implementation choice. This document records the five viable routes to close it, ordered by effort-to-payoff ratio, so future work can pick up cleanly.
+The current `NVFP4LoRALinear` runs at roughly **10x slower per step** than a stock bf16 LoRA path on Nano-30B (measured: 4.2 s/step bf16 vs 43.8 s/step NVFP4 at batch=1, max_len=1536, identical hyperparams). The gap isn't fundamental, it's an implementation choice. This document records the five viable routes to close it, ordered by effort-to-payoff ratio, so future work can pick up cleanly.
 
 ## Why the gap exists today
 
@@ -16,14 +16,15 @@ Steps 3 and 4 are pure waste relative to the bf16 path, which goes straight to s
 
 The gap is **memory bandwidth, not compute**. The dequant arithmetic is tiny compared to the GEMM. What's slowing us down is round-tripping the dequanted weights through HBM instead of streaming them through tensor-core registers.
 
-## Route 1: Bigger micro-batch (low effort, ~1.5-3x)
+## Route 1: Bigger micro-batch (validated, ~2.7-3.8x per sample)
 
-Current scripts hardcode `batch_size=1`. At small batch, the GEMM is closer to memory-bound and the dequant write/read overhead dominates. Larger batch amortizes the dequant cost across more compute.
+At small batch, the GEMM is closer to memory-bound and the dequant write/read overhead dominates. Larger batch amortizes the dequant cost across more compute. The shipped 4x4 decision-map sweep has now characterized this route.
 
-- For Nano-30B: trivial. ~22 GB used of 120 GB budget at batch=1, so there is ~100 GB headroom. Should fit batch=8 at max_len=4096 comfortably.
-- For Super-120B: tighter. ~92 GB at batch=1, ~30 GB headroom under the ceiling. Batch=2 at max_len=1024 to 1536 likely fits; batch=2 at max_len=2048+ probably OOMs.
+- Throughput-optimal point for both Super-120B and Nano-30B is `batch=4, max_len=1024`.
+- Super-120B: `batch=1, max_len=1536` measured 137.94 s/step at 93.24 GB peak. `batch=4, max_len=1024` measured 146.77 s/step at 99.15 GB peak, or 36.69 s/sample. `batch=2, max_len=2048` and `batch=2, max_len=4096` both fit at 99.17 GB and 110.83 GB, but they are slower per sample than `batch=4, max_len=1024`.
+- Nano-30B: `batch=1, max_len=1536` measured 49.25 s/step at 36.14 GB peak. `batch=4, max_len=1024` measured 74.21 s/step at 60.54 GB peak, or 18.55 s/sample. `batch=8` did not fit at any tested max_len (1024, 1536, 2048, or 4096).
 
-No kernel work required, just a script change and a memory-fit smoke. The 4x4 decision-map sweep in `Research/nvfp4_lora_spark/sweep_train_nvfp4.py` characterizes the viable region.
+No kernel work is required for this route; the production scripts already accept `--batch` and `--max-len`. Long-run training logs for the throughput-optimal cell are still future release work.
 
 ## Route 2: torch.compile / Inductor (low effort, unclear win)
 
@@ -73,8 +74,29 @@ Side benefit: the marlin maintainers might be interested in an upstream contribu
 4. **Route 4 as scoping work in parallel with route 3.** If TE turns out to accept the on-disk NVFP4 format directly, it might dominate route 3. Cheap to investigate.
 5. **Route 5 only if there is a clear demand signal.** Don't pre-invest weeks of kernel work without users asking. The right time is once the v2 (Triton) release lands and someone says "still too slow for my use case."
 
+## Adjacent fix: prompt-label masking default
+
+The v1.0 checkpoints used unmasked labels, so the shipped scripts keep that
+behavior by default for reproducibility. `--mask-prompt-labels` is the
+recommended setting for new training, and making it the default is a v1.1
+candidate because it changes loss curves and trained weights.
+
+## Adjacent fix: pooled-allocation loader (load-time, not throughput)
+
+This is not on the runtime throughput axis, but it belongs on the same roadmap because it removes a real operational hazard.
+
+Today the loader (`nvfp4_lora/loader.py`) registers ~5 separate CUDA buffers/Parameters per NVFP4 module (packed weight, per-group scale, per-tensor scale, `lora_A`, `lora_B`). For Super-120B with ~40K NVFP4 modules that is ~200K individual `.to(device)` allocations during the model-load phase. Each one books a memory descriptor in NVRM; loading them in rapid succession can produce a burst of `NV_ERR_NO_MEMORY` retries in the kernel ring (see [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) for the failure signature). The burst is usually benign, but on a long-running boot with accumulated NVRM/GSP state it can cascade into a GPU hang.
+
+**Fix shape**: precompute total per-dtype size across all NVFP4 modules, allocate one flat CUDA pool per dtype (one uint8 pool, one fp8 pool, one fp32 pool, plus two bf16 pools for LoRA-A and LoRA-B), copy safetensors data into slices of those pools, and register each module's buffer/Parameter as a view over its slice. Net: ~5 backing allocations instead of ~200K, NVRM memdesc churn drops to near zero during load.
+
+**Risk surface**: views over a flat pool work cleanly for frozen NVFP4 buffers. For trainable LoRA Parameters they need careful validation against (a) AdamW optimizer state (3 buffers per param), (b) PEFT-format adapter save (which expects named `<module>.lora_A.weight` tensors), and (c) gradient writes round-tripping through views without double-buffering. Each is a separate validation surface.
+
+**Effort**: ~3-5 days including a parity test that loads the same checkpoint via current + pooled loaders and asserts byte-identical state-dicts post-save, plus a training smoke test confirming optimizer state stays consistent across a checkpoint+resume.
+
+Queued for v1.1.
+
 ## What we are shipping in v1
 
-The current `NVFP4LoRALinear` is the v1 baseline. It is correct, memory-safe, and fits Super-120B on a single GB10 box. It is honest about the cost: see [README.md](../README.md) "Performance" section for the time/memory tradeoff.
+The current `NVFP4LoRALinear` is the v1 baseline. It is correct, memory-safe, and fits Super-120B on a single GB10 box. It is honest about the cost: see the [README "Why use nvfp4-lora-spark" section](../README.md#why-use-nvfp4-lora-spark) for the time/memory tradeoff.
 
 Subsequent releases will work through this list in the order above.

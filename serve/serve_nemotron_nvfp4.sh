@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Nemotron-3 NVFP4 deployment script for GB10 / sm_121 (NVIDIA DGX Spark and equivalents).
+# Nemotron-3 Nano NVFP4 deployment script for GB10 / sm_121 (NVIDIA DGX Spark and equivalents).
 #
-# Brings up vLLM marlin against a Nemotron-3-{Nano,Super}-NVFP4 model, optionally with a LoRA
-# adapter attached. Exposes the base as one model ID and (if an adapter is given) the FT version
-# as `<base-id>+<adapter-tag>` via vLLM's --lora-modules, so a single serve process answers
-# both base and FT calls without needing to restart.
+# Brings up vLLM marlin against the Nemotron-3-Nano-NVFP4 model, optionally
+# with a LoRA adapter attached. Exposes the base as one model ID and (if an
+# adapter is given) the FT version as `<base-id>+<adapter-tag>` via vLLM's
+# --lora-modules, so a single serve process answers both base and FT calls
+# without needing to restart.
 #
 # Usage:
 #   serve_nemotron_nvfp4.sh <variant> [adapter_dir] [adapter_tag]
@@ -12,15 +13,12 @@
 # Examples:
 #   # base only:
 #   serve_nemotron_nvfp4.sh nano
-#   serve_nemotron_nvfp4.sh super
 #
 #   # base + adapter:
 #   serve_nemotron_nvfp4.sh nano /path/to/nano_adapter ich_v1_0
-#   serve_nemotron_nvfp4.sh super /path/to/super_adapter ich_v1_0
 #
 # Variants resolve to:
 #   nano  -> Nemotron-3-Nano-30B-A3B-NVFP4   served as nemotron-3-nano-nvfp4
-#   super -> Nemotron-3-Super-120B-A12B-NVFP4 served as nemotron-3-super-a12b-nvfp4
 #
 # GB10-required flags (per LESSONS.md dependency inventory):
 #   VLLM_NVFP4_GEMM_BACKEND=marlin   - sm_121 has no native FP4 compute; weight-only marlin
@@ -29,7 +27,12 @@
 #   --dtype bfloat16                  - compute dtype (weights stay FP4; activations bf16)
 #
 # Binds 0.0.0.0:8000 so an eval host on the LAN can reach it.
+# To reproduce the concurrency numbers, raise MAX_NUM_SEQS and keep
+# MAX_MODEL_LEN / MAX_NUM_BATCHED_TOKENS large enough for the prompt+output cell.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$SCRIPT_DIR/vllm_patches:${PYTHONPATH:-}"
 
 VARIANT="${1:-}"
 ADAPTER_DIR="${2:-}"
@@ -37,24 +40,20 @@ ADAPTER_TAG="${3:-ich_v1_0}"
 
 case "$VARIANT" in
     nano)
-        MODEL_DIR=/path/to/Models/Nemotron-3-Nano-30B-A3B-NVFP4
-        SERVED_NAME=nemotron-3-nano-nvfp4
-        ;;
-    super)
-        MODEL_DIR=/path/to/Models/Nemotron-3-Super-120B-A12B-NVFP4
-        SERVED_NAME=nemotron-3-super-a12b-nvfp4
+        MODEL_DIR="${MODEL_DIR:-/path/to/Models/Nemotron-3-Nano-30B-A3B-NVFP4}"
+        SERVED_NAME="${SERVED_NAME:-nemotron-3-nano-nvfp4}"
         ;;
     *)
-        echo "Usage: $0 <nano|super> [adapter_dir] [adapter_tag]"
+        echo "Usage: $0 <nano> [adapter_dir] [adapter_tag]"
         echo ""
-        echo "  variant       'nano' or 'super'"
+        echo "  variant       'nano'"
         echo "  adapter_dir   optional; path to a PEFT-format LoRA adapter dir to attach"
         echo "  adapter_tag   optional; suffix for the FT model id (default: ich_v1_0)"
         exit 2
         ;;
 esac
 
-SERVE_LOG=/path/to/research/serve_${VARIANT}.log
+SERVE_LOG=${LOG_DIR:-./logs}/serve_${VARIANT}.log
 PIDFILE=/tmp/serve_nemotron_${VARIANT}.pid
 
 LORA_ARGS=()
@@ -71,12 +70,12 @@ if [ -n "$ADAPTER_DIR" ]; then
     LORA_ARGS=(
         --enable-lora
         --lora-modules "${FT_NAME}=${ADAPTER_DIR}"
-        --max-lora-rank 8
+        --max-lora-rank "${MAX_LORA_RANK:-8}"
         --max-loras 1
     )
 fi
 
-source /path/to/venvs/serve/bin/activate
+mkdir -p "$(dirname "$SERVE_LOG")"
 
 VLLM_NVFP4_GEMM_BACKEND=marlin \
 MAX_JOBS=1 \
@@ -85,7 +84,9 @@ nohup vllm serve "$MODEL_DIR" \
     --host 0.0.0.0 --port 8000 \
     --tensor-parallel-size 1 \
     --dtype bfloat16 \
-    --max-model-len 8192 --max-num-batched-tokens 8192 --max-num-seqs 1 \
+    --max-model-len "${MAX_MODEL_LEN:-8192}" \
+    --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS:-8192}" \
+    --max-num-seqs "${MAX_NUM_SEQS:-1}" \
     --moe-backend marlin \
     "${LORA_ARGS[@]}" \
     > "$SERVE_LOG" 2>&1 &

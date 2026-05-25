@@ -1,0 +1,178 @@
+{
+  "variant": "nano",
+  "model_dir": "/path/to/Models/Nemotron-3-Nano-30B-A3B-NVFP4",
+  "trials": [
+    {
+      "fits": true,
+      "peak_gb": 31.39,
+      "median_step_s": 44.67,
+      "all_step_s": [
+        44.68,
+        44.45,
+        44.67
+      ],
+      "batch": 1,
+      "max_len": 1024
+    },
+    {
+      "fits": true,
+      "peak_gb": 36.14,
+      "median_step_s": 49.25,
+      "all_step_s": [
+        49.22,
+        49.25,
+        49.27
+      ],
+      "batch": 1,
+      "max_len": 1536
+    },
+    {
+      "fits": true,
+      "peak_gb": 41.02,
+      "median_step_s": 54.12,
+      "all_step_s": [
+        54.12,
+        53.98,
+        54.23
+      ],
+      "batch": 1,
+      "max_len": 2048
+    },
+    {
+      "fits": true,
+      "peak_gb": 60.56,
+      "median_step_s": 73.98,
+      "all_step_s": [
+        73.91,
+        73.98,
+        74.08
+      ],
+      "batch": 1,
+      "max_len": 4096
+    },
+    {
+      "fits": true,
+      "peak_gb": 41.01,
+      "median_step_s": 54.28,
+      "all_step_s": [
+        54.27,
+        54.28,
+        54.35
+      ],
+      "batch": 2,
+      "max_len": 1024
+    },
+    {
+      "fits": true,
+      "peak_gb": 50.78,
+      "median_step_s": 63.39,
+      "all_step_s": [
+        63.39,
+        63.52,
+        63.26
+      ],
+      "batch": 2,
+      "max_len": 1536
+    },
+    {
+      "fits": true,
+      "peak_gb": 60.55,
+      "median_step_s": 72.98,
+      "all_step_s": [
+        72.83,
+        72.98,
+        73.22
+      ],
+      "batch": 2,
+      "max_len": 2048
+    },
+    {
+      "fits": true,
+      "peak_gb": 99.62,
+      "median_step_s": 113.12,
+      "all_step_s": [
+        112.82,
+        113.12,
+        113.12
+      ],
+      "batch": 2,
+      "max_len": 4096
+    },
+    {
+      "fits": true,
+      "peak_gb": 60.54,
+      "median_step_s": 74.21,
+      "all_step_s": [
+        74.09,
+        74.21,
+        74.42
+      ],
+      "batch": 4,
+      "max_len": 1024
+    },
+    {
+      "fits": true,
+      "peak_gb": 80.06,
+      "median_step_s": 93.5,
+      "all_step_s": [
+        93.5,
+        93.44,
+        93.66
+      ],
+      "batch": 4,
+      "max_len": 1536
+    },
+    {
+      "fits": true,
+      "peak_gb": 99.59,
+      "median_step_s": 109.01,
+      "all_step_s": [
+        113.57,
+        108.92,
+        109.01
+      ],
+      "batch": 4,
+      "max_len": 2048
+    },
+    {
+      "batch": 4,
+      "max_len": 4096,
+      "fits": false,
+      "error": "SIGKILL (system unified-memory limit; projected peak ~140-210 GB exceeds 131 GB ceiling)",
+      "peak_gb": null,
+      "median_step_s": null
+    },
+    {
+      "batch": 8,
+      "max_len": 2048,
+      "fits": false,
+      "error": "SIGKILL (system unified-memory limit; projected peak ~140-210 GB exceeds 131 GB ceiling)",
+      "peak_gb": null,
+      "median_step_s": null
+    },
+    {
+      "batch": 8,
+      "max_len": 4096,
+      "fits": false,
+      "error": "SIGKILL (system unified-memory limit; projected peak ~140-210 GB exceeds 131 GB ceiling)",
+      "peak_gb": null,
+      "median_step_s": null
+    },
+    {
+      "batch": 8,
+      "max_len": 1024,
+      "fits": false,
+      "error": "SIGKILL (system unified-memory limit; not catchable by Python)",
+      "peak_gb": null,
+      "median_step_s": null
+    },
+    {
+      "fits": false,
+      "error": "OOM: CUDA out of memory. Tried to allocate 24.00 GiB. GPU 0 has a total capacity of 121.69 GiB of which 23.83 GiB is free. Including non-PyTorch memory, this process has 94.83 GiB memory in use. Of the all",
+      "peak_gb": null,
+      "median_step_s": null,
+      "batch": 8,
+      "max_len": 1536
+    }
+  ]
+}

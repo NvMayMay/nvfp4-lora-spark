@@ -24,9 +24,12 @@ def _try_apply_marlin_patch():
         sys.stderr.write(
             f"[sitecustomize pid={os.getpid()}] applied marlin_repack_patch\n"
         )
-    except ImportError:
-        # marlin_repack_patch not on path - silently ignore
-        pass
+    except ImportError as e:
+        sys.stderr.write(
+            f"WARNING: sitecustomize could not import marlin_repack_patch ({e}); "
+            "vLLM marlin will run without the memory patch. "
+            "Verify PYTHONPATH includes the serve/vllm_patches directory.\n"
+        )
     except Exception as e:
         sys.stderr.write(
             f"[sitecustomize pid={os.getpid()}] marlin_repack_patch failed: {e!r}\n"

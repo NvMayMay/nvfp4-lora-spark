@@ -1,3 +1,5 @@
+> This is a development-time engineering journal kept during the Phase 1 sprint, not a polished reference doc. It contains chronological lab-notebook style entries with the failure modes hit and the workarounds chosen. For the production reference, see [docs/PERFORMANCE_ROADMAP.md](PERFORMANCE_ROADMAP.md) and [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
 # Lessons & deviations notebook - P-1 sprint execution
 
 **Purpose**: capture every "the plan said X, reality required Y" moment, plus surprising findings, while the work is happening. To be reflected on after the sprint.
@@ -8,7 +10,7 @@
 
 ## 2026-05-20 ~10:30 - `nohup` does not preserve `cd`
 
-**Plan said**: download Super via `cd /Veritan/Models && nohup hf download ... --local-dir Nemotron-3-Super-...`.
+**Plan said**: download Super via `cd /path/to/Models && nohup hf download ... --local-dir Nemotron-3-Super-...`.
 **Reality**: the second nohup'd `hf download` in the chained command ignored the working directory set by `cd`. The model landed in `$HOME/Nemotron-3-Super-120B-A12B-NVFP4/` instead of `Models/`. Had to `mv` 75 GB after (instant since same filesystem, but it could have been a real problem).
 **Fix going forward**: always pass an absolute path to `--local-dir`. Never rely on the shell's working directory being preserved across `nohup`.
 **P-1d runbook impact**: revise download steps in the P-1a runbook to use absolute paths.
@@ -151,21 +153,9 @@ This is the Random Hadamard Transform cast-fusion kernel - the kernel that pre-c
 
 **Track for future re-test**: when NVIDIA publishes a cuBLAS release that includes `cublasLtGroupedMatrixLayoutInit_internal` AND fixes the RHT cast-fusion kernel for sm_120/121, re-run P-1b. The infrastructure (P-1b runbook script + nvfp4-te venv setup) is now reusable.
 
-## 2026-05-20 ~13:30 - Codex CLI access on ChatGPT auth is limited to a subset of models
+## 2026-05-20 ~13:30 - Internal tooling auth details
 
-Tried to spin up three subagents in parallel: Opus (via Agent tool), GPT-5.5, and Codex-5.3 (the latter two via the Codex CLI bundled with the VSCode ChatGPT extension at `~/.vscode-server/extensions/openai.chatgpt-*/bin/linux-aarch64/codex`).
-
-GPT-5.5 worked. Both `codex-5.3` and `gpt-5-codex` returned:
-```
-{"type":"error","status":400,"error":{"type":"invalid_request_error",
- "message":"The '<model-id>' model is not supported when using Codex with a ChatGPT account."}}
-```
-
-So when authenticated via ChatGPT (not API key), Codex CLI is restricted to `gpt-5.5` (which the model self-identifies as `gpt-5`). The `codex-*` and `gpt-5-codex` model IDs need API-key auth, which we don't have set up.
-
-**Runbook impact**: when launching multi-agent sweeps from this Spark, plan for 2 perspectives (Claude via Agent tool + GPT-5.5 via codex exec), not 3. If a third perspective is needed, options are: (a) different reasoning effort on the same gpt-5.5 model via `-c model_reasoning_effort=high`, (b) install an OpenAI API key and re-auth, or (c) use a different second Claude subagent (e.g., Haiku) for a faster lighter take.
-
-Also: Codex CLI in default `--sandbox read-only` mode blocks file writes. The model worked around this by dumping the markdown content into the log instead - recoverable by `awk` extraction, but worth knowing. For agents that need to write outputs, use `--sandbox workspace-write` and explicit `-C <writable-dir>`.
+[redacted: internal tooling auth details removed for public release]
 
 ## 2026-05-20 ~13:30 - Both subagents independently converged on the same path (Path 1)
 
@@ -193,7 +183,7 @@ Lower-ranked paths both agents deprioritized identically:
 - `agent_outputs/PROMPT.md` - the shared task description
 - `agent_outputs/opus.md` - Opus's 1157-word ranked path list
 - `agent_outputs/gpt55.md` - GPT-5.5's parallel ranked path list (extracted from log via awk)
-- `agent_outputs/SYNTHESIS.md` - the convergence memo
+- `agent_outputs/design_memo.md` - the convergence memo
 
 **Minor disagreement on tactics** (not blocking):
 - Opus says Nano-first (3-day validation), GPT-5.5 doesn't strongly recommend.
@@ -204,7 +194,7 @@ Lower-ranked paths both agents deprioritized identically:
 
 ## 2026-05-20 ~14:30 - Path 1 sprint Day 1 PASS - dequant + NVFP4LoRALinear work
 
-Built the package at `Sandbox/nvfp4_lora/` per the SYNTHESIS Day 1 plan. Two gates cleared:
+Built the package at `Sandbox/nvfp4_lora/` per the Day 1 plan. Two gates cleared:
 
 **Gate 1: Dequant correctness vs torchao reference** (`Sandbox/nvfp4_lora/tests/dequant_correctness.py`):
 - Loaded `backbone.layers.0.mixer.in_proj` from Nemotron-3-Nano-30B-A3B-NVFP4 (a known-NVFP4 layer, not in the modelopt `exclude_modules` list).
@@ -233,7 +223,7 @@ Built the package at `Sandbox/nvfp4_lora/` per the SYNTHESIS Day 1 plan. Two gat
 
 ## 2026-05-20 ~15:00 - Path 1 sprint Day 2 PASS - loader + module replacement + 2-batch training on Nemotron-3-Nano
 
-Built `Sandbox/nvfp4_lora/loader.py` per SYNTHESIS Day 2 plan. Replaces NVFP4 Linears with our `NVFP4LoRALinear` modules via `accelerate.init_empty_weights()` + safetensors-index-driven module swap + non-NVFP4 weight loading.
+Built `Sandbox/nvfp4_lora/loader.py` per the Day 2 plan. Replaces NVFP4 Linears with our `NVFP4LoRALinear` modules via `accelerate.init_empty_weights()` + safetensors-index-driven module swap + non-NVFP4 weight loading.
 
 **Day 2 gate results**:
 - Loaded Nemotron-3-Nano-30B-A3B-NVFP4 architecture (5968 NVFP4LoRALinear modules - 5934 LoRA-trainable at r=8, 34 frozen).
@@ -245,13 +235,13 @@ Built `Sandbox/nvfp4_lora/loader.py` per SYNTHESIS Day 2 plan. Replaces NVFP4 Li
 - Peak CUDA across the 2 steps: 25.5 GB. Comfortable margin under 128 GB.
 - Adapter saved to `/tmp/day2_smoke_adapter/` in PEFT-compatible format (adapter_config.json + adapter_model.safetensors with `base_model.model.<path>.lora_A.weight` naming).
 
-**Inventory finding documented in code**: Nemotron-3-Nano keeps attention `q/k/v/o_proj` in the modelopt `exclude_modules` list (bf16, NOT NVFP4). The NVFP4 modules are expert `up_proj/down_proj` (5934 of them) and Mamba `in_proj/out_proj` (46 of them). SYNTHESIS Day 2 plan said "rank 8 targeting q_proj, v_proj" - adapted to target the actual NVFP4 modules (`up_proj`/`down_proj`). When we eventually want to LoRA-train attention layers, those are bf16 nn.Linear and can be wrapped with the standard PEFT library (no NVFP4LoRALinear needed).
+**Inventory finding documented in code**: Nemotron-3-Nano keeps attention `q/k/v/o_proj` in the modelopt `exclude_modules` list (bf16, NOT NVFP4). The NVFP4 modules are expert `up_proj/down_proj` (5934 of them) and Mamba `in_proj/out_proj` (46 of them). The Day 2 plan said "rank 8 targeting q_proj, v_proj" - adapted to target the actual NVFP4 modules (`up_proj`/`down_proj`). When we eventually want to LoRA-train attention layers, those are bf16 nn.Linear and can be wrapped with the standard PEFT library (no NVFP4LoRALinear needed).
 
 **Bug found and fixed during Day 2 execution**: Nemotron-3's modeling code at `modeling_nemotron_h.py:855` does `expert.down_proj.weight.dtype` for autocast-dtype detection. Our `NVFP4LoRALinear` originally had no `.weight` attribute (correctly - the NVFP4 storage is in `weight_uint8` + scales). Fix: added a `weight` property returning a **meta tensor** (zero memory, correct shape/dtype/device metadata). Any code that tries to USE `.weight` for compute will fail loudly, which is correct since our forward goes through the custom autograd path. The single-line property fix unblocked the smoke.
 
 **Dependency installation**: `mamba-ssm 2.3.2.post1` installed cleanly on aarch64+CUDA 13 via `pip install --no-build-isolation mamba-ssm`. The naive-implementation fallback warning ("fast path not available because one of selective_state_update, causal_conv1d_fn, causal_conv1d_update is None") is fine - model runs at non-fused speed but produces correct output. `causal_conv1d` not strictly required for Day 2; may install for Day 5-6 to speed up Super wall-time.
 
-**Time spent**: ~45 minutes of focused work for Day 2 (writing loader, debugging the `.weight` AttributeError, running smoke). Day 2 SYNTHESIS estimate was "1 day" - actual was much faster because the design from Day 1 was solid and the meta-tensor pattern via `init_empty_weights` worked cleanly the first time.
+**Time spent**: ~45 minutes of focused work for Day 2 (writing loader, debugging the `.weight` AttributeError, running smoke). The Day 2 estimate was "1 day" - actual was much faster because the design from Day 1 was solid and the meta-tensor pattern via `init_empty_weights` worked cleanly the first time.
 
 **Files written**:
 - `Sandbox/nvfp4_lora/loader.py` (212 lines): inventory, replacement, non-NVFP4 weight loading, top-level `load_nemotron_with_nvfp4_lora`
@@ -337,7 +327,7 @@ The 100%-greedy gate was wrong. It's testing "do two different decoders agree on
 
 ## 2026-05-20 ~20:00 - Day 3.5 diagnostics turned up TWO compounding root causes
 
-Spawned three subagents in parallel after Day 3 FAIL: (A) margin analysis on the existing round-trip results, (B) overfit-canary script writer, (C) alpha/scale-sweep script writer. Outputs landed in `Sandbox/nvfp4_lora/tests/day3_5_*.py` + `Research/nvfp4_lora_spark/day3_5_margin_analysis_summary.md`. Subagent A produced findings that, combined with my own follow-up, exposed two stacked bugs:
+Spawned three subagents in parallel after Day 3 FAIL: (A) margin analysis on the existing round-trip results, (B) overfit-canary script writer, (C) alpha/scale-sweep script writer. Outputs landed in local diagnostic scripts and a margin-analysis summary outside this published repo. Subagent A produced findings that, combined with my own follow-up, exposed two stacked bugs:
 
 ### Discovery 1 - Subagent A's margin analysis says the divergence is structural, not bf16 noise
 
@@ -379,7 +369,7 @@ The Super config has 88 layers / 512 routed experts per layer / 22 top-k routing
 
 ### What we wrote during this session (so we can find it again)
 
-- `Sandbox/nvfp4_lora/tests/day3_5_margin_analysis.py` + `Research/nvfp4_lora_spark/day3_5_margin_analysis_summary.md`
+- `Sandbox/nvfp4_lora/tests/day3_5_margin_analysis.py` + margin-analysis summary
 - `Sandbox/nvfp4_lora/tests/day3_5_overfit_canary_train.py` + `day3_5_overfit_canary_compare.py` + `day3_5_overfit_canary_serve.sh`
 - `Sandbox/nvfp4_lora/tests/day3_5_alpha_sweep_export.py` + `day3_5_alpha_sweep_serve.sh` + `day3_5_alpha_sweep_compare.py`
 
@@ -565,7 +555,7 @@ Resulting served model IDs (visible at `/v1/models`):
 - `nemotron-3-super-a12b-nvfp4` (base)
 - `nemotron-3-super-a12b-nvfp4+ich_v1_0` (with adapter)
 
-The eval host on the LAN points at `http://192.168.1.210:8000/v1/completions` (Spark's IP, port 8000) and selects between the model IDs via the `model` field in the request body.
+The eval host on the LAN points at the Spark vLLM server on port 8000 and selects between the model IDs via the `model` field in the request body.
 
 ### Spark-required vLLM flags (per LESSONS.md dependency inventory, baked into the script)
 - `VLLM_NVFP4_GEMM_BACKEND=marlin` - sm_121 has no native FP4 compute; the marlin kernel does weight-only FP4 GEMM with internal bf16 decompression. Without this vLLM falls back to a path that doesn't exist on this GPU.

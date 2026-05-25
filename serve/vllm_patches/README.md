@@ -14,10 +14,11 @@ the list and the cat output simultaneously. The patched version preallocates
 the destination tensor once and writes per-expert results in-place, capping
 per-call live memory.
 
-**Caveat**: this is a micro-optimization (~120 MB peak reduction per repack call).
-It does NOT fix Marlin's structural memory pressure on Spark - see
-[../../docs/PERFORMANCE_ROADMAP.md](../../docs/PERFORMANCE_ROADMAP.md) for
-the full backend story. Ship as a clean upstream PR titled e.g.
+Working set drops from ~9-12 GB per repack call to ~6 GB by avoiding the
+upstream's `list + torch.cat` accumulation pattern, freeing ~3-6 GB during
+Marlin compile for Super-120B. It does NOT fix Marlin's structural memory
+pressure on Spark - see [../../docs/PERFORMANCE_ROADMAP.md](../../docs/PERFORMANCE_ROADMAP.md)
+for the full backend story. Ship as a clean upstream PR titled e.g.
 *"Avoid intermediate stacked-expert list during NVFP4 MoE Marlin preparation"*.
 
 ### `sitecustomize.py`
