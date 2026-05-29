@@ -116,6 +116,8 @@ Single-step training results validated on Super-120B-NVFP4 on a 130.66 GB GB10 (
 | Cached-prefix + suffix | 65,536 | 2,048 | 87.1 GB | 23.3 min | Longest validated context at suffix=2,048; ample room for retrieval-augmented or document-level pretexts |
 | Cached-prefix + suffix | 262,144 | 1,024 | 90.8 GB | 22.4 min | Longest validated training context overall; suffix reduced to 1,024 to clear the backward allocator descriptor cliff |
 
+Pre-watchdog single-step fits have reached 28,672 tokens at r=8 and 34,816 at r=2 with `down_proj` only. Those runs are characterized in the "Frontier (fit-tested, not certified)" sub-table below and are not promoted as training recipes; the watchdog-instrumented re-test of the same context range (LC-033 at 20,480 tokens) trips NVRM `mem_desc.c:1359` before backward, so the earlier passes are best read as "fits one step under lucky timing," not safety-certified.
+
 Recommended flag set for all cached-prefix rows (the values used in the certified runs):
 
 ```
@@ -136,6 +138,19 @@ Use `--prefix-chunk-len 2048` up to 16k context, `--prefix-chunk-len 4096` for 6
 - **Watchdog phase tags.** When the watchdog aborts, the printed line includes `phase=<init|cached_prefix_prefill|cached_suffix_forward|cached_suffix_loss|base_forward|chunked_loss|hf_forward_loss|backward|optimizer>` so a load-time NVRM transient (`phase=init`) is distinguishable from a training-time descriptor cliff at a glance. The NVRM journal watcher arms only after model load completes, so the known self-resolving NVRM bursts during NVFP4 weight load do not abort the run.
 - **Optional alternate loss path.** `--loss-mode liger_flce` uses Liger Kernel's `FusedLinearCrossEntropyLoss` (requires `pip install liger-kernel`, parity-tested against the chunked path). It optimizes byte footprint rather than allocator-event count; in our profiling it did not lower the descriptor-pressure ceiling on GB10 and the chunked path remains the certified loss mode.
 - **CUDA state recovery.** After any aborted or unusual run, if `torch.cuda.mem_get_info()` reports significantly less than the clean baseline (~127 GB free), the persistence-mode driver is holding state. Run `VENV_PY=/path/to/venv/bin/python sudo -E ./serve/diagnostics/release_cuda.sh` to drop OS page cache and restart `nvidia-persistenced`. Full playbook in [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+
+#### Frontier (fit-tested, not certified)
+
+These results predate the safety watchdog and the rank-preserving allocator patches. They demonstrate that a single training step fits one-shot, but they are explicitly *not* a recipe: the host memory headroom during the step is well under 3 GiB on every row, the later watchdog-instrumented test at 20,480 tokens (within this same range) failed with NVRM `mem_desc.c:1359` before backward, and the higher rows here use either reduced LoRA rank or a reduced target-module set, which collapses the trainable adapter capacity. The journal's own decision on these runs reads: *"reducing LoRA rank or dropping target modules is useful for mapping where activation and allocator pressure break, but it is not a satisfying context-window solution."*
+
+| Total context | LoRA config | Status | Peak CUDA reserved | Host avail during step | Journal entry |
+|---:|---|---|---:|---:|---|
+| 24,576 | r=8, `up_proj+down_proj` | one-step fit | 117.4 GB | ~2.6 GiB | [SUPER-LC-013](docs/LONG_CONTEXT_EXPERIMENTS.md) |
+| 28,672 | r=8, `up_proj+down_proj` | one-step fit | 121.5 GB | <1 GiB | [SUPER-LC-016](docs/LONG_CONTEXT_EXPERIMENTS.md) |
+| 32,768 | r=4 alpha=8, `up_proj+down_proj` | one-step fit | 124.3 GB | nearly exhausted | [SUPER-LC-022](docs/LONG_CONTEXT_EXPERIMENTS.md) |
+| 34,816 | r=2 alpha=4, **`down_proj` only** | one-step fit | (tiny-adapter probe) | (tiny-adapter probe) | [SUPER-LC-023](docs/LONG_CONTEXT_EXPERIMENTS.md) |
+
+The 16,384 row in the certified table sits at peak 101.9 GB with ~15 GiB host headroom. The frontier rows above replace that headroom with the rank/target reductions and one-shot fit timing. For production training, the cached-prefix path at 65k or 256k context delivers larger effective context with much more headroom; for exact full-sequence training, 16,384 remains the safe ceiling.
 
 ### Quantization tax on adapter quality is negligible
 
