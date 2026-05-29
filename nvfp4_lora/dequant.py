@@ -76,14 +76,19 @@ def dequantize_nvfp4_weight(
             f"weight_scale shape mismatch: got {tuple(weight_scale_fp8.shape)} "
             f"expected ({out_feat}, {n_groups})"
         )
-    # FP8 E4M3 → FP32 via torch's native cast
+    # FP8 E4M3 -> FP32 via torch's native cast. Keep the per-group shape and
+    # rely on broadcast against a grouped view; materializing the expanded
+    # (out, in) scale tensor adds large scratch allocations in every
+    # checkpointed backward replay.
     weight_scale_fp32 = weight_scale_fp8.to(torch.float32)
-    # Broadcast: (out, n_groups, 1) → (out, in) by repeating each group
-    scale_broadcast = weight_scale_fp32.unsqueeze(-1).expand(out_feat, n_groups, group_size).reshape(out_feat, in_feat)
 
     # Per-tensor scale (scalar)
     per_tensor = weight_scale_2_fp32.to(torch.float32) if weight_scale_2_fp32.dtype != torch.float32 else weight_scale_2_fp32
 
-    # Combine
-    result_fp32 = fp4_values * scale_broadcast * per_tensor
-    return result_fp32.to(out_dtype)
+    # Combine without allocating a full expanded scale tensor.
+    result_fp32 = (
+        fp4_values.view(out_feat, n_groups, group_size)
+        * weight_scale_fp32.unsqueeze(-1)
+        * per_tensor
+    )
+    return result_fp32.reshape(out_feat, in_feat).to(out_dtype)

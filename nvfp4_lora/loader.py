@@ -18,6 +18,9 @@ Identifying NVFP4 vs non-NVFP4 modules:
 from __future__ import annotations
 
 import json
+import math
+from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -116,6 +119,171 @@ def _get_parent(model: nn.Module, dotted_name: str) -> tuple[nn.Module, str]:
     for p in parts[:-1]:
         parent = getattr(parent, p)
     return parent, parts[-1]
+
+
+@dataclass
+class _QuantizedLinearRecord:
+    name: str
+    st_name: str
+    in_features: int
+    out_features: int
+    is_lora_target: bool
+    weight_key: str
+    weight_shape: tuple[int, ...]
+    weight_dtype: torch.dtype
+    scale_key: str
+    scale_shape: tuple[int, ...]
+    scale2_key: Optional[str]
+    scale2_shape: Optional[tuple[int, ...]]
+    bias_key: Optional[str]
+    bias_shape: Optional[tuple[int, ...]]
+
+
+_SAFE_DTYPE_TO_TORCH = {
+    "U8": torch.uint8,
+    "F8_E4M3": torch.float8_e4m3fn,
+    "F32": torch.float32,
+    "BF16": torch.bfloat16,
+}
+
+
+def _numel(shape: Sequence[int]) -> int:
+    n = 1
+    for dim in shape:
+        n *= int(dim)
+    return n
+
+
+def _tensor_meta(model_dir: Path, key: str, weight_map: dict) -> tuple[tuple[int, ...], torch.dtype]:
+    shard_path = model_dir / weight_map[key]
+    with safetensors.safe_open(str(shard_path), framework="pt", device="cpu") as f:
+        sl = f.get_slice(key)
+        dtype_name = sl.get_dtype()
+        if dtype_name not in _SAFE_DTYPE_TO_TORCH:
+            raise RuntimeError(f"Unsupported safetensors dtype for {key}: {dtype_name}")
+        return tuple(sl.get_shape()), _SAFE_DTYPE_TO_TORCH[dtype_name]
+
+
+def _tensor_metas(model_dir: Path, keys: Sequence[str], weight_map: dict) -> dict[str, tuple[tuple[int, ...], torch.dtype]]:
+    by_shard: dict[str, list[str]] = defaultdict(list)
+    for key in keys:
+        by_shard[weight_map[key]].append(key)
+
+    metas: dict[str, tuple[tuple[int, ...], torch.dtype]] = {}
+    for shard_rel, shard_keys in by_shard.items():
+        shard_path = model_dir / shard_rel
+        with safetensors.safe_open(str(shard_path), framework="pt", device="cpu") as f:
+            for key in shard_keys:
+                sl = f.get_slice(key)
+                dtype_name = sl.get_dtype()
+                if dtype_name not in _SAFE_DTYPE_TO_TORCH:
+                    raise RuntimeError(f"Unsupported safetensors dtype for {key}: {dtype_name}")
+                metas[key] = (tuple(sl.get_shape()), _SAFE_DTYPE_TO_TORCH[dtype_name])
+    return metas
+
+
+def _collect_quantized_linear_records(
+    model: nn.Module,
+    model_dir: Path,
+    target_lora_suffixes: Sequence[str],
+) -> tuple[list[_QuantizedLinearRecord], dict[str, int]]:
+    nvfp4_module_names_st = list_quantized_modules(model_dir)
+    idx = json.loads((model_dir / "model.safetensors.index.json").read_text())
+    wm = idx["weight_map"]
+    target_set = set(target_lora_suffixes)
+
+    translate, st_prefix, model_prefix = make_key_translator(model, model_dir)
+    model_to_st: dict[str, str] = {}
+    for st_name in nvfp4_module_names_st:
+        m_name = translate(st_name)
+        if m_name is not None:
+            model_to_st[m_name] = st_name
+    print(f"  detected prefix: safetensors='{st_prefix}.', model='{model_prefix}.'")
+
+    quantized_paths: list[tuple[str, nn.Linear, str, bool]] = []
+    needed_keys: list[str] = []
+    for name, module in list(model.named_modules()):
+        if not isinstance(module, nn.Linear) or name not in model_to_st:
+            continue
+        st_name = model_to_st[name]
+        suffix = name.split(".")[-1]
+        is_lora_target = suffix in target_set
+        weight_key = f"{st_name}.weight"
+        scale_key = f"{st_name}.weight_scale"
+        if weight_key not in wm or scale_key not in wm:
+            raise RuntimeError(f"Missing quantization tensors for safetensors module {st_name}")
+        quantized_paths.append((name, module, st_name, is_lora_target))
+        needed_keys.extend([weight_key, scale_key])
+        for optional_key in (f"{st_name}.weight_scale_2", f"{st_name}.bias"):
+            if optional_key in wm:
+                needed_keys.append(optional_key)
+
+    metas = _tensor_metas(model_dir, needed_keys, wm)
+
+    records: list[_QuantizedLinearRecord] = []
+    counts = {"lora": 0, "frozen_nvfp4": 0, "frozen_fp8": 0}
+    for name, module, st_name, is_lora_target in quantized_paths:
+        weight_key = f"{st_name}.weight"
+        scale_key = f"{st_name}.weight_scale"
+        weight_shape, weight_dtype = metas[weight_key]
+        scale_shape, _ = metas[scale_key]
+        scale2_key = f"{st_name}.weight_scale_2" if f"{st_name}.weight_scale_2" in wm else None
+        scale2_shape = metas[scale2_key][0] if scale2_key is not None else None
+        bias_key = f"{st_name}.bias" if f"{st_name}.bias" in wm else None
+        bias_shape = metas[bias_key][0] if bias_key is not None else None
+
+        if weight_dtype == torch.uint8:
+            if scale2_key is None:
+                raise RuntimeError(f"NVFP4 module {st_name} missing weight_scale_2")
+            if weight_shape[-1] * 2 != module.in_features:
+                raise RuntimeError(
+                    f"NVFP4 shape mismatch for {name}: weight is {weight_shape}, "
+                    f"expected in_features={module.in_features} -> packed dim {module.in_features // 2}"
+                )
+            counts["lora" if is_lora_target else "frozen_nvfp4"] += 1
+        elif weight_dtype == torch.float8_e4m3fn:
+            if is_lora_target:
+                counts.setdefault("lora_demoted_fp8", 0)
+                counts["lora_demoted_fp8"] += 1
+            counts["frozen_fp8"] += 1
+        else:
+            raise RuntimeError(f"Unknown quantization format for {name}: weight dtype is {weight_dtype}")
+
+        records.append(
+            _QuantizedLinearRecord(
+                name=name,
+                st_name=st_name,
+                in_features=module.in_features,
+                out_features=module.out_features,
+                is_lora_target=is_lora_target,
+                weight_key=weight_key,
+                weight_shape=weight_shape,
+                weight_dtype=weight_dtype,
+                scale_key=scale_key,
+                scale_shape=scale_shape,
+                scale2_key=scale2_key,
+                scale2_shape=scale2_shape,
+                bias_key=bias_key,
+                bias_shape=bias_shape,
+            )
+        )
+    return records, counts
+
+
+def _view_from_pool(pool: torch.Tensor, offset: int, shape: Sequence[int]) -> torch.Tensor:
+    return pool.narrow(0, offset, _numel(shape)).view(tuple(shape))
+
+
+def _copy_safetensors_to_views(model_dir: Path, weight_map: dict, key_to_view: dict[str, torch.Tensor]) -> None:
+    by_shard: dict[str, list[tuple[str, torch.Tensor]]] = defaultdict(list)
+    for key, view in key_to_view.items():
+        by_shard[weight_map[key]].append((key, view))
+
+    for shard_rel, shard_items in by_shard.items():
+        shard_path = model_dir / shard_rel
+        with safetensors.safe_open(str(shard_path), framework="pt", device="cpu") as f:
+            for key, view in shard_items:
+                view.copy_(f.get_tensor(key))
 
 
 def replace_nvfp4_modules(
@@ -236,6 +404,149 @@ def replace_nvfp4_modules(
     return counts
 
 
+def replace_nvfp4_modules_pooled(
+    model: nn.Module,
+    model_dir: str | Path,
+    target_lora_suffixes: Sequence[str],
+    r: int = 8,
+    lora_alpha: int = 16,
+    lora_dropout: float = 0.0,
+    device: torch.device = torch.device("cuda"),
+    dtype: torch.dtype = torch.bfloat16,
+) -> dict[str, int]:
+    """Pooled-storage variant of `replace_nvfp4_modules`.
+
+    This preserves the module/parameter interface but backs the many immutable
+    NVFP4 buffers and LoRA tensors with a small number of flat CUDA allocations.
+    """
+    model_dir = Path(model_dir)
+    idx = json.loads((model_dir / "model.safetensors.index.json").read_text())
+    wm = idx["weight_map"]
+    records, counts = _collect_quantized_linear_records(model, model_dir, target_lora_suffixes)
+
+    nvfp4_records = [rec for rec in records if rec.weight_dtype == torch.uint8]
+    fp8_records = [rec for rec in records if rec.weight_dtype == torch.float8_e4m3fn]
+    lora_records = [rec for rec in nvfp4_records if rec.is_lora_target and r > 0]
+
+    total_weight_u8 = sum(_numel(rec.weight_shape) for rec in nvfp4_records)
+    total_scale_fp8 = sum(_numel(rec.scale_shape) for rec in nvfp4_records)
+    total_scale2 = sum(_numel(rec.scale2_shape or ()) for rec in nvfp4_records)
+    total_lora_a = sum(r * rec.in_features for rec in lora_records)
+    total_lora_b = sum(rec.out_features * r for rec in lora_records)
+    total_fp8_weight = sum(_numel(rec.weight_shape) for rec in fp8_records)
+
+    print(
+        "  pooled loader: allocating "
+        f"u8={total_weight_u8/1e9:.2f}G elems, "
+        f"fp8_scale={total_scale_fp8/1e9:.2f}G elems, "
+        f"fp32_scale2={total_scale2/1e6:.2f}M elems, "
+        f"lora={((total_lora_a + total_lora_b) * 2)/1e9:.2f}GB, "
+        f"fp8_bf16={total_fp8_weight * 2 / 1e9:.2f}GB"
+    )
+    weight_pool = torch.empty(total_weight_u8, device=device, dtype=torch.uint8)
+    scale_pool = torch.empty(total_scale_fp8, device=device, dtype=torch.float8_e4m3fn)
+    scale2_pool = torch.empty(total_scale2, device=device, dtype=torch.float32)
+    lora_a_pool = torch.empty(total_lora_a, device=device, dtype=dtype) if total_lora_a else None
+    lora_b_pool = torch.empty(total_lora_b, device=device, dtype=dtype) if total_lora_b else None
+    fp8_weight_pool = torch.empty(total_fp8_weight, device=device, dtype=dtype) if total_fp8_weight else None
+    # NVFP4LoRALinear.__init__ intentionally skips Kaiming/zero init when a tensor is
+    # supplied via lora_A_tensor/lora_B_tensor (to preserve checkpoint values during
+    # a future pooled-path resume). Our pools are torch.empty here, so we MUST apply
+    # the standard PEFT init explicitly or the LoRA invariant B@A == 0 breaks at step 0
+    # and the first forward computes a random adapter delta. lora_B can be zeroed at
+    # the flat-pool level (shape-independent); lora_A's Kaiming is shape-dependent so
+    # we apply it per-view inside the construction loop below.
+    if lora_b_pool is not None:
+        lora_b_pool.zero_()
+
+    offsets = {"weight": 0, "scale": 0, "scale2": 0, "lora_a": 0, "lora_b": 0, "fp8": 0}
+    views_by_name: dict[str, dict[str, torch.Tensor | None]] = {}
+    nvfp4_copy_targets: dict[str, torch.Tensor] = {}
+    for rec in records:
+        if rec.weight_dtype == torch.uint8:
+            weight_view = _view_from_pool(weight_pool, offsets["weight"], rec.weight_shape)
+            offsets["weight"] += _numel(rec.weight_shape)
+            scale_view = _view_from_pool(scale_pool, offsets["scale"], rec.scale_shape)
+            offsets["scale"] += _numel(rec.scale_shape)
+            scale2_view = _view_from_pool(scale2_pool, offsets["scale2"], rec.scale2_shape or ())
+            offsets["scale2"] += _numel(rec.scale2_shape or ())
+
+            nvfp4_copy_targets[rec.weight_key] = weight_view
+            nvfp4_copy_targets[rec.scale_key] = scale_view
+            # Local invariant assert: the uint8 record path guards scale2_key non-None
+            # ~240 lines above (in _collect_quantized_linear_records). Restate it here
+            # so a future refactor that relaxes that guard fails fast instead of
+            # silently inserting a None key into nvfp4_copy_targets.
+            assert rec.scale2_key is not None, "NVFP4 uint8 record missing scale2_key"
+            nvfp4_copy_targets[rec.scale2_key] = scale2_view
+
+            lora_a_view = None
+            lora_b_view = None
+            if rec.is_lora_target and r > 0:
+                lora_a_view = _view_from_pool(lora_a_pool, offsets["lora_a"], (r, rec.in_features))
+                offsets["lora_a"] += r * rec.in_features
+                # In-place Kaiming init on the view modifies the underlying pool storage
+                # at this slice; standard PEFT init for LoRA A. lora_B was zeroed at pool
+                # allocation time, so no per-view init needed for B.
+                nn.init.kaiming_uniform_(lora_a_view, a=math.sqrt(5))
+                lora_b_view = _view_from_pool(lora_b_pool, offsets["lora_b"], (rec.out_features, r))
+                offsets["lora_b"] += rec.out_features * r
+
+            views_by_name[rec.name] = {
+                "weight": weight_view,
+                "scale": scale_view,
+                "scale2": scale2_view,
+                "lora_a": lora_a_view,
+                "lora_b": lora_b_view,
+            }
+
+    if nvfp4_copy_targets:
+        print(f"  pooled loader: copying {len(nvfp4_copy_targets)} NVFP4 tensors by shard")
+        _copy_safetensors_to_views(model_dir, wm, nvfp4_copy_targets)
+
+    for rec in records:
+        parent, attr = _get_parent(model, rec.name)
+        bias = load_tensor(model_dir, rec.bias_key, wm) if rec.bias_key is not None else None
+
+        if rec.weight_dtype == torch.uint8:
+            views = views_by_name[rec.name]
+            new_mod = NVFP4LoRALinear(
+                in_features=rec.in_features,
+                out_features=rec.out_features,
+                weight_uint8=views["weight"],
+                weight_scale_fp8=views["scale"],
+                weight_scale_2_fp32=views["scale2"],
+                group_size=16,
+                bias=bias,
+                r=(r if rec.is_lora_target else 0),
+                lora_alpha=(lora_alpha if rec.is_lora_target else 0),
+                lora_dropout=(lora_dropout if rec.is_lora_target else 0.0),
+                device=device,
+                dtype=dtype,
+                copy_base_tensors=False,
+                lora_A_tensor=views["lora_a"],
+                lora_B_tensor=views["lora_b"],
+            )
+            setattr(parent, attr, new_mod)
+        else:
+            weight_view = _view_from_pool(fp8_weight_pool, offsets["fp8"], rec.weight_shape)
+            offsets["fp8"] += _numel(rec.weight_shape)
+            w_tensor = load_tensor(model_dir, rec.weight_key, wm)
+            w_scale = load_tensor(model_dir, rec.scale_key, wm)
+            scale = float(w_scale.to(torch.float32).item())
+            weight_view.copy_(w_tensor.to(torch.float32).mul_(scale).to(dtype=dtype))
+
+            new_mod = nn.Linear(
+                rec.in_features, rec.out_features, bias=(bias is not None), device="meta", dtype=dtype
+            )
+            new_mod.weight = nn.Parameter(weight_view, requires_grad=False)
+            if bias is not None:
+                new_mod.bias = nn.Parameter(bias.to(device=device, dtype=dtype), requires_grad=False)
+            setattr(parent, attr, new_mod)
+
+    return counts
+
+
 # --------------------------------------------------------------------------------------
 # Non-NVFP4 weight loading (norms, embeddings, conv1d, Mamba SSM state, lm_head)
 # --------------------------------------------------------------------------------------
@@ -350,6 +661,7 @@ def load_nemotron_with_nvfp4_lora(
     lora_dropout: float = 0.0,
     device: torch.device | str = "cuda",
     dtype: torch.dtype = torch.bfloat16,
+    pooled_loader_buffers: bool = False,
 ) -> nn.Module:
     """Load a Nemotron-3 NVFP4 checkpoint with NVFP4LoRALinear modules at target paths.
 
@@ -375,7 +687,10 @@ def load_nemotron_with_nvfp4_lora(
         model = AutoModelForCausalLM.from_config(config, trust_remote_code=True, torch_dtype=dtype)
 
     print(f"=== loader: replacing NVFP4 Linears (LoRA targets: {list(target_lora_suffixes)}) ===")
-    counts = replace_nvfp4_modules(
+    replace_fn = replace_nvfp4_modules_pooled if pooled_loader_buffers else replace_nvfp4_modules
+    if pooled_loader_buffers:
+        print("  pooled loader buffers: enabled")
+    counts = replace_fn(
         model, model_dir, target_lora_suffixes,
         r=r, lora_alpha=lora_alpha, lora_dropout=lora_dropout,
         device=device, dtype=dtype,

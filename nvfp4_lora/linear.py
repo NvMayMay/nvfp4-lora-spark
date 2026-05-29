@@ -98,6 +98,9 @@ class NVFP4LoRALinear(nn.Module):
         lora_dropout: float = 0.0,
         device: Optional[torch.device] = None,
         dtype: torch.dtype = torch.bfloat16,
+        copy_base_tensors: bool = True,
+        lora_A_tensor: Optional[torch.Tensor] = None,
+        lora_B_tensor: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         self.in_features = in_features
@@ -110,9 +113,13 @@ class NVFP4LoRALinear(nn.Module):
 
         # Frozen NVFP4 base (register as buffers, not Parameters - never trained, never saved by optimizer)
         device = device or weight_uint8.device
-        self.register_buffer("weight_uint8", weight_uint8.to(device=device).contiguous())
-        self.register_buffer("weight_scale_fp8", weight_scale_fp8.to(device=device).contiguous())
-        self.register_buffer("weight_scale_2_fp32", weight_scale_2_fp32.to(device=device).contiguous())
+        if copy_base_tensors:
+            weight_uint8 = weight_uint8.to(device=device).contiguous()
+            weight_scale_fp8 = weight_scale_fp8.to(device=device).contiguous()
+            weight_scale_2_fp32 = weight_scale_2_fp32.to(device=device).contiguous()
+        self.register_buffer("weight_uint8", weight_uint8)
+        self.register_buffer("weight_scale_fp8", weight_scale_fp8)
+        self.register_buffer("weight_scale_2_fp32", weight_scale_2_fp32)
 
         if bias is not None:
             self.bias = nn.Parameter(bias.to(device=device, dtype=dtype), requires_grad=False)
@@ -121,10 +128,20 @@ class NVFP4LoRALinear(nn.Module):
 
         # LoRA params
         if r > 0:
-            self.lora_A = nn.Parameter(torch.empty(r, in_features, device=device, dtype=dtype))
-            self.lora_B = nn.Parameter(torch.zeros(out_features, r, device=device, dtype=dtype))
+            _lora_A_supplied = lora_A_tensor is not None
+            _lora_B_supplied = lora_B_tensor is not None
+            if lora_A_tensor is None:
+                lora_A_tensor = torch.empty(r, in_features, device=device, dtype=dtype)
+            if lora_B_tensor is None:
+                lora_B_tensor = torch.zeros(out_features, r, device=device, dtype=dtype)
+            self.lora_A = nn.Parameter(lora_A_tensor)
+            self.lora_B = nn.Parameter(lora_B_tensor)
             # Kaiming init for A; B starts at zero so LoRA delta starts at zero (standard PEFT init)
-            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            if not _lora_A_supplied:
+                nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            with torch.no_grad():
+                if not _lora_B_supplied:
+                    self.lora_B.zero_()
             self.lora_dropout = nn.Dropout(p=lora_dropout) if lora_dropout > 0 else nn.Identity()
         else:
             self.lora_A = None

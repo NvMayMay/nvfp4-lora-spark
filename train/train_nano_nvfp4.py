@@ -44,7 +44,8 @@ SAVE_EVERY = 200
 
 def save_adapter(
     model, save_dir, loss_history, step, epoch, batch, max_len, grad_accum,
-    grad_accum_arg, mask_prompt_labels_enabled,
+    grad_accum_arg, mask_prompt_labels_enabled, dynamic_padding_enabled,
+    length_bucketing_enabled, pad_to_multiple_of, limit_examples,
     optimizer=None, save_optimizer_state=True,
 ):
     os.makedirs(save_dir, exist_ok=True)
@@ -72,7 +73,12 @@ def save_adapter(
             "config": {
                 "batch": batch, "max_len": max_len,
                 "grad_accum": grad_accum, "grad_accum_arg": grad_accum_arg,
-                "mask_prompt_labels": bool(mask_prompt_labels_enabled), "lr": LR,
+                "mask_prompt_labels": bool(mask_prompt_labels_enabled),
+                "dynamic_padding": bool(dynamic_padding_enabled),
+                "length_bucketing": bool(length_bucketing_enabled),
+                "pad_to_multiple_of": pad_to_multiple_of,
+                "limit_examples": limit_examples,
+                "lr": LR,
                 "n_epochs": N_EPOCHS, "r": R, "lora_alpha": LORA_ALPHA,
                 "targets": list(TARGET_SUFFIXES),
             },
@@ -125,20 +131,40 @@ def load_adapter_weights(model, adapter_dir):
     return loaded, progress_step, progress_epoch, loss_history, progress_config
 
 
-def validate_resume_config(saved_config, batch, max_len, grad_accum, grad_accum_arg, mask_prompt_labels_enabled, force):
+def validate_resume_config(
+    saved_config, batch, max_len, grad_accum, grad_accum_arg, mask_prompt_labels_enabled,
+    dynamic_padding_enabled, length_bucketing_enabled, pad_to_multiple_of, limit_examples, force,
+):
     expected = {
         "batch": batch,
         "max_len": max_len,
         "grad_accum": grad_accum,
         "mask_prompt_labels": bool(mask_prompt_labels_enabled),
+        "dynamic_padding": bool(dynamic_padding_enabled),
+        "length_bucketing": bool(length_bucketing_enabled),
+        "pad_to_multiple_of": pad_to_multiple_of,
+        "limit_examples": limit_examples,
+    }
+    legacy_defaults = {
+        "dynamic_padding": False,
+        "length_bucketing": False,
+        "pad_to_multiple_of": None,
+        "limit_examples": None,
     }
     differences = []
     legacy_missing = []
     for key, current_value in expected.items():
-        saved_value = saved_config.get(key)
-        if saved_value is None:
+        if key in saved_config:
+            saved_value = saved_config[key]
+        elif key in legacy_defaults:
+            saved_value = legacy_defaults[key]
+        else:
             legacy_missing.append(key)
-        if saved_value is not None and saved_value != current_value:
+            continue
+        if saved_value != current_value:
+            # dynamic_padding has no behavioral effect at batch=1; do not flag a mismatch
+            if key == "dynamic_padding" and batch == 1:
+                continue
             differences.append(f"{key}: checkpoint={saved_value}, current={current_value}")
     saved_grad_accum_arg = saved_config.get("grad_accum_arg")
     if saved_grad_accum_arg is None:
@@ -213,13 +239,33 @@ def mask_prompt_labels(labels, texts, examples, tokenizer, max_len):
         labels[row_idx, :min(len(prefix_ids), labels.shape[1])] = -100
 
 
+def prepare_training_records(train_examples, tokenizer, max_len, length_bucketing_enabled):
+    records = []
+    for idx, ex in enumerate(train_examples):
+        text = tokenizer.apply_chat_template(ex["messages"], tokenize=False, add_generation_prompt=False)
+        token_len = len(tokenizer(text, truncation=True, max_length=max_len)["input_ids"])
+        records.append({"idx": idx, "example": ex, "text": text, "token_len": token_len})
+
+    if length_bucketing_enabled:
+        records.sort(key=lambda r: (r["token_len"], r["idx"]))
+    return records
+
+
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--batch", type=int, default=1,
                     help="physical batch size; batch > 1 enables padded batched training")
     ap.add_argument("--max-len", type=int, default=MAX_LEN)
     ap.add_argument("--grad-accum", type=int, default=GRAD_ACCUM,
-                    help="gradient accumulation for the batch=1 compatibility path")
+                    help="gradient accumulation steps")
+    ap.add_argument("--pad-to-max-length", action="store_true",
+                    help="use legacy batched padding to --max-len instead of padding to the longest item in each batch")
+    ap.add_argument("--no-length-bucketing", action="store_false", dest="length_bucketing", default=True,
+                    help="keep dataset order for batched runs instead of sorting by tokenized length")
+    ap.add_argument("--pad-to-multiple-of", type=int, default=None,
+                    help="optionally pad dynamic batches to a multiple, e.g. 8; unset minimizes token count")
+    ap.add_argument("--limit-examples", type=int, default=None,
+                    help="limit the loaded dataset before batching; useful for bounded smoke tests")
     ap.add_argument("--stop-at-step", type=int, default=None,
                     help="stop cleanly after this many forward/backward steps")
     ap.add_argument("--resume-from", type=int, default=None,
@@ -239,9 +285,18 @@ def main():
         raise SystemExit("--batch must be >= 1")
     if args.grad_accum < 1:
         raise SystemExit("--grad-accum must be >= 1")
+    if args.pad_to_multiple_of is not None and args.pad_to_multiple_of < 1:
+        raise SystemExit("--pad-to-multiple-of must be >= 1 when set")
+    if args.limit_examples is not None and args.limit_examples < 1:
+        raise SystemExit("--limit-examples must be >= 1 when set")
 
-    effective_grad_accum = args.grad_accum if args.batch == 1 else 1
-    print(f"=== Day 5b: Nano-30B LoRA on ICH v3.1, 1 epoch, batch={args.batch}, max_len={args.max_len} ===")
+    effective_grad_accum = args.grad_accum
+    dynamic_padding_enabled = not args.pad_to_max_length
+    length_bucketing_enabled = bool(args.length_bucketing and args.batch > 1)
+    print(
+        f"=== Day 5b: Nano-30B LoRA on ICH v3.1, 1 epoch, batch={args.batch}, "
+        f"max_len={args.max_len}, grad_accum={effective_grad_accum} ==="
+    )
     device = torch.device("cuda")
     os.makedirs(ADAPTER_DIR, exist_ok=True)
 
@@ -277,7 +332,11 @@ def main():
     with open(TRAIN_FILE) as f:
         for line in f:
             train_examples.append(json.loads(line))
-    print(f"  loaded {len(train_examples)} train examples")
+    if args.limit_examples is not None:
+        train_examples = train_examples[:args.limit_examples]
+        print(f"  limited to first {len(train_examples)} train examples")
+    else:
+        print(f"  loaded {len(train_examples)} train examples")
 
     resume_step = 0
     resume_epoch = 0
@@ -294,6 +353,10 @@ def main():
             effective_grad_accum,
             args.grad_accum,
             args.mask_prompt_labels,
+            dynamic_padding_enabled,
+            length_bucketing_enabled,
+            args.pad_to_multiple_of,
+            args.limit_examples,
             args.force_config_mismatch,
         )
         if progress_step is None and not args.force_config_mismatch:
@@ -322,7 +385,17 @@ def main():
         opt_loaded, rng_loaded = load_resume_state(ADAPTER_DIR, opt)
         print(f"  resume state: optimizer_state={'loaded' if opt_loaded else 'missing'}, rng_state={'loaded' if rng_loaded else 'missing'}")
 
-    max_loop_idx = len(train_examples) if args.batch == 1 else (len(train_examples) // args.batch)
+    print("\n--- rendering/tokenizing training records ---")
+    train_records = prepare_training_records(train_examples, tok, args.max_len, length_bucketing_enabled)
+    if length_bucketing_enabled:
+        print("  length bucketing: enabled for batched training")
+    if args.batch > 1:
+        print(
+            f"  padding: {'dynamic longest-in-batch' if dynamic_padding_enabled else 'legacy max_length'}"
+            + (f", pad_to_multiple_of={args.pad_to_multiple_of}" if args.pad_to_multiple_of else "")
+        )
+
+    max_loop_idx = len(train_records) if args.batch == 1 else (len(train_records) // args.batch)
     # Defensive: catches a manually-edited training_progress.json that claims epoch >= N_EPOCHS.
     # The script's own save path never writes such a state.
     if resume_epoch >= N_EPOCHS:
@@ -338,12 +411,12 @@ def main():
         )
 
     if args.batch == 1:
-        total_steps = len(train_examples) * N_EPOCHS
-        print(f"\n--- training {N_EPOCHS} epoch x {len(train_examples)} examples (max_len={args.max_len}, grad_accum={effective_grad_accum}, save_every={SAVE_EVERY}) ---")
+        total_steps = len(train_records) * N_EPOCHS
+        print(f"\n--- training {N_EPOCHS} epoch x {len(train_records)} examples (max_len={args.max_len}, grad_accum={effective_grad_accum}, save_every={SAVE_EVERY}) ---")
     else:
-        n_full_batches = len(train_examples) // args.batch
+        n_full_batches = len(train_records) // args.batch
         total_steps = n_full_batches * N_EPOCHS
-        print(f"\n--- training {N_EPOCHS} epoch x {n_full_batches} full batches (batch={args.batch}, max_len={args.max_len}, save_every={SAVE_EVERY}) ---")
+        print(f"\n--- training {N_EPOCHS} epoch x {n_full_batches} full batches (batch={args.batch}, max_len={args.max_len}, grad_accum={effective_grad_accum}, save_every={SAVE_EVERY}) ---")
     model.train()
     t_start = time.time()
     step = resume_step
@@ -352,12 +425,15 @@ def main():
     if args.batch == 1:
         for epoch in range(resume_epoch, N_EPOCHS):
             start_ex_idx = resume_step if epoch == resume_epoch else 0
-            for ex_idx, ex in enumerate(train_examples[start_ex_idx:], start=start_ex_idx):
-                text = tok.apply_chat_template(ex["messages"], tokenize=False, add_generation_prompt=False)
+            for ex_idx, record in enumerate(train_records[start_ex_idx:], start=start_ex_idx):
+                ex = record["example"]
+                text = record["text"]
                 enc = tok(text, return_tensors="pt", truncation=True, max_length=args.max_len).to(device)
                 labels = enc.input_ids.clone()
                 if args.mask_prompt_labels:
                     mask_prompt_labels(labels, [text], [ex], tok, args.max_len)
+                seq_len = enc.input_ids.shape[1]
+                real_tokens = int(enc.attention_mask.sum().item())
 
                 out = model(input_ids=enc.input_ids, attention_mask=enc.attention_mask, labels=labels)
                 scaled_loss = out.loss / effective_grad_accum
@@ -376,50 +452,62 @@ def main():
                     print(
                         f"  step {step}/{total_steps}: loss={loss_history[-1]:.4f} avg20={avg_loss:.4f} "
                         f"elapsed={elapsed/60:.1f}m eta={eta_h:.2f}h "
+                        f"seq_len={seq_len} real_tokens={real_tokens} "
                         f"cuda_alloc={torch.cuda.memory_allocated()/1e9:.2f}GB",
                         flush=True,
                     )
 
-                if step % SAVE_EVERY == 0:
+                if step % SAVE_EVERY == 0 and step % effective_grad_accum == 0:
                     n_saved = save_adapter(
                         model, ADAPTER_DIR, loss_history, step, epoch,
                         args.batch, args.max_len, effective_grad_accum,
                         args.grad_accum, args.mask_prompt_labels,
+                        dynamic_padding_enabled, length_bucketing_enabled,
+                        args.pad_to_multiple_of, args.limit_examples,
                         optimizer=opt, save_optimizer_state=args.save_optimizer_state,
                     )
                     print(f"  [checkpoint @ step {step}] saved {n_saved} LoRA tensors -> {ADAPTER_DIR}/")
 
-                if args.stop_at_step is not None and step >= args.stop_at_step:
-                    print(f"  [stop-at-step={args.stop_at_step} reached]")
+                if (
+                    args.stop_at_step is not None
+                    and step >= args.stop_at_step
+                    and step % effective_grad_accum == 0
+                ):
+                    print(f"  [stop-at-step={args.stop_at_step} reached at accumulation boundary]")
                     break
             if args.stop_at_step is not None and step >= args.stop_at_step:
                 break
     else:
-        n_full_batches = len(train_examples) // args.batch
+        n_full_batches = len(train_records) // args.batch
         for epoch in range(resume_epoch, N_EPOCHS):
             start_batch = resume_step if epoch == resume_epoch else 0
             for batch_idx in range(start_batch, n_full_batches):
-                batch_ex = train_examples[batch_idx * args.batch:(batch_idx + 1) * args.batch]
-                texts = [
-                    tok.apply_chat_template(ex["messages"], tokenize=False, add_generation_prompt=False)
-                    for ex in batch_ex
-                ]
+                batch_records = train_records[batch_idx * args.batch:(batch_idx + 1) * args.batch]
+                batch_ex = [record["example"] for record in batch_records]
+                texts = [record["text"] for record in batch_records]
                 enc = tok(
                     texts, return_tensors="pt", truncation=True,
-                    max_length=args.max_len, padding="max_length",
+                    max_length=args.max_len,
+                    padding=("longest" if dynamic_padding_enabled else "max_length"),
+                    pad_to_multiple_of=args.pad_to_multiple_of,
                 ).to(device)
                 labels = enc.input_ids.clone()
                 if args.mask_prompt_labels:
                     mask_prompt_labels(labels, texts, batch_ex, tok, args.max_len)
                 labels[enc.attention_mask == 0] = -100
+                seq_len = enc.input_ids.shape[1]
+                real_tokens = int(enc.attention_mask.sum().item())
 
                 out = model(input_ids=enc.input_ids, attention_mask=enc.attention_mask, labels=labels)
-                out.loss.backward()
-                opt.step()
-                opt.zero_grad(set_to_none=True)
+                scaled_loss = out.loss / effective_grad_accum
+                scaled_loss.backward()
                 loss_history.append(float(out.loss.item()))
 
                 step += 1
+                if step % effective_grad_accum == 0:
+                    opt.step()
+                    opt.zero_grad(set_to_none=True)
+
                 if step % 10 == 0 or step == 1:
                     elapsed = time.time() - t_start
                     eta_h = (elapsed / max(1, step)) * (total_steps - step) / 3600
@@ -427,32 +515,41 @@ def main():
                     print(
                         f"  step {step}/{total_steps}: loss={loss_history[-1]:.4f} avg20={avg_loss:.4f} "
                         f"elapsed={elapsed/60:.1f}m eta={eta_h:.2f}h "
+                        f"seq_len={seq_len} real_tokens={real_tokens} "
                         f"cuda_alloc={torch.cuda.memory_allocated()/1e9:.2f}GB",
                         flush=True,
                     )
 
-                if step % SAVE_EVERY == 0:
+                if step % SAVE_EVERY == 0 and step % effective_grad_accum == 0:
                     n_saved = save_adapter(
                         model, ADAPTER_DIR, loss_history, step, epoch,
                         args.batch, args.max_len, effective_grad_accum,
                         args.grad_accum, args.mask_prompt_labels,
+                        dynamic_padding_enabled, length_bucketing_enabled,
+                        args.pad_to_multiple_of, args.limit_examples,
                         optimizer=opt, save_optimizer_state=args.save_optimizer_state,
                     )
                     print(f"  [checkpoint @ step {step}] saved {n_saved} LoRA tensors -> {ADAPTER_DIR}/")
 
-                if args.stop_at_step is not None and step >= args.stop_at_step:
-                    print(f"  [stop-at-step={args.stop_at_step} reached]")
+                if (
+                    args.stop_at_step is not None
+                    and step >= args.stop_at_step
+                    and step % effective_grad_accum == 0
+                ):
+                    print(f"  [stop-at-step={args.stop_at_step} reached at accumulation boundary]")
                     break
             if args.stop_at_step is not None and step >= args.stop_at_step:
                 break
 
-    if args.batch == 1 and step % effective_grad_accum != 0:
+    if step % effective_grad_accum != 0:
         opt.step()
         opt.zero_grad(set_to_none=True)
     save_adapter(
         model, ADAPTER_DIR, loss_history, step, epoch,
         args.batch, args.max_len, effective_grad_accum,
         args.grad_accum, args.mask_prompt_labels,
+        dynamic_padding_enabled, length_bucketing_enabled,
+        args.pad_to_multiple_of, args.limit_examples,
         optimizer=opt, save_optimizer_state=args.save_optimizer_state,
     )
     print(f"\n=== Day 5b DONE: {step} steps, wall={(time.time()-t_start)/3600:.2f}h ===")

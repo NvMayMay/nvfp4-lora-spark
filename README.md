@@ -97,7 +97,45 @@ The sweep cells are 3-step warm-state measurements; per-step rates are stable ac
 
 **Operational note for Super training on GB10.** Launch Super-120B training from a clean boot (no prior vLLM serves, merges, or repeated benchmarks in the same boot). Loading the 75 GB NVFP4 base stresses the NVRM allocation paths and produces a burst of `NV_ERR_NO_MEMORY` lines in `/var/log/kern.log` during the load phase (observed: 174-225 events across the Super training and inference loads in this release's benchmark runs, all self-resolved within the load window). The train scripts set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` automatically to reduce allocator-side pressure. If a fresh NVRM burst or any `NVRM: Xid` event appears AFTER training has started, abort and reboot; the full failure-signature playbook is in [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
-To run the throughput-optimal Super config, use `python train/train_super_nvfp4.py --batch 4 --max-len 1024 --stop-at-step 200`; the same flags are available on `train/train_nano_nvfp4.py`. The default invocation remains the conservative batch=1, max_len=1536, grad_accum=4 path used for the v1.0 production run.
+For new long-context batched runs, the train scripts now default to dynamic padding plus length bucketing when `--batch > 1`, and `--grad-accum` applies to all physical batch sizes. A useful Super probe is `python train/train_super_nvfp4.py --batch 2 --max-len 4096 --grad-accum 2 --mask-prompt-labels --stop-at-step 20`; use the Nano script with the same flags for Nano. To reproduce the v1.0 max-padded sweep cells, pass the legacy knobs explicitly, for example `python train/train_super_nvfp4.py --batch 4 --max-len 1024 --grad-accum 1 --pad-to-max-length --no-length-bucketing --stop-at-step 200`. The default invocation remains the conservative batch=1, max_len=1536, grad_accum=4 path used for the v1.0 production run.
+
+### Long-context training: validated configurations on GB10
+
+The training script supports two training modes that together cover everything from short SFT up to 262k-token cached-context adaptation on a single Spark, all with the standard r=8 LoRA on `up_proj,down_proj` (no rank or target reduction).
+
+- **Exact full-sequence** (default `--training-mode full_sequence`): all tokens backprop. Maximum trainable context bounded by activation memory.
+- **Cached-prefix + trainable suffix** (`--training-mode cached_prefix_suffix --train-suffix-len N`): the prefix is prefilled under `torch.no_grad()` into a read-only attention K/V plus Mamba SSM-state cache, and only the trailing N tokens of the sequence receive gradients. This decouples trainable-window activation memory from total context length. Because next-token prediction shifts labels by one and the first suffix token's predictor is the final no-grad prefix hidden state, the suffix produces at most **N − 1** supervised next-token targets per step.
+
+Single-step training results validated on Super-120B-NVFP4 on a 130.66 GB GB10 (all runs `--batch 1 --grad-accum 1`):
+
+| Training mode | Total context | Trainable suffix | CUDA peak (backward) | Step wall (post-load) | Use case |
+|---|---:|---:|---:|---:|---|
+| Exact full-sequence | 16,384 | (full) | 101.9 GB | 3.5 min | Standard SFT where every token contributes loss; recommended path for contexts ≤16k |
+| Cached-prefix + suffix | 4,096 | 2,048 | 85.7 GB | 3.1 min | Smallest cached-prefix shape; smoke validation |
+| Cached-prefix + suffix | 16,384 | 2,048 | 85.8 GB | 6.9 min | All ICH-v3.1-style records (max 2,577 tokens) fit fully in the trainable window |
+| Cached-prefix + suffix | 65,536 | 2,048 | 87.1 GB | 23.3 min | Longest validated context at suffix=2,048; ample room for retrieval-augmented or document-level pretexts |
+| Cached-prefix + suffix | 262,144 | 1,024 | 90.8 GB | 22.4 min | Longest validated training context overall; suffix reduced to 1,024 to clear the backward allocator descriptor cliff |
+
+Recommended flag set for all cached-prefix rows (the values used in the certified runs):
+
+```
+--batch 1 --grad-accum 1
+--training-mode cached_prefix_suffix --train-suffix-len <SUFFIX> --prefix-chunk-len <CHUNK>
+--loss-mode chunked_frozen_ce --loss-chunk-tokens 512
+--optimizer adafactor
+--sdpa-causal-no-mask --pooled-loader-buffers --moe-sparse-no-one-hot --mamba-cached-multitoken
+--watchdog-min-available-gb 2 --watchdog-nvrm-errors --profile-memory-phases
+```
+
+Use `--prefix-chunk-len 2048` up to 16k context, `--prefix-chunk-len 4096` for 64k, `--prefix-chunk-len 8192` for 256k. The full per-row CLI invocations live in [`docs/LONG_CONTEXT_EXPERIMENTS.md`](docs/LONG_CONTEXT_EXPERIMENTS.md) (run IDs SUPER-LC-032, LC-046, LC-048, LC-050, LC-060).
+
+#### Operational notes
+
+- **Trainable-suffix ceiling.** Suffix sizes ≥ ~3,000 tokens currently fail at backward with NVIDIA NVRM `NV_ERR_NO_MEMORY` at `mem_desc.c:1359` despite ample byte-level headroom. The cliff is a per-process CUDA descriptor-pool ceiling, not byte-OOM; characterized across LC-062-LC-069 by `torch.cuda.memory_stats()['num_device_alloc']`. Suffix=2,048 (the validated rows above) covers the ICH-v3.1 distribution; larger suffixes for long-context adaptation are future-work.
+- **`save_on_cpu` activation offload (`--activation-offload save_on_cpu`)** is plumbed but has been shown to be wall-time-only on GB10 unified memory: peak and reserved are unchanged vs no-offload, while step wall grows ~8% (LC-063). Use only as a diagnostic A/B.
+- **Watchdog phase tags.** When the watchdog aborts, the printed line includes `phase=<init|cached_prefix_prefill|cached_suffix_forward|cached_suffix_loss|base_forward|chunked_loss|hf_forward_loss|backward|optimizer>` so a load-time NVRM transient (`phase=init`) is distinguishable from a training-time descriptor cliff at a glance. The NVRM journal watcher arms only after model load completes, so the known self-resolving NVRM bursts during NVFP4 weight load do not abort the run.
+- **Optional alternate loss path.** `--loss-mode liger_flce` uses Liger Kernel's `FusedLinearCrossEntropyLoss` (requires `pip install liger-kernel`, parity-tested against the chunked path). It optimizes byte footprint rather than allocator-event count; in our profiling it did not lower the descriptor-pressure ceiling on GB10 and the chunked path remains the certified loss mode.
+- **CUDA state recovery.** After any aborted or unusual run, if `torch.cuda.mem_get_info()` reports significantly less than the clean baseline (~127 GB free), the persistence-mode driver is holding state. Run `VENV_PY=/path/to/venv/bin/python sudo -E ./serve/diagnostics/release_cuda.sh` to drop OS page cache and restart `nvidia-persistenced`. Full playbook in [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 ### Quantization tax on adapter quality is negligible
 
