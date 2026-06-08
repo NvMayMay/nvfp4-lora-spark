@@ -1,8 +1,10 @@
 # nvfp4-lora-spark
 
-**LoRA fine-tuning and serving for Nemotron-3 NVFP4 MoE models on a single NVIDIA DGX Spark (GB10, sm_121, 128 GB unified memory)**
+**LoRA fine-tuning and serving for NVFP4 MoE models on a single NVIDIA DGX Spark (GB10, sm_121, 128 GB unified memory)**
 
-NVIDIA ships Nemotron-3 in NVFP4 (4-bit) form so the 120B Super model fits on a 128 GB GB10 box. NVFP4 weights are not a format that off-the-shelf LoRA libraries understand: packed E2M1 nibbles with `fp8_e4m3fn` block scales and an `fp32` per-tensor scale, mixed with FP8 Mamba and shared-expert layers. nvfp4-lora-spark closes that gap with an NVFP4-aware LoRA training stack and validated serving recipes for both Nano-30B and Super-120B on a single GB10 system.
+NVIDIA and partners ship the largest open MoE families in NVFP4 (4-bit) form so models well past the 100B class fit on a 128 GB GB10 box. NVFP4 weights are not a format that off-the-shelf LoRA libraries understand: packed E2M1 nibbles with `fp8_e4m3fn` block scales and an `fp32` per-tensor scale, in either NVIDIA ModelOpt or compressed-tensors layout, mixed with FP8 Mamba and shared-expert layers. nvfp4-lora-spark closes that gap with an NVFP4-aware LoRA training stack and validated serving recipes on a single GB10 system.
+
+The core dequant kernel (a fused Triton implementation as of v1.2, see [Training throughput](#training-throughput)), the `NVFP4LoRALinear` module, and the fused-3D MoE machinery are all model-family agnostic. Per-family loaders bind them to a specific safetensors layout. Shipped end-to-end on `main`: Nemotron-3 Nano-30B-A3B and Super-120B-A12B (NVIDIA ModelOpt NVFP4). The same stack has been validated against community NVFP4 checkpoints in development branches: Mistral-Small-4-119B-2603 (RedHatAI compressed-tensors NVFP4), Qwen3.5-122B-A10B and Qwen3.6-35B-A3B (NVIDIA ModelOpt NVFP4). Porting to a new NVFP4 family is a loader change, not a kernel change.
 
 > **Tip:** see [REPRODUCE.md](REPRODUCE.md) for the exact stack, [serve/README.md](serve/README.md) for the serving recipes, and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for the failure-signature playbook.
 
@@ -201,6 +203,21 @@ Super-120B concurrency on the merged-FT path also scales. A prior attempt that b
 
 Mean aggregate tok/s rises from 13.1 (conc=1) → 25.1 (conc=2) → 33.2 (conc=3). Single-request TTFT scales as expected (0.5 s at conc=1, ~0.9 s at conc=3 for prompt=512; longer for prompt=2048 prefill). Full per-trial JSONLs at [results/super_inference_concurrency_sweep/](results/super_inference_concurrency_sweep/). Concurrency above 3 was not tested in this release.
 
+### Training throughput
+
+NVFP4 weight dequant runs as a fused Triton kernel (`nvfp4_lora/triton_dequant.py`) as of v1.2. The kernel does the full unpack + E2M1 LUT + group scale + per-tensor scale + bf16 store in one dispatch, with the nibble kept in a register (no int64 intermediate). The dispatcher in `dequantize_nvfp4_weight` falls through to the original PyTorch path when the tensor is on CPU, Triton is not importable, or `out_dtype` is not bf16, so no call site has to change.
+
+Per dequant call, measured on a Blackwell B10 / GB10 Spark (PyTorch 2.11.0+cu130, Triton 3.6.0):
+
+| shape | PyTorch | Triton | speedup |
+|---|---:|---:|---:|
+| 4096 x 4096 bf16 | 6.02 ms | 0.28 ms | 21.6x |
+| 4096 x 2048 bf16 | 3.04 ms | 0.13 ms | 23.5x |
+| 4096 x 1024 bf16 | 1.44 ms | 0.06 ms | 24.8x |
+| 6144 x 256 bf16  | 0.47 ms | 0.03 ms | 14.5x |
+
+End-to-end LoRA training step time on a 119B-class NVFP4 MoE with 128 routed experts per layer drops from **984 s to 92 s (10.7x)** at bsz=1, grad_accum=8, seq_len=2048 with gradient checkpointing on. The end-to-end ratio is lower than the per-call ratio because attention, optimizer step, and Python orchestration now make up a larger share of the total; dequant is no longer the bottleneck. Parity against the PyTorch path is bit-identical (`max_abs_diff = 0.0` across all tested shapes and both modelopt and compressed-tensors quant formats). See [`smoke_tests/triton_dequant_parity.py`](smoke_tests/triton_dequant_parity.py).
+
 ### Training loss curves
 
 LoRA on Super-120B crosses avg20 < 1.0 around step 370 and continues to improve to 0.81 by epoch end. Nano-30B's curve is shifted right but follows the same shape: it crosses avg20 < 1.0 around step 810 and ends at ~1.00 after one epoch.
@@ -209,12 +226,26 @@ LoRA on Super-120B crosses avg20 < 1.0 around step 370 and continues to improve 
 
 ## Supported models
 
+### Shipped on `main`
+
 | Model | Base inference | LoRA serving | Throughput |
 |---|---|---|---|
 | Nemotron-3-Nano-30B-A3B-NVFP4 | vLLM marlin via [`serve/serve_nemotron_nvfp4.sh`](serve/serve_nemotron_nvfp4.sh) | Dynamic via `--enable-lora --lora-modules` (same script attaches an adapter) | 28-55 tok/s short-prompt single-stream (4.9-26 tok/s single-stream on long prompts); **up to ~339 tok/s aggregate at conc=8** (ctx=4096) |
 | Nemotron-3-Super-120B-A12B-NVFP4 | vLLM CUTLASS via [`serve/run_super_base_inference_cutlass.sh`](serve/run_super_base_inference_cutlass.sh) | Merge-then-serve via [`scripts/merge_lora_into_nvfp4.py`](scripts/merge_lora_into_nvfp4.py) + [`serve/run_super_ft_merged.sh`](serve/run_super_ft_merged.sh) | **11-14 tok/s** single-stream (base + merged-FT); merged-path **scales to ~40 tok/s aggregate at conc=3** on ctx=4096 |
 
 The merge-then-serve workflow exists because vLLM 0.21's CUTLASS MoE kernel does not support LoRA at request time on sm_121 (`CutlassExpertsFp4.supports_lora() = False`), and the EMULATION fallback that does claim LoRA support hits a Triton kernel bug. Dynamic LoRA at CUTLASS speeds is parked as [Phase 2](docs/PHASE2.md). For the full backend matrix and per-failure-mode reasoning, see [serve/README.md](serve/README.md) and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
+### Other NVFP4 families (validated in development branches)
+
+The core stack (dequant kernel, NVFP4LoRALinear, fused-3D MoE, save/load round-trip) is family-agnostic. Adding a model is a per-family loader change. The following have been validated end-to-end (load + LoRA train + adapter save) against community NVFP4 checkpoints, with loaders pending upstream:
+
+| Model | Quant format | Notes |
+|---|---|---|
+| Mistral-Small-4-119B-2603 | compressed-tensors (RedHatAI) | MLA attention (q_b_proj, kv_b_proj, o_proj) is BF16; routed and shared experts are NVFP4. Loader handles the `language_model.*` prefix translation between the multimodal `Mistral3ForConditionalGeneration` wrapper and the on-disk safetensors keys. |
+| Qwen3.5-122B-A10B-NVFP4 | NVIDIA ModelOpt | MoE-only NVFP4 (attention + embeddings BF16). Served via vLLM 0.22.1 with the same NVFP4 backend used for Nemotron-3 Nano. |
+| Qwen3.6-35B-A3B-NVFP4 | NVIDIA ModelOpt | Smaller MoE in the same family; serves with `--enable-lora --lora-modules` for dynamic adapter switching. |
+
+Porting another NVFP4 family means writing a loader that maps the safetensors layout to the in-memory module tree (the kernel and LoRA wrappers are unchanged). The [smoke_tests/](smoke_tests/) directory has working templates for both ModelOpt and compressed-tensors layouts.
 
 ## How it works
 
@@ -314,9 +345,9 @@ results/                     # published bench + validation artifacts
 ## Roadmap
 
 - **Dynamic LoRA at CUTLASS speeds for Super-120B.** Phase 1 ships the merge-then-serve workflow; Phase 2 adds a runtime-swap path via a post-MoE LoRA delta hook on top of the CUTLASS kernel. Design notes in [docs/PHASE2.md](docs/PHASE2.md).
-- **Native FP4 training kernels.** The current path dequants to bf16 inside the autograd Function and is ~10x slower per step than BF16 LoRA on the Nano ablation. [docs/PERFORMANCE_ROADMAP.md](docs/PERFORMANCE_ROADMAP.md) lists five routes ordered by effort-to-payoff.
+- **Native FP4 training kernels.** v1.2 adds a fused Triton dequant that closed most of the gap (per-call 14-25x, end-to-end LoRA step 10.7x faster). A native FP4 GEMM that bypasses the bf16 materialization entirely would be the next lever; [docs/PERFORMANCE_ROADMAP.md](docs/PERFORMANCE_ROADMAP.md) lists the routes.
 - **Attention LoRA on Nemotron-3.** Mamba2-attention blocks differ from the standard transformer-attention layout that off-the-shelf LoRA tooling targets. Extension is possible once the attention layout is validated against the loader.
-- **Other NVFP4 model families.** The loader is Nemotron-3 specific (handles the `backbone.` vs `model.` prefix split, FP8 demotion for Mamba and shared experts, MTP layer skipping). Porting means updating the loader.
+- **Upstream loaders for the additional NVFP4 families.** The Mistral-Small-4 (compressed-tensors) and Qwen3.x (NVIDIA ModelOpt) loaders that drive the validations listed in [Supported models](#supported-models) live in development branches and will be folded into `main` in subsequent releases. The kernel, NVFP4LoRALinear, and fused-3D MoE machinery already on `main` are what these loaders bind to; no kernel changes are required.
 - **Multi-GPU.** Tensor parallelism is not tested. GB10 systems ship single-GPU.
 - **Bundled eval harness.** Not shipped today. The training scripts produce a standard PEFT-format adapter; any benchmark consumes it.
 
