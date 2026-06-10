@@ -18,9 +18,10 @@ cd nvfp4-lora-spark
 python -m venv .venv-train && source .venv-train/bin/activate
 pip install -r requirements.txt
 MAX_JOBS=1 pip install --no-build-isolation causal-conv1d==1.6.2.post1
+pip install flash-linear-attention==0.4.2
 ```
 
-`MAX_JOBS=1` is required on Spark: parallel nvcc compilation gets OOM-killed on the 128 GB unified pool. Without `causal-conv1d`, the Mamba2 fast path falls back to a naive Python scan and training is impractical at any useful sequence length.
+`MAX_JOBS=1` is required on Spark: parallel nvcc compilation gets OOM-killed on the 128 GB unified pool. Without `causal-conv1d`, the Mamba2 fast path falls back to a naive Python scan and training is impractical at any useful sequence length. `flash-linear-attention` is required for hybrid linear-attention models (the Qwen3.5 GatedDeltaNet layers) and is pinned to 0.4.2: 0.5.0's backward kernel crashes on GB10 (see Known issues on GB10).
 
 Serving environment (separate venv recommended):
 
@@ -349,9 +350,11 @@ train/                       # training scripts (edit paths at top of each)
   train_nano_bf16.py         # BF16 quantization ablation
 scripts/
   train_nvfp4_lora.py        # unified multi-family LoRA trainer (auto family + LoRA mode, resume)
+  train_watchdog.sh          # crash watchdog: auto-resume from latest checkpoint (systemd-driven)
   merge_lora_into_nvfp4.py   # merge LoRA into NVFP4 base + re-quantize
   validate_merge.py          # per-tensor cosine + no-op-fraction audit
   distinguish_ft.py          # base vs FT distinguishing-prompt test
+tests/                       # CPU-only suite (29 tests) run by CI; no GPU required by construction
 serve/
   run_super_base_inference_cutlass.sh  # recommended Super base recipe
   run_super_ft_merged.sh                # recommended Super-FT serve recipe
@@ -364,7 +367,8 @@ plots/
   extract_train_metrics.py   # parse training logs -> train_metrics.json
 smoke_tests/                 # library correctness tests, including GPU-backed loader smoke
 docs/
-  TROUBLESHOOTING.md         # failure-signature playbook
+  PORTING.md                 # bring-your-own-NVFP4-model guide (worked Qwen3.5 example)
+  TROUBLESHOOTING.md         # failure-signature playbook incl. GB10 unified-memory signatures
   PERFORMANCE_ROADMAP.md     # five routes to close the NVFP4-vs-bf16 throughput gap
   PHASE2.md                  # dynamic LoRA at CUTLASS speeds (parked)
   LESSONS.md                 # development journal
@@ -378,7 +382,8 @@ results/                     # published bench + validation artifacts
 - **Dynamic LoRA at CUTLASS speeds for Super-120B.** Phase 1 ships the merge-then-serve workflow; Phase 2 adds a runtime-swap path via a post-MoE LoRA delta hook on top of the CUTLASS kernel. Design notes in [docs/PHASE2.md](docs/PHASE2.md).
 - **Native FP4 training kernels.** v1.2 adds a fused Triton dequant that closed most of the gap (per-call 14-25x, end-to-end LoRA step 10.7x faster). A native FP4 GEMM that bypasses the bf16 materialization entirely would be the next lever; [docs/PERFORMANCE_ROADMAP.md](docs/PERFORMANCE_ROADMAP.md) lists the routes.
 - **Attention LoRA on Nemotron-3.** Mamba2-attention blocks differ from the standard transformer-attention layout that off-the-shelf LoRA tooling targets. Extension is possible once the attention layout is validated against the loader.
-- **Upstream loaders for the additional NVFP4 families.** The Mistral-Small-4 (compressed-tensors) and Qwen3.x (NVIDIA ModelOpt) loaders that drive the validations listed in [Supported models](#supported-models) live in development branches and will be folded into `main` in subsequent releases. The kernel, NVFP4LoRALinear, and fused-3D MoE machinery already on `main` are what these loaders bind to; no kernel changes are required.
+- **Grouped MoE expert GEMM.** The routed-expert forward currently dequantizes and multiplies one expert at a time (up to 256 sequential kernel-launch pairs per layer). A batched implementation (K experts per dequant + bmm) is built and CPU-parity-tested, pending GPU validation. Expected to close most of the per-step gap between expert-heavy and expert-light models.
+- **Dynamic LoRA serving for compressed-tensors NVFP4.** A runtime vLLM patch keeps the CUTLASS NVFP4 MoE backend active while attention-only adapters serve via punica, enabling request-time adapter switching without merge-then-serve. Built and statically verified, pending GPU validation.
 - **Multi-GPU.** Tensor parallelism is not tested. GB10 systems ship single-GPU.
 - **Bundled eval harness.** Not shipped today. The training scripts produce a standard PEFT-format adapter; any benchmark consumes it.
 
