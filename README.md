@@ -263,7 +263,7 @@ python -u scripts/train_nvfp4_lora.py \
     --output-dir adapters/my_run
 ```
 
-Porting another NVFP4 family means adding a `FAMILIES` entry (and a `make_key_translator` branch in `loader.py` if the safetensors layout is new). The [smoke_tests/](smoke_tests/) directory has working templates for both ModelOpt and compressed-tensors layouts.
+Porting another NVFP4 family means adding a `FAMILIES` entry (and a `make_key_translator` branch in `loader.py` if the safetensors layout is new); the step-by-step guide with a worked Qwen3.5 example is in [docs/PORTING.md](docs/PORTING.md). The [smoke_tests/](smoke_tests/) directory has working templates for both ModelOpt and compressed-tensors layouts.
 
 ### Known issues on GB10 (DGX Spark)
 

@@ -203,3 +203,82 @@ is a real risk for very small LoRA deltas.
 **Fix**: re-train with higher `lora_alpha` (current is 16, try 32 or
 64) to amplify the effective delta. OR accept the loss and document.
 Verify FT signal still shows via `distinguish_ft.py`.
+
+## GB10 unified-memory failure signatures
+
+Four failure modes from a five-failure debugging session bringing up
+Qwen3.5-122B on GB10 (2026-06-10). These are the signatures you hit when
+porting a new NVFP4 family; the porting guide that produces them is
+[PORTING.md](PORTING.md). All four are unified-memory consequences: CPU and
+GPU share one ~131 GB DRAM pool, and they fail differently under pressure.
+
+Note on observability before you start: NVML and `nvidia-smi` report `N/A` for
+memory on GB10, so they are useless here. Use `torch.cuda.mem_get_info()` plus
+`psutil.virtual_memory()`, which is exactly what `gb10_prep.memory_snapshot()`
+returns and what the trainer's per-stage `[load-mem]` lines print.
+
+### Trainer OOM-killed on the first training step, constant anon-RSS
+
+**Signature**: the trainer is OOM-killed on (or just before) the first
+training step. `dmesg` shows the python process killed with a near-constant
+anon-rss (~48 GB in our case) **regardless of sequence length**, and the NVRM
+lines show `NV_ERR_NO_MEMORY` from `_memdescAllocInternal`.
+
+**Mechanism**: a weight-sized buffer was allocated on CPU. In our case the
+fused MoE expert container defaulted to `device=None`, putting 65 GB of packed
+experts into process RSS. On GB10 the CPU and GPU share one DRAM pool but fail
+differently: the kernel reclaims page cache under anon pressure, while NVRM
+allocations fail immediately. The constant anon-RSS across sequence lengths is
+the fingerprint that distinguishes this from a true activation OOM (activation
+OOM scales with sequence length; this does not).
+
+**Fix**: pass `device="cuda"` to `replace_moe_experts_with_nvfp4_3d` (the
+unified trainer already does this in `load_model`). Audit with the per-stage
+`rss`/`cuda_free` load logs: if `process_rss_gb` jumps by a weight-sized amount
+at `post-moe-replace`, or the `move-loop relocated NGB from CPU` WARNING fires,
+a buffer landed on CPU.
+
+### Post-load `cuda_free` is ~1-2 GB despite the model being only ~76 GB
+
+**Signature**: after load, `cuda_free` is ~1-2 GB even though the model
+accounts for only ~76 GB of the 131 GB pool. The first forward at any sequence
+length dies.
+
+**Mechanism**: ~50+ GB of safetensors shard pages linger in the OS page cache
+after weight assembly, and NVRM cannot force-reclaim them. The bytes are not
+leaked, but CUDA cannot allocate against page-cache-occupied DRAM the way the
+kernel can for an anon CPU allocation.
+
+**Fix**: call `gb10_prep.drop_shard_page_cache()` after assembly (the trainer
+does this at the end of `load_model`). It evicts the clean shard pages via
+`posix_fadvise(POSIX_FADV_DONTNEED)` and needs no privileges. The trainer logs
+`dropped shard page cache: cuda_free X -> Y`; a healthy drop frees tens of GB.
+
+### Backward crashes with "Triton Error [CUDA]: misaligned address" in fla
+
+**Signature**: forward completes fine, but backward crashes with
+`Triton Error [CUDA]: misaligned address` inside `fla`
+`prepare_wy_repr_bwd_kernel` during autotune. The clean forward misleads:
+nothing looks wrong until the first backward.
+
+**Mechanism**: a flash-linear-attention 0.5.0 backward-kernel bug on GB10
+(sm_121, aarch64, CUDA 13.0, triton 3.6.0). The forward kernels are fine, so
+the failure is easy to misattribute to your own code or to the model.
+
+**Fix**: pin `flash-linear-attention==0.4.2`. This affects hybrid
+linear-attention models (Qwen3.5's GatedDeltaNet layers). Those layers also
+require `causal-conv1d`; without both, transformers silently falls back to a
+much slower torch path.
+
+### First eval of an NVFP4-attention model spikes memory
+
+**Signature**: training is stable, then the first eval of an NVFP4-attention
+model spikes memory (and may OOM).
+
+**Mechanism**: `NVFP4LoRALinear`'s eval-mode bf16 weight cache builds up to
+30 GB by default. In eval the modules cache dequantized weights to avoid
+recomputing them, and the process-wide cap is high enough to exhaust headroom
+on an NVFP4-attention model where many attention projections are also cached.
+
+**Fix**: set the `NVFP4_EVAL_CACHE_GB` env var to cap the cache. 8 is a good
+value when post-load headroom is ~50 GB.
