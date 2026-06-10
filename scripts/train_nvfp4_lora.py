@@ -459,8 +459,9 @@ def _rotate_checkpoints(output_dir: Path, keep: int = 2) -> None:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model-dir", required=True)
-    ap.add_argument("--train-file", required=True,
-                    help="JSONL of {\"messages\": [...]} chat examples")
+    ap.add_argument("--train-file", required=False, default=None,
+                    help="JSONL of {\"messages\": [...]} chat examples. Required "
+                         "unless --dry-run is set.")
     ap.add_argument("--val-file", default=None,
                     help="Optional validation JSONL; enables evals + best tracking")
     ap.add_argument("--output-dir", required=True)
@@ -481,6 +482,11 @@ def main():
                          "(native NVFP4 vs PEFT) is detected from whether these are "
                          "quantized in the checkpoint.")
     ap.add_argument("--eval-every", type=int, default=50)
+    ap.add_argument("--eval-subset", type=int, default=0,
+                    help="If >0, in-flight evals run only over the first N val "
+                         "examples (cheap). A subset eval that beats the current "
+                         "best triggers a confirming FULL eval; only the full value "
+                         "updates best tracking. 0 means every eval is full.")
     ap.add_argument("--checkpoint-every", type=int, default=50)
     ap.add_argument("--max-train-examples", type=int, default=None)
     ap.add_argument("--max-val-examples", type=int, default=None)
@@ -488,7 +494,17 @@ def main():
     ap.add_argument("--resume-from", default=None,
                     help="checkpoint_step_N/ dir: loads adapter + optimizer/scheduler/RNG "
                          "and fast-forwards the deterministic data order.")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Preflight OOM probe: load the model exactly as a real run "
+                         "would (load_model + LoRA + gradient checkpointing + optimizer), "
+                         "run one synthetic forward+backward at (batch_size, max_length), "
+                         "log a memory reading, and exit WITHOUT saving any adapter. Catches "
+                         "out-of-memory in ~12 minutes instead of mid-run. --train-file is "
+                         "not required in this mode.")
     args = ap.parse_args()
+
+    if not args.dry_run and not args.train_file:
+        ap.error("--train-file is required unless --dry-run is set")
 
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -520,19 +536,22 @@ def main():
         tok.pad_token = tok.eos_token
     log("tokenizer_loaded", vocab_size=tok.vocab_size, pad_id=tok.pad_token_id)
 
-    train_ds = ChatJsonlDataset(args.train_file, tok, args.max_length, args.max_train_examples)
-    val_ds = (ChatJsonlDataset(args.val_file, tok, args.max_length, args.max_val_examples)
-              if args.val_file else [])
-    log("dataset_encoded", train=len(train_ds), val=len(val_ds))
+    # In --dry-run we synthesize one batch later, so skip dataset/dataloader
+    # construction entirely (no train-file needed, no tokenization cost).
+    if not args.dry_run:
+        train_ds = ChatJsonlDataset(args.train_file, tok, args.max_length, args.max_train_examples)
+        val_ds = (ChatJsonlDataset(args.val_file, tok, args.max_length, args.max_val_examples)
+                  if args.val_file else [])
+        log("dataset_encoded", train=len(train_ds), val=len(val_ds))
 
-    # Dedicated generator, re-seeded per epoch: order is a pure function of
-    # (seed, epoch) so --resume-from can replay it exactly.
-    data_gen = torch.Generator()
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                              generator=data_gen,
-                              collate_fn=lambda b: collate_batch(b, tok.pad_token_id))
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
-                            collate_fn=lambda b: collate_batch(b, tok.pad_token_id))
+        # Dedicated generator, re-seeded per epoch: order is a pure function of
+        # (seed, epoch) so --resume-from can replay it exactly.
+        data_gen = torch.Generator()
+        train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
+                                  generator=data_gen,
+                                  collate_fn=lambda b: collate_batch(b, tok.pad_token_id))
+        val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
+                                collate_fn=lambda b: collate_batch(b, tok.pad_token_id))
 
     log("model_loading_start")
     t0 = time.time()
@@ -566,6 +585,35 @@ def main():
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optim = torch.optim.AdamW(trainable_params, lr=args.learning_rate, weight_decay=args.weight_decay)
 
+    if args.dry_run:
+        # Preflight OOM probe. Everything memory-relevant (full load, LoRA attach,
+        # gradient checkpointing, optimizer state) is already constructed above; the
+        # only thing left to exercise is a real forward+backward at the configured
+        # shape. We synthesize one max-length batch (the worst case the real run
+        # will see) rather than touching the dataset, then exit without saving.
+        snap_post_load = memory_snapshot()
+        torch.cuda.reset_peak_memory_stats()
+        synth = torch.randint(
+            0, int(tok.vocab_size), (args.batch_size, args.max_length),
+            dtype=torch.long, device=device,
+        )
+        batch = {
+            "input_ids": synth,
+            "labels": synth.clone(),
+            "attention_mask": torch.ones_like(synth),
+        }
+        out = model(**batch)
+        loss = out.loss / args.grad_accum
+        loss.backward()
+        snap_post_backward = memory_snapshot()
+        optim.zero_grad(set_to_none=True)
+        log("dry_run_ok",
+            batch_size=args.batch_size, max_length=args.max_length,
+            loss=round(out.loss.item(), 4),
+            post_load=snap_post_load, post_backward=snap_post_backward,
+            cuda_max_allocated_gb=round(torch.cuda.max_memory_allocated() / 1e9, 2))
+        return
+
     updates_per_epoch = max(1, math.ceil(len(train_loader) / args.grad_accum))
     total_updates = max(1, updates_per_epoch * args.epochs)
     if args.max_steps is not None:
@@ -597,6 +645,51 @@ def main():
             lora_dropout=args.lora_dropout, target_suffixes=target_suffixes,
         )
 
+    # Subset-eval loader: when --eval-subset N>0, in-flight evals run over only
+    # the first N val examples. Subset losses are NOT comparable to full-eval
+    # losses, so they can never directly update best_val_loss (which always
+    # tracks FULL values); a subset improvement only triggers a confirming full
+    # eval. Built once over a fixed prefix so the cheap eval is reproducible.
+    from torch.utils.data import Subset
+    subset_n = args.eval_subset if args.eval_subset > 0 else 0
+    if subset_n > 0 and len(val_ds) > 0:
+        subset_val_loader = DataLoader(
+            Subset(val_ds, range(min(subset_n, len(val_ds)))),
+            batch_size=args.batch_size, shuffle=False,
+            collate_fn=lambda b: collate_batch(b, tok.pad_token_id))
+    else:
+        subset_val_loader = None
+
+    def run_inflight_eval(step):
+        """Evaluate at `step`, honoring --eval-subset, and update best tracking.
+
+        Subset evals are logged with subset=N. When a subset eval beats the
+        current (full) best, an immediate FULL eval (logged subset="full")
+        confirms it; only the full value may update best_val_loss / trigger
+        new_best / save best/. Both events are emitted so metrics.jsonl is
+        unambiguous about which loss is which.
+        """
+        nonlocal best_val_loss
+        if subset_val_loader is not None:
+            sub_loss = evaluate(model, subset_val_loader, device)
+            log("eval", step=step, val_loss=round(sub_loss, 4), subset=subset_n)
+            if sub_loss >= best_val_loss:
+                return
+            # Subset says we may have improved; confirm with a full eval. Its
+            # value (not the subset's) is what is allowed to set the best.
+            full_loss = evaluate(model, val_loader, device)
+            log("eval", step=step, val_loss=round(full_loss, 4), subset="full")
+        else:
+            full_loss = evaluate(model, val_loader, device)
+            log("eval", step=step, val_loss=round(full_loss, 4), subset="full")
+        if full_loss < best_val_loss:
+            prev = best_val_loss
+            best_val_loss = full_loss
+            log("new_best", step=step, val_loss=round(full_loss, 4),
+                prev_best=(round(prev, 4) if prev != float("inf") else None),
+                path=str(best_dir))
+            save_to(best_dir)
+
     for epoch in range(args.epochs):
         data_gen.manual_seed(args.seed * 1000 + epoch)
         for batch in train_loader:
@@ -610,10 +703,29 @@ def main():
                 continue
             batch = {k: v.to(device) for k, v in batch.items()}
             out = model(**batch)
+            if not torch.isfinite(out.loss):
+                # A non-finite loss this micro-step means the whole accumulation
+                # window is unusable: earlier micro-batches already wrote grads,
+                # and stepping on a partial window would bias the update. Drop
+                # every accumulated grad and abandon the window (update_step is
+                # intentionally NOT incremented).
+                log("nonfinite_loss_skipped", step=update_step, micro_step=micro_step,
+                    loss=str(out.loss.detach().float().item()))
+                optim.zero_grad(set_to_none=True)
+                continue
             loss = out.loss / args.grad_accum
             loss.backward()
             if micro_step % args.grad_accum == 0:
-                torch.nn.utils.clip_grad_norm_(trainable_params, args.max_grad_norm)
+                total_norm = torch.nn.utils.clip_grad_norm_(trainable_params, args.max_grad_norm)
+                if not torch.isfinite(total_norm):
+                    # Grads went non-finite (overflow / a bad micro-batch that
+                    # still produced a finite loss). Skip optim.step/sched.step,
+                    # drop the grads, and do NOT increment update_step so the
+                    # cosine schedule and step count stay consistent.
+                    log("nonfinite_grad_skipped", step=update_step, micro_step=micro_step,
+                        grad_norm=str(total_norm.detach().float().item()))
+                    optim.zero_grad(set_to_none=True)
+                    continue
                 optim.step()
                 sched.step()
                 optim.zero_grad(set_to_none=True)
@@ -623,15 +735,7 @@ def main():
                     elapsed=round(time.time() - run_start, 1))
 
                 if args.eval_every > 0 and update_step % args.eval_every == 0 and len(val_ds) > 0:
-                    val_loss = evaluate(model, val_loader, device)
-                    log("eval", step=update_step, val_loss=round(val_loss, 4))
-                    if val_loss < best_val_loss:
-                        prev = best_val_loss
-                        best_val_loss = val_loss
-                        log("new_best", step=update_step, val_loss=round(val_loss, 4),
-                            prev_best=(round(prev, 4) if prev != float("inf") else None),
-                            path=str(best_dir))
-                        save_to(best_dir)
+                    run_inflight_eval(update_step)
 
                 if args.checkpoint_every > 0 and update_step % args.checkpoint_every == 0:
                     ckpt_dir = Path(args.output_dir) / f"checkpoint_step_{update_step}"
