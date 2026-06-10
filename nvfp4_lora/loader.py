@@ -29,6 +29,7 @@ import torch.nn as nn
 import safetensors
 
 from .linear import NVFP4LoRALinear
+from .dequant import format_for_record
 
 
 # --------------------------------------------------------------------------------------
@@ -38,7 +39,8 @@ from .linear import NVFP4LoRALinear
 def list_quantized_modules(model_dir: str | Path) -> set[str]:
     """Return the set of NVFP4-quantized module names by scanning the safetensors index.
 
-    A module is NVFP4 iff it has a `.weight_scale` tensor (the per-group FP8 scales).
+    A module is NVFP4 iff it has ModelOpt `.weight` (uint8) + `.weight_scale` tensors,
+    OR a compressed-tensors `.weight_packed` tensor.
     Keys are returned VERBATIM from the safetensors index; the caller is responsible
     for translating to model-attribute paths via `make_key_translator`.
     """
@@ -46,54 +48,125 @@ def list_quantized_modules(model_dir: str | Path) -> set[str]:
     with open(idx_path) as f:
         idx = json.load(f)
     wm = idx["weight_map"]
+    keys = set(wm.keys())
     out = set()
-    for key in wm.keys():
-        if key.endswith(".weight_scale"):
-            out.add(key[: -len(".weight_scale")])
+    for key in keys:
+        if key.endswith(".weight_packed"):
+            out.add(key[: -len(".weight_packed")])
+        elif key.endswith(".weight"):
+            prefix = key[: -len(".weight")]
+            # Regular bf16 modules also have `.weight`; only quantized records have `.weight_scale`.
+            if f"{prefix}.weight_scale" in keys:
+                out.add(prefix)
     return out
 
 
 def make_key_translator(model: nn.Module, model_dir: str | Path):
     """Build a function that maps a safetensors key to the corresponding model attribute path.
 
-    Nemotron-3 family checkpoints use `backbone.X` in safetensors, but different model classes
-    use different in-memory submodule names:
-      - Nano-30B-A3B-NVFP4: `self.backbone = NemotronHModel(...)` → in-memory path `backbone.X`
-      - Super-120B-A12B-NVFP4: `self.model = NemotronHModel(...)` → in-memory path `model.X`
+    Per-family prefix-map architecture (Phase 0.2 redesign). The old single-level
+    `named_children()` heuristic fails for both Qwen3.5 (`model.language_model.layers.*`)
+    and Mistral3 (`model.language_model.layers.*` — `Mistral3ForConditionalGeneration`
+    wraps a `Mistral3Model` which wraps a text-backbone). Instead we dispatch on
+    `model.config.model_type` to a per-family explicit translator.
 
-    The translator also skips MTP (Multi-Token Prediction speculation) layers, which exist in
-    safetensors as `mtp.X` but are a separate inference-only architecture vLLM uses for
-    speculative decoding and that we never train.
+    Skipping logic — each family may want to skip safetensors keys that aren't part of
+    the model we're loading (e.g. Nemotron MTP speculation layers, Qwen3.5 vision tower).
 
-    Returns (translate, skip_mtp_count) - translate(key) returns the model path, or None
-    if the key should be skipped (e.g. MTP).
+    Returns (translate, st_prefix_for_logging, model_prefix_for_logging).
+    `translate(key)` returns the model attribute path, or None if the key should be skipped.
     """
-    # Detect safetensors top-level prefix used by the sub-model
+    cfg = getattr(model, "config", None)
+    model_type = getattr(cfg, "model_type", None)
+
+    # ----- Qwen3.5 MoE (text-only training; skip vision branch) -----
+    # NB: `AutoModelForCausalLM.from_config(cfg)` instantiates the text-only causal LM
+    # variant, whose `config.model_type` is "qwen3_5_moe_text" — different from the
+    # outer multimodal `qwen3_5_moe`. Match both so the translator works whether the
+    # caller built via from_config (text-only) or held the full wrapper.
+    if model_type in ("qwen3_5_moe", "qwen3_5_moe_text"):
+        # safetensors:  model.language_model.layers.X.*, model.language_model.embed_tokens, model.language_model.norm
+        #               model.visual.*  (vision tower — skip for text-only)
+        #               lm_head.*
+        # in-memory:    model.layers.X.*, model.embed_tokens, model.norm, lm_head
+        st_prefix = "model.language_model"
+        model_prefix = "model"
+
+        def translate(key: str) -> Optional[str]:
+            if key.startswith("model.visual."):
+                return None  # skip vision tower (text-only training)
+            if key.startswith("model.language_model."):
+                return "model." + key[len("model.language_model."):]
+            return key  # lm_head.* passes through
+
+        return translate, st_prefix, model_prefix
+
+    # ----- Mistral3 (HF model_type for Mistral-Small-4) -----
+    # NB: text-only causal LM variant may report `mistral4` (the inner text-backbone
+    # model_type per Sonnet pass-2 verification of axolotl config). Match both.
+    if model_type in ("mistral3", "mistral4"):
+        # safetensors layout (Mistral3ForConditionalGeneration on-disk):
+        #   language_model.lm_head.weight
+        #   language_model.model.layers.X.*, language_model.model.embed_tokens, language_model.model.norm
+        #   vision_tower.*                  (Pixtral encoder — skip for text-only training)
+        #   multi_modal_projector.*         (MM projector — skip for text-only training)
+        # in-memory (transformers 5.8.1):
+        #   lm_head                          (top-level on the LM-head wrapper)
+        #   model.language_model.layers.X.*, model.language_model.embed_tokens, model.language_model.norm
+        #   model.vision_tower.*
+        #   model.multi_modal_projector.*
+        st_prefix = "language_model.model"
+        model_prefix = "model.language_model"
+
+        def translate(key: str) -> Optional[str]:
+            # Multimodal branches — skip for text-only training
+            if key.startswith("vision_tower.") or key.startswith("multi_modal_projector."):
+                return None
+            # Text backbone — strip `language_model.model.` add `model.language_model.`
+            if key.startswith("language_model.model."):
+                return "model.language_model." + key[len("language_model.model."):]
+            # LM head — `language_model.lm_head.weight` → in-memory `lm_head.weight`
+            if key.startswith("language_model.lm_head."):
+                return "lm_head." + key[len("language_model.lm_head."):]
+            return key
+
+        return translate, st_prefix, model_prefix
+
+    # ----- Nemotron-H (existing default heuristic — unchanged for backwards compat) -----
+    #
+    # Nemotron-3 family checkpoints use `backbone.X` in safetensors, but different model classes
+    # use different in-memory submodule names:
+    #   - Nano-30B-A3B-NVFP4: `self.backbone = NemotronHModel(...)` → in-memory path `backbone.X`
+    #   - Super-120B-A12B-NVFP4: `self.model = NemotronHModel(...)` → in-memory path `model.X`
+    # Also skips `mtp.X` (Multi-Token Prediction speculation layers vLLM uses for speculative
+    # decoding; never trained).
     idx = json.loads((Path(model_dir) / "model.safetensors.index.json").read_text())
     safetensors_prefixes = {k.split(".", 1)[0] for k in idx["weight_map"].keys()}
-    # The submodel prefix is whichever appears in keys like "X.layers.0..."
     candidates = [p for p in safetensors_prefixes if p not in ("lm_head", "mtp")]
     if len(candidates) != 1:
         raise RuntimeError(
-            f"Could not determine safetensors submodel prefix; candidates={candidates}"
+            f"Could not determine safetensors submodel prefix; candidates={candidates}. "
+            f"If this is a non-Nemotron model, add an explicit per-family branch above "
+            f"(model_type={model_type!r})."
         )
     safetensors_prefix = candidates[0]
 
-    # Detect model's in-memory submodel name (the one whose class has `.layers`)
     model_prefix = None
     for n, c in model.named_children():
         if hasattr(c, "layers"):
             model_prefix = n
             break
     if model_prefix is None:
-        raise RuntimeError("Could not find a child module with `.layers` (NemotronHModel)")
+        raise RuntimeError(
+            f"Could not find a child module with `.layers`. If this is a non-Nemotron "
+            f"model, add an explicit per-family branch above (model_type={model_type!r})."
+        )
 
     def translate(key: str) -> Optional[str]:
         if key.startswith("mtp."):
-            return None  # skip MTP speculation layers
+            return None
         if key.startswith(safetensors_prefix + "."):
             return model_prefix + "." + key[len(safetensors_prefix) + 1:]
-        # Other keys (lm_head, etc.) pass through verbatim
         return key
 
     return translate, safetensors_prefix, model_prefix
@@ -124,6 +197,7 @@ def _get_parent(model: nn.Module, dotted_name: str) -> tuple[nn.Module, str]:
 @dataclass
 class _QuantizedLinearRecord:
     name: str
+    format: str  # "modelopt" or "compressed_tensors"
     st_name: str
     in_features: int
     out_features: int
@@ -190,6 +264,7 @@ def _collect_quantized_linear_records(
     nvfp4_module_names_st = list_quantized_modules(model_dir)
     idx = json.loads((model_dir / "model.safetensors.index.json").read_text())
     wm = idx["weight_map"]
+    keys = set(wm.keys())
     target_set = set(target_lora_suffixes)
 
     translate, st_prefix, model_prefix = make_key_translator(model, model_dir)
@@ -208,33 +283,46 @@ def _collect_quantized_linear_records(
         st_name = model_to_st[name]
         suffix = name.split(".")[-1]
         is_lora_target = suffix in target_set
-        weight_key = f"{st_name}.weight"
+        fmt = format_for_record(keys, st_name)
+        weight_key = f"{st_name}.weight_packed" if fmt == "compressed_tensors" else f"{st_name}.weight"
         scale_key = f"{st_name}.weight_scale"
+        scale2_key = (
+            f"{st_name}.weight_global_scale"
+            if fmt == "compressed_tensors"
+            else f"{st_name}.weight_scale_2"
+        )
         if weight_key not in wm or scale_key not in wm:
             raise RuntimeError(f"Missing quantization tensors for safetensors module {st_name}")
         quantized_paths.append((name, module, st_name, is_lora_target))
         needed_keys.extend([weight_key, scale_key])
-        for optional_key in (f"{st_name}.weight_scale_2", f"{st_name}.bias"):
-            if optional_key in wm:
-                needed_keys.append(optional_key)
+        if scale2_key in wm:
+            needed_keys.append(scale2_key)
+        if f"{st_name}.bias" in wm:
+            needed_keys.append(f"{st_name}.bias")
 
     metas = _tensor_metas(model_dir, needed_keys, wm)
 
     records: list[_QuantizedLinearRecord] = []
     counts = {"lora": 0, "frozen_nvfp4": 0, "frozen_fp8": 0}
     for name, module, st_name, is_lora_target in quantized_paths:
-        weight_key = f"{st_name}.weight"
+        fmt = format_for_record(keys, st_name)
+        weight_key = f"{st_name}.weight_packed" if fmt == "compressed_tensors" else f"{st_name}.weight"
         scale_key = f"{st_name}.weight_scale"
         weight_shape, weight_dtype = metas[weight_key]
         scale_shape, _ = metas[scale_key]
-        scale2_key = f"{st_name}.weight_scale_2" if f"{st_name}.weight_scale_2" in wm else None
+        scale2_name = (
+            f"{st_name}.weight_global_scale"
+            if fmt == "compressed_tensors"
+            else f"{st_name}.weight_scale_2"
+        )
+        scale2_key = scale2_name if scale2_name in wm else None
         scale2_shape = metas[scale2_key][0] if scale2_key is not None else None
         bias_key = f"{st_name}.bias" if f"{st_name}.bias" in wm else None
         bias_shape = metas[bias_key][0] if bias_key is not None else None
 
         if weight_dtype == torch.uint8:
             if scale2_key is None:
-                raise RuntimeError(f"NVFP4 module {st_name} missing weight_scale_2")
+                raise RuntimeError(f"NVFP4 module {st_name} missing {scale2_name.rsplit('.', 1)[-1]}")
             if weight_shape[-1] * 2 != module.in_features:
                 raise RuntimeError(
                     f"NVFP4 shape mismatch for {name}: weight is {weight_shape}, "
@@ -252,6 +340,7 @@ def _collect_quantized_linear_records(
         records.append(
             _QuantizedLinearRecord(
                 name=name,
+                format=fmt,
                 st_name=st_name,
                 in_features=module.in_features,
                 out_features=module.out_features,
@@ -284,6 +373,46 @@ def _copy_safetensors_to_views(model_dir: Path, weight_map: dict, key_to_view: d
         with safetensors.safe_open(str(shard_path), framework="pt", device="cpu") as f:
             for key, view in shard_items:
                 view.copy_(f.get_tensor(key))
+
+
+def _assign_dequant_workspaces(
+    model: nn.Module,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> dict[tuple[int, int, torch.dtype], torch.Tensor]:
+    """Assign shared dequant workspaces to every NVFP4LoRALinear in the model.
+
+    Pool keyed by `(out_features, in_features, dtype)` per Pre-M1b round-3
+    audit: modules with identical shape AND dtype share one workspace buffer.
+    Each buffer is allocated with `requires_grad=False`.
+    """
+    workspace_pool: dict[tuple[int, int, torch.dtype], torch.Tensor] = {}
+    for module in model.modules():
+        if not isinstance(module, NVFP4LoRALinear):
+            continue
+        key = (module.out_features, module.in_features, dtype)
+        if key not in workspace_pool:
+            workspace_pool[key] = torch.empty(
+                module.out_features,
+                module.in_features,
+                dtype=dtype,
+                device=device,
+                requires_grad=False,
+            )
+        module.w_bf16_workspace = workspace_pool[key]
+
+    _verify_dequant_workspaces(model)
+    return workspace_pool
+
+
+def _verify_dequant_workspaces(model: nn.Module) -> None:
+    """Fail fast if an NVFP4LoRALinear workspace is missing or differentiable."""
+    for name, module in model.named_modules():
+        if not isinstance(module, NVFP4LoRALinear):
+            continue
+        if module.w_bf16_workspace is None:
+            raise RuntimeError(f"{name} is missing its dequant workspace")
+        assert module.w_bf16_workspace.requires_grad is False, f"{name} dequant workspace requires grad"
 
 
 def replace_nvfp4_modules(
@@ -338,8 +467,12 @@ def replace_nvfp4_modules(
 
         # Probe the weight dtype to decide quant format: NVFP4 (uint8 packed + fp8 group + fp32 per-tensor)
         # vs FP8 per-tensor (fp8 weight + fp32 scalar scale). Both share `.weight_scale` so we can't
-        # tell from the safetensors index alone.
-        w_tensor = load_tensor(model_dir, f"{st_name}.weight", wm)
+        # tell from the safetensors index alone. Phase 0.1: also detect ModelOpt vs compressed-tensors
+        # key naming convention.
+        fmt = format_for_record(set(wm.keys()), st_name)
+        weight_key = f"{st_name}.weight_packed" if fmt == "compressed_tensors" else f"{st_name}.weight"
+        scale2_key = f"{st_name}.weight_global_scale" if fmt == "compressed_tensors" else f"{st_name}.weight_scale_2"
+        w_tensor = load_tensor(model_dir, weight_key, wm)
         w_scale = load_tensor(model_dir, f"{st_name}.weight_scale", wm)
         bias = load_tensor(model_dir, f"{st_name}.bias", wm)
         if w_tensor is None or w_scale is None:
@@ -351,9 +484,9 @@ def replace_nvfp4_modules(
 
         if w_tensor.dtype == torch.uint8:
             # ---- NVFP4 path ----
-            w_scale_2 = load_tensor(model_dir, f"{st_name}.weight_scale_2", wm)
+            w_scale_2 = load_tensor(model_dir, scale2_key, wm)
             if w_scale_2 is None:
-                raise RuntimeError(f"NVFP4 module {st_name} missing weight_scale_2")
+                raise RuntimeError(f"NVFP4 module {st_name} missing {scale2_key.rsplit('.', 1)[-1]}")
             if w_tensor.shape[-1] * 2 != in_features:
                 raise RuntimeError(
                     f"NVFP4 shape mismatch for {name}: weight is {tuple(w_tensor.shape)}, "
@@ -372,6 +505,7 @@ def replace_nvfp4_modules(
                 lora_dropout=(lora_dropout if is_lora_target else 0.0),
                 device=device,
                 dtype=dtype,
+                format=fmt,
             )
             setattr(parent, attr, new_mod)
             counts["lora" if is_lora_target else "frozen_nvfp4"] += 1
@@ -606,7 +740,8 @@ def load_non_nvfp4_weights(
 
         # Skip NVFP4 storage tensors for replaced modules (already loaded into NVFP4LoRALinear buffers)
         if module_name in nvfp4_replaced and tensor_attr in (
-            "weight", "weight_scale", "weight_scale_2", "input_scale", "bias"
+            "weight", "weight_packed", "weight_scale", "weight_scale_2",
+            "weight_global_scale", "input_scale", "input_global_scale", "bias"
         ):
             continue
 
@@ -708,6 +843,9 @@ def load_nemotron_with_nvfp4_lora(
             f"Tried suffixes: {list(target_lora_suffixes)}. "
             "Check target_lora_suffixes for typos or unsupported target modules."
         )
+
+    workspace_pool = _assign_dequant_workspaces(model, device=device, dtype=dtype)
+    print(f"  dequant workspace pool: {len(workspace_pool)} shared buffers")
 
     print("=== loader: loading non-NVFP4 weights (norms, embeddings, Mamba, conv1d, lm_head) ===")
     n = load_non_nvfp4_weights(model, model_dir, device=device, dtype=dtype)

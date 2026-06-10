@@ -26,7 +26,12 @@ import torch.nn.functional as F
 from .dequant import dequantize_nvfp4_weight
 
 
-_EVAL_CACHE_LIMIT_BYTES = 30 * 1024**3
+# Process-wide budget for the eval-mode bf16 weight cache. Override via
+# NVFP4_EVAL_CACHE_GB for memory-tight runs (e.g. NVFP4-attention models on
+# GB10 UMA, where post-load headroom is ~50 GB and a 30 GB cache + eval
+# activations can tip the box over).
+import os as _os
+_EVAL_CACHE_LIMIT_BYTES = int(float(_os.environ.get("NVFP4_EVAL_CACHE_GB", "30")) * 1024**3)
 _EVAL_CACHE_BYTES_RESERVED = 0
 
 
@@ -40,12 +45,15 @@ class _DequantLinear(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, x, weight_uint8, weight_scale_fp8, weight_scale_2_fp32, group_size: int):
+    def forward(ctx, x, weight_uint8, weight_scale_fp8, weight_scale_2_fp32, group_size: int, w_bf16_workspace, format: str):
         ctx.save_for_backward(weight_uint8, weight_scale_fp8, weight_scale_2_fp32)
         ctx.group_size = group_size
+        ctx.w_bf16_workspace = w_bf16_workspace.detach()
+        ctx.format = format
         W_bf16 = dequantize_nvfp4_weight(
             weight_uint8, weight_scale_fp8, weight_scale_2_fp32,
-            group_size=group_size, out_dtype=x.dtype,
+            group_size=group_size, out_dtype=x.dtype, out=ctx.w_bf16_workspace,
+            format=format,
         )
         # F.linear computes x @ W.T (no bias handled here; caller adds it)
         return F.linear(x, W_bf16, bias=None)
@@ -60,13 +68,14 @@ class _DequantLinear(torch.autograd.Function):
             # Recompute W_bf16 inside backward - never saved
             W_bf16 = dequantize_nvfp4_weight(
                 weight_uint8, weight_scale_fp8, weight_scale_2_fp32,
-                group_size=group_size, out_dtype=grad_output.dtype,
+                group_size=group_size, out_dtype=grad_output.dtype, out=ctx.w_bf16_workspace,
+                format=ctx.format,
             )
             # dx = dy @ W (since y = x @ W.T, dy/dx = W)
             grad_x = grad_output @ W_bf16
 
-        # No grad for the frozen base weight or scales
-        return grad_x, None, None, None, None
+        # No grad for the frozen base weight, scales, or workspace
+        return grad_x, None, None, None, None, None, None
 
 
 class NVFP4LoRALinear(nn.Module):
@@ -101,15 +110,18 @@ class NVFP4LoRALinear(nn.Module):
         copy_base_tensors: bool = True,
         lora_A_tensor: Optional[torch.Tensor] = None,
         lora_B_tensor: Optional[torch.Tensor] = None,
+        format: str = "modelopt",
     ):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.group_size = group_size
+        self.nvfp4_format = format
         self.r = r
         self.lora_alpha = lora_alpha
         self.lora_scale = (lora_alpha / r) if r > 0 else 0.0
         self.dtype = dtype
+        self.w_bf16_workspace: Optional[torch.Tensor] = None
 
         # Frozen NVFP4 base (register as buffers, not Parameters - never trained, never saved by optimizer)
         device = device or weight_uint8.device
@@ -160,8 +172,14 @@ class NVFP4LoRALinear(nn.Module):
         # Base path: training uses custom autograd (dequant recomputed in backward, no bf16 shadow saved);
         # eval uses a lazily-materialized bf16 weight cache for fast `F.linear`.
         if self.training:
+            if self.w_bf16_workspace is None:
+                raise RuntimeError(
+                    "NVFP4LoRALinear.w_bf16_workspace is not set; "
+                    "load the module through the NVFP4 loader so the dequant workspace pool is assigned."
+                )
             y = _DequantLinear.apply(
-                x, self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32, self.group_size
+                x, self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32,
+                self.group_size, self.w_bf16_workspace, self.nvfp4_format,
             )
         else:
             if self._eval_weight is None or self._eval_weight.dtype != x.dtype:
@@ -176,6 +194,7 @@ class NVFP4LoRALinear(nn.Module):
                     self._eval_weight = dequantize_nvfp4_weight(
                         self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32,
                         group_size=self.group_size, out_dtype=x.dtype,
+                        format=self.nvfp4_format,
                     )
                     self._eval_weight_bytes = est_cache_bytes
                     _EVAL_CACHE_BYTES_RESERVED += est_cache_bytes
@@ -193,6 +212,7 @@ class NVFP4LoRALinear(nn.Module):
                     base_weight = dequantize_nvfp4_weight(
                         self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32,
                         group_size=self.group_size, out_dtype=x.dtype,
+                        format=self.nvfp4_format,
                     )
             else:
                 base_weight = self._eval_weight
