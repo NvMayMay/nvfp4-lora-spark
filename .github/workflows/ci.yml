@@ -1,0 +1,46 @@
+name: CPU tests
+
+# CPU-only regression guard for the multi-family support surfaces
+# (resolve_family, detect_lora_mode, FAMILIES, ChatJsonlDataset, collate_batch,
+# loader.make_key_translator/list_quantized_modules, dequant). These tests never
+# touch CUDA, so they run on a plain ubuntu-latest runner.
+#
+# NOTE: the GPU smoke tests live in smoke_tests/ and require a real GB10/NVFP4
+# checkpoint and a CUDA device. They are intentionally NOT run here; CI only
+# exercises the CPU-verifiable logic in tests/.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cpu-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CPU PyTorch
+        # CPU wheels only: keeps the install lean and guarantees no CUDA runtime.
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install test dependencies
+        # Versions pinned to match requirements.txt (the v1.0 measurement-run stack);
+        # everything else is left unpinned so pip resolves a compatible CPU build.
+        run: |
+          pip install \
+            transformers==5.8.1 \
+            accelerate==1.13.0 \
+            safetensors==0.7.0 \
+            peft==0.19.1 \
+            pytest
+
+      - name: Run CPU test suite
+        run: python -m pytest tests/ -q

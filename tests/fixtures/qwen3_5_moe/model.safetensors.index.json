@@ -1,0 +1,39 @@
+{
+ "metadata": {
+  "note": "TRIMMED fixture: weight_map entries only, for CPU tests"
+ },
+ "weight_map": {
+  "model.language_model.layers.0.input_layernorm.weight": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.0.linear_attn.in_proj_qkv.weight": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.0.linear_attn.out_proj.weight": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.0.mlp.experts.0.gate_proj.weight_packed": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.0.mlp.experts.0.gate_proj.weight_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.0.mlp.experts.0.gate_proj.weight_global_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.0.mlp.experts.0.gate_proj.input_global_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.0.mlp.experts.0.down_proj.weight_packed": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.0.mlp.experts.0.down_proj.weight_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.0.mlp.experts.0.down_proj.weight_global_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.q_proj.weight_packed": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.q_proj.weight_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.q_proj.weight_global_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.k_proj.weight_packed": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.k_proj.weight_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.k_proj.weight_global_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.v_proj.weight_packed": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.v_proj.weight_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.v_proj.weight_global_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.o_proj.weight_packed": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.o_proj.weight_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.self_attn.o_proj.weight_global_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.mlp.shared_expert.up_proj.weight_packed": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.mlp.shared_expert.up_proj.weight_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.layers.3.mlp.shared_expert.up_proj.weight_global_scale": "model-00001-of-00002.safetensors",
+  "model.language_model.embed_tokens.weight": "model-00001-of-00002.safetensors",
+  "model.language_model.norm.weight": "model-00002-of-00002.safetensors",
+  "lm_head.weight": "model-00001-of-00002.safetensors",
+  "model.visual.blocks.0.attn.qkv.weight": "model-00002-of-00002.safetensors",
+  "model.visual.blocks.0.attn.proj.weight": "model-00002-of-00002.safetensors",
+  "mtp.0.fc.weight": "model-00002-of-00002.safetensors",
+  "mtp.0.norm.weight": "model-00002-of-00002.safetensors"
+ }
+}

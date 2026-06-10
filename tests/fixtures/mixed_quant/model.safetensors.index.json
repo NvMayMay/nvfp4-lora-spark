@@ -1,0 +1,8 @@
+{
+ "weight_map": {
+  "language_model.model.layers.0.mlp.experts.0.gate_proj.weight_packed": "a.safetensors",
+  "language_model.model.layers.0.mlp.experts.0.gate_proj.weight_scale": "a.safetensors",
+  "language_model.model.layers.0.mlp.experts.0.gate_proj.weight_global_scale": "a.safetensors",
+  "language_model.model.layers.0.self_attn.o_proj.weight": "a.safetensors"
+ }
+}

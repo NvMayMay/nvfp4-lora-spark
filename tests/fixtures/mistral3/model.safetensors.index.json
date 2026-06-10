@@ -1,0 +1,31 @@
+{
+ "metadata": {
+  "note": "TRIMMED fixture: weight_map entries only, for CPU tests"
+ },
+ "weight_map": {
+  "language_model.model.layers.0.self_attn.q_b_proj.weight": "model-00001.safetensors",
+  "language_model.model.layers.0.self_attn.kv_b_proj.weight": "model-00001.safetensors",
+  "language_model.model.layers.0.self_attn.o_proj.weight": "model-00001.safetensors",
+  "language_model.model.layers.0.self_attn.q_a_proj.weight": "model-00001.safetensors",
+  "language_model.model.layers.0.self_attn.kv_a_proj_with_mqa.weight": "model-00001.safetensors",
+  "language_model.model.layers.0.input_layernorm.weight": "model-00001.safetensors",
+  "language_model.model.layers.0.post_attention_layernorm.weight": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.experts.0.gate_proj.weight_packed": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.experts.0.gate_proj.weight_scale": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.experts.0.gate_proj.weight_global_scale": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.experts.0.gate_proj.input_global_scale": "model-00014.safetensors",
+  "language_model.model.layers.0.mlp.experts.0.down_proj.weight_packed": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.experts.0.down_proj.weight_scale": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.experts.0.down_proj.weight_global_scale": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.shared_experts.up_proj.weight_packed": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.shared_experts.up_proj.weight_scale": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.shared_experts.up_proj.weight_global_scale": "model-00001.safetensors",
+  "language_model.model.layers.0.mlp.gate.weight": "model-00001.safetensors",
+  "language_model.model.embed_tokens.weight": "model-00014.safetensors",
+  "language_model.model.norm.weight": "model-00013.safetensors",
+  "language_model.lm_head.weight": "model-00013.safetensors",
+  "vision_tower.transformer.layers.0.attention.q_proj.weight": "model-00014.safetensors",
+  "vision_tower.ln_pre.weight": "model-00014.safetensors",
+  "multi_modal_projector.linear_1.weight": "model-00014.safetensors"
+ }
+}
