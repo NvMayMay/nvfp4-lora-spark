@@ -235,17 +235,45 @@ LoRA on Super-120B crosses avg20 < 1.0 around step 370 and continues to improve 
 
 The merge-then-serve workflow exists because vLLM 0.21's CUTLASS MoE kernel does not support LoRA at request time on sm_121 (`CutlassExpertsFp4.supports_lora() = False`), and the EMULATION fallback that does claim LoRA support hits a Triton kernel bug. Dynamic LoRA at CUTLASS speeds is parked as [Phase 2](docs/PHASE2.md). For the full backend matrix and per-failure-mode reasoning, see [serve/README.md](serve/README.md) and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
-### Other NVFP4 families (validated in development branches)
+### Other NVFP4 families (training now on `main`)
 
-The core stack (dequant kernel, NVFP4LoRALinear, fused-3D MoE, save/load round-trip) is family-agnostic. Adding a model is a per-family loader change. The following have been validated end-to-end (load + LoRA train + adapter save) against community NVFP4 checkpoints, with loaders pending upstream:
+The core stack (dequant kernel, NVFP4LoRALinear, fused-3D MoE, save/load round-trip) is family-agnostic, and the per-family loaders now ship on `main` together with a unified trainer. The following have been validated end-to-end (load + LoRA train + adapter save) against community NVFP4 checkpoints:
 
 | Model | Quant format | Notes |
 |---|---|---|
-| Mistral-Small-4-119B-2603 | compressed-tensors (RedHatAI) | MLA attention (q_b_proj, kv_b_proj, o_proj) is BF16; routed and shared experts are NVFP4. Loader handles the `language_model.*` prefix translation between the multimodal `Mistral3ForConditionalGeneration` wrapper and the on-disk safetensors keys. |
-| Qwen3.5-122B-A10B-NVFP4 | NVIDIA ModelOpt | MoE-only NVFP4 (attention + embeddings BF16). Served via vLLM 0.22.1 with the same NVFP4 backend used for Nemotron-3 Nano. |
+| Mistral-Small-4-119B-2603 | compressed-tensors (RedHatAI) | MLA attention (q_b_proj, kv_b_proj, o_proj) is BF16, so LoRA uses standard PEFT wrapping; routed and shared experts are NVFP4. Loader handles the `language_model.*` prefix translation between the multimodal `Mistral3ForConditionalGeneration` wrapper and the on-disk safetensors keys. Full 3-epoch LoRA run certified on a single GB10 (430 updates, 12.2 h). |
+| Qwen3.5-122B-A10B | compressed-tensors (RedHatAI) | Hybrid backbone: 36 of 48 layers are GatedDeltaNet linear attention (needs `flash-linear-attention` + `causal-conv1d`, see GB10 known issues), 12 are full attention with NVFP4 q/k/v/o. Quantized attention means PEFT cannot wrap the targets; the trainer bakes LoRA into `NVFP4LoRALinear` instead. |
+| Qwen3.5-122B-A10B-NVFP4 | NVIDIA ModelOpt | MoE-only NVFP4 serving variant. Served via vLLM 0.22.1 with the same NVFP4 backend used for Nemotron-3 Nano. |
 | Qwen3.6-35B-A3B-NVFP4 | NVIDIA ModelOpt | Smaller MoE in the same family; serves with `--enable-lora --lora-modules` for dynamic adapter switching. |
 
-Porting another NVFP4 family means writing a loader that maps the safetensors layout to the in-memory module tree (the kernel and LoRA wrappers are unchanged). The [smoke_tests/](smoke_tests/) directory has working templates for both ModelOpt and compressed-tensors layouts.
+### Unified multi-family trainer
+
+[`scripts/train_nvfp4_lora.py`](scripts/train_nvfp4_lora.py) trains any supported family with the right strategy detected from the checkpoint itself:
+
+* **Family** (auto class, expert-tensor key translation, multimodal-tower freezing) resolves from `config.json` `model_type` via a small registry.
+* **LoRA mechanism** is detected, not configured: if every `--target-modules` suffix is NVFP4-quantized in the checkpoint, LoRA is baked into `NVFP4LoRALinear` at load; if none are quantized (BF16 attention recipes), standard PEFT wrapping with a family-scoped regex. Mixed targets are rejected with an explanation.
+* **Crash safety**: atomic adapter saves, rotated `checkpoint_step_N/` dirs, best-by-val-loss tracking at `<output_dir>/best/`, and full resume via `--resume-from` (adapter + optimizer + scheduler + RNG + deterministic per-epoch data order).
+
+```bash
+python -u scripts/train_nvfp4_lora.py \
+    --model-dir /models/RedHatAI-Qwen3.5-122B-A10B-NVFP4 \
+    --target-modules q_proj,k_proj,v_proj,o_proj \
+    --train-file train.jsonl --val-file val.jsonl \
+    --epochs 3 --max-length 2048 \
+    --output-dir adapters/my_run
+```
+
+Porting another NVFP4 family means adding a `FAMILIES` entry (and a `make_key_translator` branch in `loader.py` if the safetensors layout is new). The [smoke_tests/](smoke_tests/) directory has working templates for both ModelOpt and compressed-tensors layouts.
+
+### Known issues on GB10 (DGX Spark)
+
+Lessons from bringing up 119-122B NVFP4 training on the 131 GB unified-memory GB10, consolidated in [`nvfp4_lora/gb10_prep.py`](nvfp4_lora/gb10_prep.py):
+
+* **Weight-sized buffers must be allocated with an explicit `device="cuda"`.** CPU and GPU share one DRAM pool, but they fail differently under pressure: the kernel reclaims page cache for CPU allocations, while NVRM allocations fail immediately with `NV_ERR_NO_MEMORY`. A weight-sized buffer that lands on CPU (e.g. a forgotten `device=` on the MoE expert container) permanently starves CUDA and manifests as an OOM kill on the first training step with a constant anon-RSS fingerprint.
+* **Drop shard page cache after weight assembly.** Streaming ~70 GB of safetensors leaves the pages cached, and NVRM cannot force-reclaim them. `gb10_prep.drop_shard_page_cache()` releases them via `posix_fadvise(DONTNEED)`, no privileges needed.
+* **`flash-linear-attention` is pinned to 0.4.2.** Version 0.5.0's `prepare_wy_repr_bwd_kernel` crashes with `Triton Error [CUDA]: misaligned address` on GB10 during the gated-delta-rule backward (forward is fine, which makes it easy to misattribute). Hybrid linear-attention models (Qwen3.5) need fla + `causal-conv1d`; without them transformers silently falls back to a much slower torch path.
+* **`NVFP4_EVAL_CACHE_GB`** caps the process-wide eval-mode bf16 weight cache in `NVFP4LoRALinear` (default 30). Set it to ~8 for NVFP4-attention models where post-load headroom is ~50 GB.
+* NVML/`nvidia-smi` report `N/A` for memory on GB10; use `torch.cuda.mem_get_info()` + `psutil.virtual_memory()` (`gb10_prep.memory_snapshot()`).
 
 ## How it works
 
@@ -311,13 +339,16 @@ The Phase 1 ICH-v1.0 merge validated at cosine p01 = 0.9998 with 6/40961 (0.01%)
 ```
 nvfp4_lora/                  # core library
   linear.py                  # NVFP4LoRALinear (on-the-fly dequant + LoRA delta)
-  loader.py                  # mixed NVFP4 + FP8 + Mamba loader for Nemotron-3
-  dequant.py                 # NVFP4 -> bf16 dequant kernel
+  loader.py                  # multi-family NVFP4 loader (Nemotron-3, Mistral3, Qwen3.5)
+  experts.py                 # NVFP4Experts3D fused-3D routed-MoE container + per-family replacement
+  dequant.py                 # NVFP4 -> bf16 dequant kernel (Triton fast path + PyTorch fallback)
+  gb10_prep.py               # GB10 UMA helpers: alloc conf, page-cache drop, memory snapshot
 train/                       # training scripts (edit paths at top of each)
   train_super_nvfp4.py
   train_nano_nvfp4.py
   train_nano_bf16.py         # BF16 quantization ablation
 scripts/
+  train_nvfp4_lora.py        # unified multi-family LoRA trainer (auto family + LoRA mode, resume)
   merge_lora_into_nvfp4.py   # merge LoRA into NVFP4 base + re-quantize
   validate_merge.py          # per-tensor cosine + no-op-fraction audit
   distinguish_ft.py          # base vs FT distinguishing-prompt test
