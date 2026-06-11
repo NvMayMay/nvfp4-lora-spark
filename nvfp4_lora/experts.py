@@ -6,6 +6,7 @@ weights as per-expert safetensors keys on disk.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Mapping
 
@@ -13,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .dequant import dequantize_nvfp4_weight
+from .dequant import dequantize_nvfp4_weight, dequantize_nvfp4_weight_batched
 
 
 class _DequantExpertLinear(torch.autograd.Function):
@@ -54,6 +55,70 @@ class _DequantExpertLinear(torch.autograd.Function):
         return grad_x, None, None, None, None
 
 
+class _GroupedDequantExpertLinear(torch.autograd.Function):
+    """Batched linear over K frozen NVFP4 expert weights.
+
+    forward: x (K, L, in) x expert weights (K, out, in) -> (K, L, out), where
+    the K weights are dequantized in ONE batched call into a transient bf16
+    workspace and applied with one torch.bmm. backward recomputes the dequant
+    and does grad_x = bmm(grad_out, W); only the activation gradient is
+    produced (expert weights are frozen). Same contract as
+    _DequantExpertLinear: ctx saves only the packed/scale buffers (views of
+    the persistent module buffers, zero extra memory) plus the small expert
+    index, so no bf16 expert weight is retained in the graph between forward
+    and backward.
+
+    Operation-count argument (GPU benchmarks pending): the legacy loop issues
+    1 dequant (itself 8-10 eager dispatches on the fallback path, 1 Triton
+    launch otherwise) + 1 GEMM per hit expert per projection, i.e. up to
+    2 * 256 = 512 sequential launches per projection per layer, each GEMM
+    averaging only ~64 tokens (seq 2048 x top-8 / 256 experts) and badly
+    under-occupying the SMs. The grouped path issues 2 launches per K-batch
+    (1 batched dequant grid + 1 bmm), i.e. 2 * ceil(256/K) = 64 at K=8 - an
+    8x cut in launch count - and each bmm carries K experts' worth of work,
+    amortizing kernel launch latency and raising GEMM occupancy. Backward gets
+    the identical reduction since dequant is recomputed there. Total dequant
+    bytes and matmul FLOPs are unchanged except for padding the per-expert
+    token groups to the max group length within each K-batch.
+
+    The transient bf16 workspace is K * out * in * 2 bytes per call (allocated
+    here, dead after the bmm); see NVFP4Experts3D.expert_batch_size for the
+    sizing policy.
+    """
+
+    @staticmethod
+    def forward(ctx, x, packed, scale, gscale, expert_idx, group_size: int):
+        ctx.save_for_backward(packed, scale, gscale, expert_idx)
+        ctx.group_size = int(group_size)
+        W = dequantize_nvfp4_weight_batched(
+            packed,
+            scale,
+            gscale,
+            group_size=ctx.group_size,
+            out_dtype=x.dtype,
+            format="compressed_tensors",
+            expert_idx=expert_idx,
+        )
+        return torch.bmm(x, W.transpose(1, 2))
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        packed, scale, gscale, expert_idx = ctx.saved_tensors
+        grad_x = None
+        if ctx.needs_input_grad[0]:
+            W = dequantize_nvfp4_weight_batched(
+                packed,
+                scale,
+                gscale,
+                group_size=ctx.group_size,
+                out_dtype=grad_output.dtype,
+                format="compressed_tensors",
+                expert_idx=expert_idx,
+            )
+            grad_x = torch.bmm(grad_output, W)
+        return grad_x, None, None, None, None, None
+
+
 class NVFP4Experts3D(nn.Module):
     """Frozen NVFP4 container for fused-3D routed MoE experts.
 
@@ -77,6 +142,23 @@ class NVFP4Experts3D(nn.Module):
         self.intermediate_dim = int(intermediate_dim)
         self.group_size = int(group_size)
         self.act_fn = act_fn if act_fn is not None else nn.SiLU()
+
+        # Grouped expert path: process hit experts in batches of
+        # `expert_batch_size` (K), dequantizing K weights per call and running
+        # one bmm over the padded per-expert token groups. Set
+        # NVFP4_GROUPED_EXPERTS=0 to fall back to the legacy per-expert loop.
+        #
+        # K sizes the transient bf16 dequant workspace, which exists only
+        # inside one _GroupedDequantExpertLinear call:
+        #   gate_up: K * (2 * intermediate_dim) * hidden_dim * 2 bytes
+        #   down:    K * hidden_dim * intermediate_dim * 2 bytes
+        # For Qwen3.5-122B routed experts (hidden 3072, intermediate 1024)
+        # that is 12.6 MB / 6.3 MB per expert, so K=8 peaks around 100 MB for
+        # gate_up (151 MB if both projections were ever live at once - they
+        # are not). NEVER set K anywhere near num_experts: all 256 experts at
+        # once is ~4.8 GB per layer for gate_up alone.
+        self.expert_batch_size = 8
+        self.grouped_experts = os.environ.get("NVFP4_GROUPED_EXPERTS", "1") != "0"
 
         if self.hidden_dim % 2 != 0:
             raise ValueError(f"hidden_dim must be even for uint8 fp4 packing, got {self.hidden_dim}")
@@ -162,6 +244,17 @@ class NVFP4Experts3D(nn.Module):
         top_k_index: torch.Tensor,
         top_k_weights: torch.Tensor,
     ) -> torch.Tensor:
+        if self.grouped_experts:
+            return self._forward_grouped(hidden_states, top_k_index, top_k_weights)
+        return self._forward_per_expert(hidden_states, top_k_index, top_k_weights)
+
+    def _forward_per_expert(
+        self,
+        hidden_states: torch.Tensor,
+        top_k_index: torch.Tensor,
+        top_k_weights: torch.Tensor,
+    ) -> torch.Tensor:
+        """Legacy sequential per-expert loop (NVFP4_GROUPED_EXPERTS=0)."""
         final_hidden_states = torch.zeros_like(hidden_states)
         with torch.no_grad():
             expert_mask = torch.nn.functional.one_hot(top_k_index, num_classes=self.num_experts)
@@ -178,6 +271,92 @@ class NVFP4Experts3D(nn.Module):
             current_hidden_states = self._down_linear(current_hidden_states, expert_idx)
             current_hidden_states = current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
             final_hidden_states.index_add_(0, token_idx, current_hidden_states.to(final_hidden_states.dtype))
+        return final_hidden_states
+
+    def _forward_grouped(
+        self,
+        hidden_states: torch.Tensor,
+        top_k_index: torch.Tensor,
+        top_k_weights: torch.Tensor,
+    ) -> torch.Tensor:
+        """Grouped expert MLP: sort-trick token regrouping + K-expert batched GEMMs.
+
+        Routing math is identical to the per-expert loop: the same
+        (token, top_k_pos) pairs hit the same experts with the same
+        `top_k_weights[token, pos]` multipliers; only the order in which
+        contributions accumulate into `final_hidden_states` differs (sorted by
+        expert, token-major within an expert, vs the loop's top_k-pos-major),
+        which matters only at bf16 rounding level.
+        """
+        final_hidden_states = torch.zeros_like(hidden_states)
+        device = hidden_states.device
+        top_k = top_k_index.shape[1]
+
+        with torch.no_grad():
+            # Sort the flattened (token, top_k_pos) assignments by expert so
+            # each expert's tokens form one contiguous segment.
+            flat_expert = top_k_index.reshape(-1)
+            sort_order = torch.argsort(flat_expert, stable=True)
+            token_idx_sorted = torch.div(sort_order, top_k, rounding_mode="floor")
+            counts = torch.bincount(flat_expert, minlength=self.num_experts)
+            # Segment bookkeeping happens on CPU (python loop bounds); one sync.
+            counts_cpu = counts.to("cpu")
+            offsets_cpu = torch.cumsum(counts_cpu, dim=0) - counts_cpu
+            hit_experts_cpu = counts_cpu.nonzero(as_tuple=False).flatten()
+
+        if hit_experts_cpu.numel() == 0:
+            return final_hidden_states
+
+        # One gather up front; one index_add_ scatter at the end.
+        x_sorted = hidden_states[token_idx_sorted]
+        w_sorted = top_k_weights.reshape(-1)[sort_order]
+
+        batch_size = max(1, int(self.expert_batch_size))
+        out_chunks = []
+        for start in range(0, hit_experts_cpu.numel(), batch_size):
+            batch_cpu = hit_experts_cpu[start : start + batch_size]
+            k = batch_cpu.numel()
+            seg_len = int(counts_cpu[batch_cpu].max())
+
+            # Pad each expert's token segment to the longest in this batch so
+            # the K groups stack into one (k, seg_len, hidden) bmm operand.
+            # Padded lanes alias row 0 of x_sorted; their outputs are dropped
+            # by the `valid` mask below, so no gradient flows through them.
+            seg_pos = torch.arange(seg_len, device=device)
+            seg_counts = counts_cpu[batch_cpu].to(device)
+            seg_offsets = offsets_cpu[batch_cpu].to(device)
+            valid = seg_pos[None, :] < seg_counts[:, None]
+            gather_idx = seg_offsets[:, None] + seg_pos[None, :]
+            gather_idx = torch.where(valid, gather_idx, torch.zeros_like(gather_idx))
+            current_state = x_sorted[gather_idx.reshape(-1)].view(k, seg_len, self.hidden_dim)
+
+            expert_idx = batch_cpu.to(device)
+            gate, up = _GroupedDequantExpertLinear.apply(
+                current_state,
+                self.gate_up_packed,
+                self.gate_up_scale,
+                self.gate_up_global_scale,
+                expert_idx,
+                self.group_size,
+            ).chunk(2, dim=-1)
+            current_hidden_states = self.act_fn(gate) * up
+            current_hidden_states = _GroupedDequantExpertLinear.apply(
+                current_hidden_states,
+                self.down_packed,
+                self.down_scale,
+                self.down_global_scale,
+                expert_idx,
+                self.group_size,
+            )
+            out_chunks.append(
+                current_hidden_states.reshape(k * seg_len, self.hidden_dim)[valid.reshape(-1)]
+            )
+
+        # Valid rows concatenate back into exact sorted order: hit experts are
+        # visited ascending and rows within a segment keep their sorted order.
+        out_sorted = torch.cat(out_chunks, dim=0) if len(out_chunks) > 1 else out_chunks[0]
+        out_sorted = out_sorted * w_sorted[:, None]
+        final_hidden_states.index_add_(0, token_idx_sorted, out_sorted.to(final_hidden_states.dtype))
         return final_hidden_states
 
 

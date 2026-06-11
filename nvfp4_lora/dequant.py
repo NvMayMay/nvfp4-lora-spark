@@ -159,3 +159,129 @@ def dequantize_nvfp4_weight(
         out.copy_(result)
         return out
     return result.to(out_dtype)
+
+
+def dequantize_nvfp4_weight_batched(
+    weight_uint8: torch.Tensor,           # (num_experts, out, in/2), uint8
+    weight_scale_fp8: torch.Tensor,        # (num_experts, out, in/group_size), float8_e4m3fn
+    weight_scale_2_fp32: torch.Tensor,     # (num_experts,) or (num_experts, 1), float32
+    group_size: int = 16,
+    out_dtype: torch.dtype = torch.bfloat16,
+    out: torch.Tensor | None = None,
+    format: NVFP4Format = "modelopt",
+    expert_idx: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Dequantize a stack of NVFP4-stored expert weights in one call.
+
+    Batched analogue of `dequantize_nvfp4_weight`: identical per-element math,
+    but the per-tensor scale is per-expert. If `expert_idx` (1D int64) is given,
+    only those experts are dequantized; on the Triton fast path the indexing
+    happens inside the kernel so no gathered copy of the packed buffers is made.
+
+    Returns: tensor of shape (K, out, in) in `out_dtype`, where K is
+    `expert_idx.numel()` if given else `weight_uint8.shape[0]`.
+
+    The eager PyTorch fallback materializes an int64 nibble-index tensor of
+    K * out * in elements (8 bytes each); callers bound peak memory by limiting
+    K per call (see NVFP4Experts3D.expert_batch_size).
+    """
+    if format not in ("modelopt", "compressed_tensors"):
+        raise ValueError(f"format must be 'modelopt' or 'compressed_tensors', got {format!r}")
+    if weight_uint8.dtype != torch.uint8:
+        raise TypeError(f"weight_uint8 must be uint8, got {weight_uint8.dtype}")
+    if weight_uint8.ndim != 3:
+        raise ValueError(
+            f"weight_uint8 must have shape (num_experts, out, in/2), got {tuple(weight_uint8.shape)}"
+        )
+    if weight_scale_fp8.dtype != torch.float8_e4m3fn:
+        raise TypeError(f"weight_scale_fp8 must be float8_e4m3fn, got {weight_scale_fp8.dtype}")
+    if weight_scale_fp8.ndim != 3:
+        raise ValueError(
+            f"weight_scale_fp8 must have shape (num_experts, out, in/group_size), "
+            f"got {tuple(weight_scale_fp8.shape)}"
+        )
+    if weight_scale_2_fp32.dtype != torch.float32:
+        raise TypeError(f"weight_scale_2_fp32 must be float32, got {weight_scale_2_fp32.dtype}")
+
+    device = weight_uint8.device
+    num_experts = weight_uint8.shape[0]
+    out_feat = weight_uint8.shape[1]
+    in_feat = weight_uint8.shape[2] * 2
+
+    if weight_scale_2_fp32.numel() != num_experts:
+        raise ValueError(
+            f"per-expert scale must have num_experts={num_experts} elements, "
+            f"got shape {tuple(weight_scale_2_fp32.shape)}"
+        )
+    if in_feat % group_size != 0:
+        raise ValueError(f"unpacked input dim {in_feat} is not divisible by group_size={group_size}")
+    n_groups = in_feat // group_size
+    if weight_scale_fp8.shape != (num_experts, out_feat, n_groups):
+        raise ValueError(
+            f"weight_scale shape mismatch: got {tuple(weight_scale_fp8.shape)} "
+            f"expected ({num_experts}, {out_feat}, {n_groups})"
+        )
+    if expert_idx is not None:
+        if expert_idx.ndim != 1:
+            raise ValueError(f"expert_idx must be 1D, got {tuple(expert_idx.shape)}")
+        n_selected = expert_idx.numel()
+    else:
+        n_selected = num_experts
+
+    # Effective per-expert scale, same convention as the 2D path.
+    per_expert_raw = weight_scale_2_fp32.reshape(-1).to(torch.float32)
+    if format == "modelopt":
+        per_expert_effective = per_expert_raw
+    else:
+        per_expert_effective = 1.0 / per_expert_raw.clamp(min=1e-30)
+    if expert_idx is not None:
+        per_expert_effective = per_expert_effective[expert_idx]
+
+    # Triton fast path: one batched grid over the selected experts. The packed
+    # buffer is passed whole (the kernel indexes experts internally); the fp8
+    # scales are gathered to the K selected experts first because the fp32 cast
+    # copies anyway, and casting the full buffer would cost num_experts/K more
+    # transient memory.
+    if device.type == "cuda":
+        from .triton_dequant import triton_available, triton_dequant_nvfp4_batched
+        if triton_available() and out_dtype == torch.bfloat16:
+            scale_selected = weight_scale_fp8 if expert_idx is None else weight_scale_fp8[expert_idx]
+            return triton_dequant_nvfp4_batched(
+                weight_uint8,
+                scale_selected.to(torch.float32),
+                per_expert_effective,
+                group_size=group_size,
+                out=out,
+                expert_idx=expert_idx,
+            )
+
+    if expert_idx is not None:
+        weight_uint8 = weight_uint8[expert_idx]
+        weight_scale_fp8 = weight_scale_fp8[expert_idx]
+
+    lut = NVFP4_E2M1_LUT.to(device=device, dtype=torch.float32)
+
+    # Unpack uint8 -> int64 indices (0..15), shape (K, out, in)
+    indices = _unpack_nibbles(weight_uint8)
+    assert indices.shape == (n_selected, out_feat, in_feat)
+
+    fp4_values = lut[indices]
+    weight_scale_fp32 = weight_scale_fp8.to(torch.float32)
+
+    result_fp32 = (
+        fp4_values.view(n_selected, out_feat, n_groups, group_size)
+        * weight_scale_fp32.unsqueeze(-1)
+        * per_expert_effective.view(-1, 1, 1, 1)
+    )
+    result = result_fp32.reshape(n_selected, out_feat, in_feat)
+    if out is not None:
+        expected_shape = (n_selected, out_feat, in_feat)
+        if tuple(out.shape) != expected_shape or out.dtype != out_dtype:
+            raise ValueError(
+                "out shape/dtype mismatch: "
+                f"got shape={tuple(out.shape)} dtype={out.dtype}, "
+                f"expected shape={expected_shape} dtype={out_dtype}"
+            )
+        out.copy_(result)
+        return out
+    return result.to(out_dtype)
