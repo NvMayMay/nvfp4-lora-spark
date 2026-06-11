@@ -391,9 +391,15 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
         model.peft_config[model.active_adapter].save_pretrained(str(tmp_dir))
 
     tokenizer.save_pretrained(str(tmp_dir))
-    if dest_dir.exists():
-        shutil.rmtree(dest_dir)
-    os.rename(str(tmp_dir), str(dest_dir))
+    # Move files into dest individually (os.replace is atomic per file).
+    # Never rmtree dest_dir: the final save targets the OUTPUT ROOT, which
+    # also holds best/, checkpoint_step_*/ and metrics.jsonl -- a whole-dir
+    # swap deletes them all (this destroyed the best adapter of the Mistral
+    # 119B v3.5 run).
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for item in tmp_dir.iterdir():
+        os.replace(str(item), str(dest_dir / item.name))
+    tmp_dir.rmdir()
 
 
 def _load_adapter_weights(model, adapter_dir: Path, lora_mode: str, log_fn) -> None:
