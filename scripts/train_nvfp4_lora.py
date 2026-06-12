@@ -68,78 +68,40 @@ from nvfp4_lora.experts import (  # noqa: E402
     assemble_nvfp4_experts3d_batched,
     replace_moe_experts_with_nvfp4_3d,
 )
+from nvfp4_lora.families import FAMILIES, resolve_family  # noqa: E402, F401
 from nvfp4_lora.gb10_prep import drop_shard_page_cache, memory_snapshot  # noqa: E402
 from nvfp4_lora.linear import NVFP4LoRALinear  # noqa: E402
 from nvfp4_lora.loader import (  # noqa: E402
     _assign_dequant_workspaces,
-    list_quantized_modules,
+    assert_no_meta_tensors,
+    decide_lora_mode,
     load_non_nvfp4_weights,
     replace_nvfp4_modules,
 )
 
-
-# =========================================================================
-# Family registry — everything model-specific lives here
-# =========================================================================
-# auto_class:      which transformers Auto* builds the right text-trainable graph
-# expert_prefix:   (in_memory_prefix, safetensors_prefix) for routed-expert keys
-# peft_scope:      regex prefix anchoring PEFT target_modules to the text backbone
-# freeze:          submodules of model.model to freeze (multimodal towers)
-FAMILIES = {
-    "qwen3_5_moe": {
-        "auto_class": "causal_lm",
-        "expert_prefix": ("model.", "model.language_model."),
-        "peft_scope": r"^model\.layers\.",
-        "freeze": (),
-    },
-    "qwen3_5_moe_text": {
-        "auto_class": "causal_lm",
-        "expert_prefix": ("model.", "model.language_model."),
-        "peft_scope": r"^model\.layers\.",
-        "freeze": (),
-    },
-    "mistral3": {
-        "auto_class": "image_text_to_text",
-        "expert_prefix": ("model.language_model.", "language_model.model."),
-        "peft_scope": r"^model\.language_model\.",
-        "freeze": ("vision_tower", "multi_modal_projector"),
-    },
-    "mistral4": {
-        "auto_class": "image_text_to_text",
-        "expert_prefix": ("model.language_model.", "language_model.model."),
-        "peft_scope": r"^model\.language_model\.",
-        "freeze": ("vision_tower", "multi_modal_projector"),
-    },
-}
+# The family registry (FAMILIES / resolve_family) lives in nvfp4_lora/families.py
+# and is shared with the loader, the checkpoint inspector and the merge scripts.
+# They are re-exported above so existing callers and tests keep working.
 
 
-def resolve_family(model_dir: Path) -> tuple[str, dict]:
-    cfg = AutoConfig.from_pretrained(str(model_dir), trust_remote_code=True)
-    model_type = getattr(cfg, "model_type", None)
-    fam = FAMILIES.get(model_type)
-    if fam is None:
-        raise SystemExit(
-            f"Unsupported model_type={model_type!r}. Known: {sorted(FAMILIES)}. "
-            f"Add a FAMILIES entry (and a make_key_translator branch in loader.py "
-            f"if the safetensors layout is new)."
-        )
-    return model_type, fam
+def detect_lora_mode(
+    model_dir: Path,
+    target_suffixes: list[str],
+    allow_partial_targets: bool = False,
+    allow_fp8_targets: bool = False,
+) -> tuple[str, dict]:
+    """'native' if the target modules are NVFP4-quantized in the checkpoint,
+    'peft' if they are plain BF16. Returns (mode, coverage_report).
 
-
-def detect_lora_mode(model_dir: Path, target_suffixes: list[str]) -> str:
-    """'native' if every target suffix is NVFP4-quantized in the checkpoint,
-    'peft' if none are. Mixed -> hard error."""
-    quantized = list_quantized_modules(model_dir)
-    quantized_suffixes = {name.rsplit(".", 1)[-1] for name in quantized}
-    hits = [s for s in target_suffixes if s in quantized_suffixes]
-    if len(hits) == len(target_suffixes):
-        return "native"
-    if not hits:
-        return "peft"
-    raise SystemExit(
-        f"Mixed LoRA targets: {hits} are NVFP4-quantized but "
-        f"{sorted(set(target_suffixes) - set(hits))} are not. Native NVFP4-LoRA "
-        f"and PEFT cannot be combined in one run; split the target list."
+    Unlike the v1 suffix-set heuristic, this classifies EVERY matching module
+    individually (via loader.decide_lora_mode), so partial quantization across
+    layers and FP8-demoted targets are hard errors instead of silent gaps.
+    """
+    return decide_lora_mode(
+        model_dir,
+        target_suffixes,
+        allow_partial_targets=allow_partial_targets,
+        allow_fp8_targets=allow_fp8_targets,
     )
 
 
@@ -231,6 +193,7 @@ def load_model(
     lora_r: int,
     lora_alpha: int,
     lora_dropout: float,
+    strict: bool = True,
 ):
     print("[load] building model on meta…", flush=True)
     cfg = AutoConfig.from_pretrained(str(model_dir), trust_remote_code=True)
@@ -239,12 +202,17 @@ def load_model(
         model = auto_cls.from_config(cfg, trust_remote_code=True)
     _stage("post-meta-build")
 
-    print("[load] replacing fused-3D MoE blocks with NVFP4Experts3D…", flush=True)
     model_type = getattr(model.config, "model_type", None)
-    # device= is load-bearing on GB10 UMA: the default (None) allocates the
-    # packed expert buffers (~weight-sized) on CPU, permanently starving CUDA.
-    replace_moe_experts_with_nvfp4_3d(model, model_family=model_type, device=device)
-    _stage("post-moe-replace")
+    if family.get("moe_experts_class"):
+        print("[load] replacing fused-3D MoE blocks with NVFP4Experts3D…", flush=True)
+        # device= is load-bearing on GB10 UMA: the default (None) allocates the
+        # packed expert buffers (~weight-sized) on CPU, permanently starving CUDA.
+        replace_moe_experts_with_nvfp4_3d(model, model_family=model_type, device=device)
+        _stage("post-moe-replace")
+    else:
+        # Family stores routed experts as per-expert nn.Linear modules
+        # (Nemotron); replace_nvfp4_modules handles them like any other linear.
+        print("[load] no fused-3D MoE for this family; experts are per-module linears", flush=True)
 
     native_targets = tuple(target_suffixes) if lora_mode == "native" else ()
     print(f"[load] replacing NVFP4 nn.Linear (mode={lora_mode}, native targets={list(native_targets)})…", flush=True)
@@ -258,19 +226,20 @@ def load_model(
     )
     _stage("post-linear-replace")
 
-    print("[load] assembling routed-expert NVFP4 buffers…", flush=True)
-    mem_prefix, st_prefix = family["expert_prefix"]
-    idx_obj = json.loads((model_dir / "model.safetensors.index.json").read_text())
-    wm = idx_obj["weight_map"]
-    for name, module in model.named_modules():
-        if isinstance(module, NVFP4Experts3D):
-            assert name.startswith(mem_prefix), f"unexpected expert path: {name!r}"
-            st_name = st_prefix + name[len(mem_prefix):]
-            assemble_nvfp4_experts3d_batched(module, st_name, model_dir, wm)
-    _stage("post-expert-assembly")
+    if family.get("expert_prefix"):
+        print("[load] assembling routed-expert NVFP4 buffers…", flush=True)
+        mem_prefix, st_prefix = family["expert_prefix"]
+        idx_obj = json.loads((model_dir / "model.safetensors.index.json").read_text())
+        wm = idx_obj["weight_map"]
+        for name, module in model.named_modules():
+            if isinstance(module, NVFP4Experts3D):
+                assert name.startswith(mem_prefix), f"unexpected expert path: {name!r}"
+                st_name = st_prefix + name[len(mem_prefix):]
+                assemble_nvfp4_experts3d_batched(module, st_name, model_dir, wm)
+        _stage("post-expert-assembly")
 
     print("[load] loading non-NVFP4 weights (attention/embeddings/norms/lm_head)…", flush=True)
-    load_non_nvfp4_weights(model, model_dir, device=device, dtype=dtype)
+    load_non_nvfp4_weights(model, model_dir, device=device, dtype=dtype, strict=strict)
     _stage("post-non-nvfp4-load")
 
     _assign_dequant_workspaces(model, device=device, dtype=dtype)
@@ -306,6 +275,22 @@ def load_model(
             continue
         for p in sub.parameters():
             p.requires_grad = False
+
+    # Tied embeddings never appear as a separate lm_head tensor on disk; re-tie
+    # so lm_head does not stay on meta. No-op for untied checkpoints.
+    if getattr(cfg, "tie_word_embeddings", False) and hasattr(model, "tie_weights"):
+        model.tie_weights()
+
+    # Everything still on meta at this point was never loaded and will explode
+    # at first forward; only the family's frozen multimodal towers are allowed.
+    meta_allowed = tuple(family.get("meta_allowed_prefixes", ()))
+    if strict:
+        assert_no_meta_tensors(model, allowed_prefixes=meta_allowed)
+    else:
+        try:
+            assert_no_meta_tensors(model, allowed_prefixes=meta_allowed)
+        except RuntimeError as e:
+            print(f"[load] WARNING (--permissive-load): {e}", flush=True)
 
     return model
 
@@ -487,6 +472,19 @@ def main():
                     help="Comma-separated projection suffixes. The LoRA mechanism "
                          "(native NVFP4 vs PEFT) is detected from whether these are "
                          "quantized in the checkpoint.")
+    ap.add_argument("--allow-partial-targets", action="store_true",
+                    help="Proceed when a target suffix is NVFP4-quantized in some "
+                         "layers but BF16 in others; only the quantized instances "
+                         "are trained. Without this flag, partial coverage is a "
+                         "hard error.")
+    ap.add_argument("--allow-fp8-targets", action="store_true",
+                    help="Proceed when a target suffix matches FP8-per-tensor "
+                         "modules; those are demoted to frozen (no LoRA). Without "
+                         "this flag, FP8 targets are a hard error.")
+    ap.add_argument("--permissive-load", action="store_true",
+                    help="Bring-up escape hatch: downgrade strict-load errors "
+                         "(unmapped on-disk tensors, tensors left on the meta "
+                         "device) to warnings. Never use for a real run.")
     ap.add_argument("--eval-every", type=int, default=50)
     ap.add_argument("--eval-subset", type=int, default=0,
                     help="If >0, in-flight evals run only over the first N val "
@@ -530,9 +528,24 @@ def main():
     model_dir = Path(args.model_dir)
     model_type, family = resolve_family(model_dir)
     target_suffixes = [m.strip() for m in args.target_modules.split(",") if m.strip()]
-    lora_mode = detect_lora_mode(model_dir, target_suffixes)
+    lora_mode, coverage = detect_lora_mode(
+        model_dir, target_suffixes,
+        allow_partial_targets=args.allow_partial_targets,
+        allow_fp8_targets=args.allow_fp8_targets,
+    )
     log("strategy", model_type=model_type, auto_class=family["auto_class"],
         lora_mode=lora_mode, targets=target_suffixes)
+
+    # Persist the exact target coverage next to the adapter so every run is
+    # auditable: which modules were trained natively, which via PEFT, which
+    # were FP8-demoted or skipped.
+    coverage["model_type"] = model_type
+    coverage["model_dir"] = str(model_dir)
+    (Path(args.output_dir) / "target_coverage.json").write_text(
+        json.dumps(coverage, indent=2)
+    )
+    for suffix, info in coverage["inventory"].items():
+        log("target_coverage", suffix=suffix, counts=info["counts"])
 
     device = torch.device("cuda")
     dtype = torch.bfloat16
@@ -565,6 +578,7 @@ def main():
         model_dir, family, device, dtype,
         lora_mode=lora_mode, target_suffixes=target_suffixes,
         lora_r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout,
+        strict=not args.permissive_load,
     )
     log("model_loaded", seconds=round(time.time() - t0, 1))
 
