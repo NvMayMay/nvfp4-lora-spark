@@ -32,14 +32,22 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENV_PY="/home/veritan-spark-01/Veritan/.venvs/qwen-serve/bin/python"
+# Machine-local roots (models / adapters / serve venv). Set the NVFP4_* env
+# vars, or create serve/local_env.sh from serve/local_env.example.sh.
+SERVE_ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SERVE_ENV_DIR}/local_env.sh" ]; then source "${SERVE_ENV_DIR}/local_env.sh"; fi
+: "${NVFP4_MODELS_DIR:?Set NVFP4_MODELS_DIR or create serve/local_env.sh (see serve/local_env.example.sh)}"
+: "${NVFP4_SERVE_VENV:?Set NVFP4_SERVE_VENV or create serve/local_env.sh (see serve/local_env.example.sh)}"
+: "${NVFP4_ADAPTERS_DIR:?Set NVFP4_ADAPTERS_DIR or create serve/local_env.sh (see serve/local_env.example.sh)}"
 
-BASE_DIR="${BASE_DIR:-/home/veritan-spark-01/Veritan/Models/RedHatAI-Qwen3.5-122B-A10B-NVFP4}"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_PY="${NVFP4_SERVE_VENV}/bin/python"
+
+BASE_DIR="${BASE_DIR:-${NVFP4_MODELS_DIR}/RedHatAI-Qwen3.5-122B-A10B-NVFP4}"
 # Final adapter is written to the adapter root by the trainer; best-val copy
 # lives in best/. Override ADAPTER_DIR=...:/best to use the best checkpoint.
-ADAPTER_DIR="${ADAPTER_DIR:-/home/veritan-spark-01/Veritan/Sandbox/adapters/qwen3_5_122b_a10b_rh_nvfp4_lora_ich_v3_5}"
-MERGED_DIR="${MERGED_DIR:-/home/veritan-spark-01/Veritan/Models/RedHatAI-Qwen3.5-122B-A10B-NVFP4-ich-v3.5}"
+ADAPTER_DIR="${ADAPTER_DIR:-${NVFP4_ADAPTERS_DIR}/qwen3_5_122b_a10b_rh_nvfp4_lora_ich_v3_5}"
+MERGED_DIR="${MERGED_DIR:-${NVFP4_MODELS_DIR}/RedHatAI-Qwen3.5-122B-A10B-NVFP4-ich-v3.5}"
 
 SERVED_NAME="${SERVED_NAME:-qwen3.5-122b-a10b-nvfp4+ich_v3_5}"
 HOST="${HOST:-0.0.0.0}"
@@ -71,7 +79,7 @@ case "$cmd" in
       echo "ERROR: merged checkpoint not found at $MERGED_DIR; run 'merge' first" >&2
       exit 1
     fi
-    source /home/veritan-spark-01/Veritan/.venvs/qwen-serve/bin/activate
+    source "${NVFP4_SERVE_VENV}/bin/activate"
     exec vllm serve "$MERGED_DIR" \
         --served-model-name "$SERVED_NAME" \
         --host "$HOST" --port "$PORT" \

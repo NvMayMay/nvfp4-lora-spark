@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Serve Qwen3.5-122B-A10B-NVFP4 on DGX Spark / GB10 via vLLM.
+# Serve Mistral Small 4 119B A6B NVFP4 on DGX Spark / GB10 via vLLM.
 #
-# This launcher is intentionally conservative for the 128 GB unified-memory
-# Spark box: text-only, bounded concurrency, eager mode, and CUTLASS MoE backend.
-# The checkpoint README recommends vLLM + qwen3 reasoning parser; the local
-# Spark NVFP4 investigation found CUTLASS is the practical fast backend for
-# 120B-class FP4 MoE models on sm_121.
+# This checkpoint uses Mistral's native consolidated safetensors + params.json
+# layout, so vLLM needs the Mistral config/tokenizer/load-format switches.
+# Defaults are text-only, single-GPU, and four concurrent sequences.
 
 set -euo pipefail
 
@@ -16,14 +14,14 @@ if [ -f "${SERVE_ENV_DIR}/local_env.sh" ]; then source "${SERVE_ENV_DIR}/local_e
 : "${NVFP4_MODELS_DIR:?Set NVFP4_MODELS_DIR or create serve/local_env.sh (see serve/local_env.example.sh)}"
 : "${NVFP4_SERVE_VENV:?Set NVFP4_SERVE_VENV or create serve/local_env.sh (see serve/local_env.example.sh)}"
 
-MODEL_DIR="${MODEL_DIR:-${NVFP4_MODELS_DIR}/Qwen3.5-122B-A10B-NVFP4}"
-SERVED_NAME="${SERVED_NAME:-qwen3.5-122b-a10b-nvfp4}"
+MODEL_DIR="${MODEL_DIR:-${NVFP4_MODELS_DIR}/Mistral-Small-4-119B-2603-NVFP4}"
+SERVED_NAME="${SERVED_NAME:-mistral-small-4-119b-a6b-nvfp4}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
-MAX_BATCHED_TOKENS="${MAX_BATCHED_TOKENS:-16384}"
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-4}"
-GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.70}"
+MAX_BATCHED_TOKENS="${MAX_BATCHED_TOKENS:-32768}"
+GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.75}"
 
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export MAX_JOBS="${MAX_JOBS:-1}"
@@ -35,11 +33,17 @@ vllm serve "$MODEL_DIR" \
     --host "$HOST" --port "$PORT" \
     --tensor-parallel-size 1 \
     --dtype bfloat16 \
+    --config-format mistral \
+    --tokenizer-mode mistral \
+    --load-format mistral \
     --max-model-len "$MAX_MODEL_LEN" \
     --max-num-batched-tokens "$MAX_BATCHED_TOKENS" \
     --max-num-seqs "$MAX_NUM_SEQS" \
     --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
     --enforce-eager \
     --language-model-only \
-    --reasoning-parser qwen3 \
+    --attention-backend TRITON_MLA \
+    --reasoning-parser mistral \
+    --enable-auto-tool-choice \
+    --tool-call-parser mistral \
     --moe-backend cutlass

@@ -11,9 +11,26 @@ unified-memory failure signatures you will hit along the way are in
 
 ## 1. Read your checkpoint first
 
-Three properties of the checkpoint decide how much work the port is. All three
-are answerable from `config.json` plus `model.safetensors.index.json` without
-loading anything.
+Start with the inspector; it answers everything in this section in one command
+(seconds, no GPU, reads only `config.json` + the safetensors index):
+
+```bash
+python scripts/inspect_nvfp4_checkpoint.py /path/to/model \
+    --target-modules q_proj,k_proj,v_proj,o_proj
+```
+
+It reports the quant format per module, per-suffix coverage with layer-level
+gaps, the MoE topology and whether the fused-3D path supports it, and the
+exact LoRA mechanism your target set would get (or the precise rejection
+reason). Add `--deep` to also verify the per-expert gate/up global-scale
+equality assumption against the shards, and `--json` for machine-readable
+output. The checkpoint-layout contract the inspector checks against is
+[SUPPORTED_TOPOLOGIES.md](SUPPORTED_TOPOLOGIES.md).
+
+The rest of this section explains what the inspector is looking at, for when
+you need to make the call manually. Three properties of the checkpoint decide
+how much work the port is. All three are answerable from `config.json` plus
+`model.safetensors.index.json` without loading anything.
 
 ### Quant format: compressed-tensors vs ModelOpt
 
@@ -74,15 +91,13 @@ Check how routed experts appear in the index:
 The fingerprint is in the in-memory module class name, not the index: if the
 HF model class fuses experts into one 3D parameter, you need the fused-3D path.
 
-## 2. The three integration points
+## 2. The integration point: one registry entry
 
-### (a) `FAMILIES` entry in the trainer
-
-In [`scripts/train_nvfp4_lora.py`](../scripts/train_nvfp4_lora.py), the
-`FAMILIES` dict keyed by `config.json` `model_type` is resolved by
-`resolve_family`. An unknown `model_type` raises with the list of known
-families and a pointer to add a `make_key_translator` branch. Each entry has
-four fields:
+All family knowledge lives in ONE place:
+[`nvfp4_lora/families.py`](../nvfp4_lora/families.py). The trainer, the
+loader's key translator, the fused-3D MoE replacer, the inspector and the
+merge scripts all read the same entry, so adding a family is adding ONE dict
+(plus tests). An unknown `model_type` raises with the list of known families.
 
 ```python
 FAMILIES = {
@@ -91,6 +106,10 @@ FAMILIES = {
         "expert_prefix": ("model.", "model.language_model."),  # (in_memory, safetensors)
         "peft_scope": r"^model\.layers\.",  # regex anchoring PEFT targets to the text backbone
         "freeze": (),                        # submodules of model.model to freeze (towers)
+        "skip_st_prefixes": ("model.visual.",),  # on-disk prefixes never loaded (towers, MTP)
+        "st_to_model": (("model.language_model.", "model."),),  # key rewrite rules, first match wins
+        "meta_allowed_prefixes": (),         # in-memory prefixes allowed to stay on meta
+        "moe_experts_class": "YourFusedExpertsClass",  # fused-3D HF class name, or None
     },
 }
 ```
@@ -123,15 +142,13 @@ inner text-only one (`qwen3_5_moe` and `qwen3_5_moe_text`; `mistral3` and
 variant, whose `config.model_type` differs from the outer wrapper, so register
 both keys with identical values.
 
-### (b) `make_key_translator` branch in `loader.py`
+### Key translation: `skip_st_prefixes` + `st_to_model`
 
-[`nvfp4_lora/loader.py`](../nvfp4_lora/loader.py) `make_key_translator`
-dispatches on `model.config.model_type` to a per-family `translate(key)` that
-maps a safetensors key to the in-memory attribute path, returning `None` for
-keys to skip. It also returns `(st_prefix, model_prefix)` strings used only for
-logging. Add a branch if your safetensors-to-in-memory layout is new.
-
-What a branch must do:
+The loader's `make_key_translator` builds the safetensors-to-in-memory
+translation from the registry's `skip_st_prefixes` (return `None`, never
+load) and `st_to_model` rewrite rules (ordered, first match wins, unmatched
+keys pass through verbatim). You no longer write a code branch for a new
+family; you declare the rules. What the rules must accomplish:
 
 - **Rewrite the backbone prefix.** Strip the on-disk prefix and add the
   in-memory one. Qwen3.5 maps `model.language_model.layers.X.*` to
@@ -145,39 +162,34 @@ What a branch must do:
     `multi_modal_projector.*`. These are not in the text-only graph, and
     `freeze` would not even reach them. Skipping keeps them out of the
     page-cache assembly entirely.
-  - **MTP layers**: the Nemotron default branch returns `None` for `mtp.*`
+  - **MTP layers**: the Nemotron fallback returns `None` for `mtp.*`
     (Multi-Token Prediction speculation layers used only by vLLM speculative
     decoding, never trained). `load_non_nvfp4_weights` counts and reports the
-    skipped `mtp.*` tensors.
-- **Pass everything else through.** A bare `return key` at the end handles
-  keys like `lm_head.*` that share naming between disk and memory.
+    skipped tensors.
+- **Pass everything else through.** Unmatched keys pass through verbatim,
+  which handles keys like `lm_head.*` that share naming between disk and
+  memory.
 
-The Nemotron fallback at the bottom of the function is a heuristic
+Loading is strict by default: an on-disk tensor whose translated path does not
+exist in the model is a hard error naming the key (add the prefix to
+`skip_st_prefixes` if it is genuinely not part of the training graph), and any
+parameter left on the meta device after load fails unless its prefix is in
+`meta_allowed_prefixes`. Use the trainer's `--permissive-load` only while
+working out a new family's rules.
+
+The Nemotron fallback at the bottom of `make_key_translator` is a heuristic
 (`named_children()` scan for a child with `.layers`). It raises if it cannot
 find a single backbone prefix or a `.layers` child, with the message telling
-you to add an explicit branch. Do not rely on it for a new non-Nemotron family;
-write the branch.
+you to add a registry entry. Do not rely on it for a new non-Nemotron family.
 
-### (c) `family_class_names` in `experts.py` (fused-3D only)
+### `moe_experts_class` (fused-3D only)
 
-If section 1 told you the MoE is fused-3D, add a mapping in
-[`nvfp4_lora/experts.py`](../nvfp4_lora/experts.py)
-`replace_moe_experts_with_nvfp4_3d`:
-
-```python
-family_class_names = {
-    "qwen3_5_moe": "Qwen3_5MoeExperts",
-    "qwen3_5_moe_text": "Qwen3_5MoeExperts",
-    "mistral3": "Mistral4NaiveMoe",
-    "mistral4": "Mistral4NaiveMoe",
-    "your_model_type": "YourFusedExpertsClass",  # in-memory class name
-}
-```
-
-The value is the **in-memory module class name** the HF model uses for its
-fused expert block (the `module.__class__.__name__` the function matches on).
-The replacement reads `num_experts`, `hidden_dim`, and `intermediate_dim` off
-the old module and swaps in `NVFP4Experts3D`. An unmapped `model_family` raises
+If section 1 told you the MoE is fused-3D, set `moe_experts_class` in the
+registry entry to the **in-memory module class name** the HF model uses for
+its fused expert block (the `module.__class__.__name__` that
+`replace_moe_experts_with_nvfp4_3d` matches on). The replacement reads
+`num_experts`, `hidden_dim`, and `intermediate_dim` off the old module and
+swaps in `NVFP4Experts3D`. A family without the field raises
 `replace_moe_experts_with_nvfp4_3d does not have a fused-3D MoE class...`.
 
 `NVFP4Experts3D` expects the standard gate/up/down per-expert layout: gate and
@@ -194,19 +206,24 @@ skip (c) entirely; `replace_nvfp4_modules` handles them.
 ## 3. What LoRA-mode detection does to your adapter
 
 The trainer does not let you choose the LoRA mechanism. `detect_lora_mode`
-inspects whether each `--target-modules` suffix is NVFP4-quantized in the
-checkpoint (via `list_quantized_modules`, which scans the index for
-`.weight_packed` or a `.weight` + `.weight_scale` pair):
+(backed by `loader.decide_lora_mode`) classifies EVERY module matching each
+`--target-modules` suffix individually from the index: compressed-tensors
+NVFP4 (`.weight_packed`), ModelOpt NVFP4 (`.weight` + `.weight_scale` +
+`.weight_scale_2`), FP8 per-tensor (`.weight` + `.weight_scale` only), or
+plain BF16:
 
-- **All targets quantized: `native`.** LoRA is baked into `NVFP4LoRALinear` at
-  load (PEFT cannot wrap a packed NVFP4 weight). `r`, `alpha`, and `dropout`
-  are passed straight into the module replacement.
-- **No targets quantized: `peft`.** Standard PEFT wrapping with the
+- **All target modules NVFP4: `native`.** LoRA is baked into `NVFP4LoRALinear`
+  at load (PEFT cannot wrap a packed NVFP4 weight). `r`, `alpha`, and
+  `dropout` are passed straight into the module replacement.
+- **All target modules BF16: `peft`.** Standard PEFT wrapping with the
   family-scoped `target_modules` regex from `peft_scope`. This is the
   BF16-attention recipe (Mistral-Small-4 MLA targets).
-- **Mixed: hard error.** Native NVFP4-LoRA and PEFT cannot coexist in one run;
-  the error names which suffixes are quantized and which are not and tells you
-  to split the target list.
+- **Anything else: hard error with the exact inventory.** Native and PEFT
+  suffixes in one run, a suffix matching nothing, a suffix quantized in some
+  layers but BF16 in others (override: `--allow-partial-targets`), or a
+  suffix landing on FP8 modules (override: `--allow-fp8-targets`) all fail
+  before any weight is read. The full per-suffix inventory is written to
+  `<output_dir>/target_coverage.json` on every run.
 
 This choice changes nothing about the on-disk adapter you ship. Both paths
 write `adapter_model.safetensors` with PEFT-style keys
@@ -218,11 +235,12 @@ path goes through `get_peft_model_state_dict`. Either way the merge step
 same format. The practical consequence of the mode is the load path and memory
 profile, not the artifact.
 
-One related gotcha carried over from Nemotron: an FP8 (not NVFP4) target is
-silently demoted to frozen and counted separately (`lora_demoted_fp8`). If your
-checkpoint mixes FP8 shared experts with NVFP4 routed experts and you target a
-suffix that exists on both, the FP8 instances will not train. Check the
-`replaced:` line and the `lora_demoted_fp8` count at load time.
+One related gotcha carried over from Nemotron: at load time the loader demotes
+FP8 (not NVFP4) modules to frozen and counts them separately
+(`lora_demoted_fp8`). In the unified trainer this can no longer happen
+silently: targeting a suffix with FP8 instances is a pre-load hard error
+unless you pass `--allow-fp8-targets`, in which case the `replaced:` line and
+the `lora_demoted_fp8` count show what was frozen.
 
 ## 4. Validation ladder
 
@@ -295,10 +313,9 @@ the README's long-context section.
 
 Qwen3.5-122B-A10B is a compressed-tensors checkpoint with a hybrid backbone (36
 GatedDeltaNet linear-attention layers, 12 full-attention layers with NVFP4
-q/k/v/o) and fused-3D routed experts. All three integration points were
-touched. This is what shipped:
-
-**FAMILIES entry** (trainer). Two keys, outer and text-only, identical value:
+q/k/v/o) and fused-3D routed experts. The whole port is one registry entry in
+[`nvfp4_lora/families.py`](../nvfp4_lora/families.py) (two keys, outer and
+text-only, identical value):
 
 ```python
 "qwen3_5_moe": {
@@ -306,44 +323,22 @@ touched. This is what shipped:
     "expert_prefix": ("model.", "model.language_model."),
     "peft_scope": r"^model\.layers\.",
     "freeze": (),
+    "skip_st_prefixes": ("model.visual.",),
+    "st_to_model": (("model.language_model.", "model."),),
+    "meta_allowed_prefixes": (),
+    "moe_experts_class": "Qwen3_5MoeExperts",
 },
-"qwen3_5_moe_text": {  # config.model_type after AutoModelForCausalLM.from_config
-    "auto_class": "causal_lm",
-    "expert_prefix": ("model.", "model.language_model."),
-    "peft_scope": r"^model\.layers\.",
-    "freeze": (),
-},
+"qwen3_5_moe_text": { ... identical ... },  # config.model_type after AutoModelForCausalLM.from_config
 ```
 
-`auto_class` is `causal_lm` (Qwen3.5 trains as a plain causal LM, no tower to
-freeze, so `freeze` is empty). The `expert_prefix` reflects that experts live
-under `model.language_model.layers...` on disk but `model.layers...` in memory.
-
-**`make_key_translator` branch** (loader). Matches both `model_type` values,
-skips the vision tower, rewrites the backbone prefix, passes `lm_head` through:
-
-```python
-if model_type in ("qwen3_5_moe", "qwen3_5_moe_text"):
-    st_prefix = "model.language_model"
-    model_prefix = "model"
-
-    def translate(key: str) -> Optional[str]:
-        if key.startswith("model.visual."):
-            return None  # skip vision tower (text-only training)
-        if key.startswith("model.language_model."):
-            return "model." + key[len("model.language_model."):]
-        return key  # lm_head.* passes through
-
-    return translate, st_prefix, model_prefix
-```
-
-**`family_class_names` mapping** (experts). The fused expert block class is
-`Qwen3_5MoeExperts`:
-
-```python
-"qwen3_5_moe": "Qwen3_5MoeExperts",
-"qwen3_5_moe_text": "Qwen3_5MoeExperts",
-```
+Reading the entry top to bottom: `auto_class` is `causal_lm` (Qwen3.5 trains
+as a plain causal LM, no tower to freeze, so `freeze` and
+`meta_allowed_prefixes` are empty). `expert_prefix` reflects that experts live
+under `model.language_model.layers...` on disk but `model.layers...` in
+memory. `skip_st_prefixes` drops the vision tower (`model.visual.*`) from
+text-only training, `st_to_model` rewrites the backbone prefix and lets
+`lm_head.*` pass through, and `moe_experts_class` names the fused expert
+block class the MoE replacer matches on.
 
 **Mode detection result.** Targeting `q_proj,k_proj,v_proj,o_proj` resolves to
 `native`: the 12 full-attention layers store those projections as NVFP4, so

@@ -41,11 +41,19 @@
 
 set -euo pipefail
 
+# Machine-local roots (models / adapters / serve venv). Set the NVFP4_* env
+# vars, or create serve/local_env.sh from serve/local_env.example.sh.
+SERVE_ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SERVE_ENV_DIR}/local_env.sh" ]; then source "${SERVE_ENV_DIR}/local_env.sh"; fi
+: "${NVFP4_MODELS_DIR:?Set NVFP4_MODELS_DIR or create serve/local_env.sh (see serve/local_env.example.sh)}"
+: "${NVFP4_SERVE_VENV:?Set NVFP4_SERVE_VENV or create serve/local_env.sh (see serve/local_env.example.sh)}"
+: "${NVFP4_ADAPTERS_DIR:?Set NVFP4_ADAPTERS_DIR or create serve/local_env.sh (see serve/local_env.example.sh)}"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PATCH_DIR="$REPO_DIR/serve/vllm_patches"
 
-BASE_DIR="${BASE_DIR:-/home/veritan-spark-01/Veritan/Models/RedHatAI-Qwen3.5-122B-A10B-NVFP4}"
-ADAPTER_ROOT="/home/veritan-spark-01/Veritan/Sandbox/adapters/qwen3_5_122b_a10b_rh_nvfp4_lora_ich_v3_5"
+BASE_DIR="${BASE_DIR:-${NVFP4_MODELS_DIR}/RedHatAI-Qwen3.5-122B-A10B-NVFP4}"
+ADAPTER_ROOT="${NVFP4_ADAPTERS_DIR}/qwen3_5_122b_a10b_rh_nvfp4_lora_ich_v3_5"
 ADAPTER_DIR="${ADAPTER_DIR:-$ADAPTER_ROOT}"
 ADAPTER_NAME="${ADAPTER_NAME:-ich_v3_5}"
 
@@ -102,7 +110,7 @@ export VLLM_ALLOW_RUNTIME_LORA_UPDATING=1
 ENABLE_PREFIX_CACHING_FLAG="${ENABLE_PREFIX_CACHING_FLAG:---no-enable-prefix-caching}"
 ENABLE_CHUNKED_PREFILL_FLAG="${ENABLE_CHUNKED_PREFILL_FLAG:---enable-chunked-prefill}"
 
-source /home/veritan-spark-01/Veritan/.venvs/qwen-serve/bin/activate
+source "${NVFP4_SERVE_VENV}/bin/activate"
 exec vllm serve "$BASE_DIR" \
     --served-model-name "$SERVED_NAME" \
     --host "$HOST" --port "$PORT" \

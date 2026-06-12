@@ -27,3 +27,6 @@ adapters/
 # training byproducts
 *.log
 plots/eval_results.json
+
+# machine-local serve configuration (copy from serve/local_env.example.sh)
+serve/local_env.sh

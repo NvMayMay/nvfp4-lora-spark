@@ -33,8 +33,18 @@ pip install vllm==0.21.0 flashinfer-python==0.6.8.post1 'torch==2.11.*'
 Download an NVFP4 base from Hugging Face:
 
 ```bash
-huggingface-cli download nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4 \
-    --local-dir models/Nemotron-3-Super-120B-A12B-NVFP4
+huggingface-cli download RedHatAI/Qwen3.5-122B-A10B-NVFP4 \
+    --local-dir models/RedHatAI-Qwen3.5-122B-A10B-NVFP4
+```
+
+**Inspect the checkpoint first.** This reads only the config and the safetensors
+index (seconds, no GPU) and tells you the storage format of every module, the
+MoE topology, and exactly which LoRA mechanism a training run would use - or
+the precise reason your target set would be rejected:
+
+```bash
+python scripts/inspect_nvfp4_checkpoint.py models/RedHatAI-Qwen3.5-122B-A10B-NVFP4 \
+    --target-modules q_proj,k_proj,v_proj,o_proj
 ```
 
 Prepare a chat-format JSONL dataset. Each line is a single example with a `messages` field in OpenAI chat format:
@@ -43,31 +53,53 @@ Prepare a chat-format JSONL dataset. Each line is a single example with a `messa
 {"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
 ```
 
-The training loop applies the model's chat template, so the template needs to render cleanly on a sample of the data before kicking off a full run. The default tokenizer template behavior is what `train/*.py` use; the FT data does not currently include reasoning traces, so the `enable_thinking` flag is not exercised.
+The training loop applies the model's chat template, so the template needs to render cleanly on a sample of the data before kicking off a full run. The FT data does not currently include reasoning traces, so the `enable_thinking` flag is not exercised.
 
-Train a LoRA on the NVFP4 base (edit the path constants at the top of the script for the local layout):
+Train with the unified trainer. The model family and the LoRA mechanism
+(native NVFP4 vs PEFT) are detected from the checkpoint; a `--dry-run` first
+catches OOM in minutes instead of mid-run:
 
 ```bash
-python train/train_super_nvfp4.py
+python -u scripts/train_nvfp4_lora.py \
+    --model-dir models/RedHatAI-Qwen3.5-122B-A10B-NVFP4 \
+    --target-modules q_proj,k_proj,v_proj,o_proj \
+    --output-dir adapters/my_run --dry-run
+
+python -u scripts/train_nvfp4_lora.py \
+    --model-dir models/RedHatAI-Qwen3.5-122B-A10B-NVFP4 \
+    --target-modules q_proj,k_proj,v_proj,o_proj \
+    --train-file train.jsonl --val-file val.jsonl \
+    --epochs 3 --max-length 2048 \
+    --output-dir adapters/my_run
 ```
 
-Merge the trained adapter back into the NVFP4 base and re-quantize:
+Merge the trained adapter back into the NVFP4 base and re-quantize
+(`merge_lora_into_ct_nvfp4.py` for compressed-tensors checkpoints,
+`merge_lora_into_nvfp4.py` for ModelOpt/Nemotron; both support `--dry-run`):
 
 ```bash
+python scripts/merge_lora_into_ct_nvfp4.py \
+    --base-model-dir models/RedHatAI-Qwen3.5-122B-A10B-NVFP4 \
+    --lora-adapter-dir adapters/my_run/best \
+    --output-dir models/RedHatAI-Qwen3.5-122B-A10B-NVFP4-ft
+```
+
+Serve via vLLM using the launchers in [serve/](serve/) (copy
+[serve/local_env.example.sh](serve/local_env.example.sh) to `serve/local_env.sh`
+and point it at your model/adapter/venv roots first). For the original
+Nemotron-3 Nano/Super pipeline (the v1.0 measurement runs), the per-model
+scripts under [train/](train/) remain the validated path:
+
+```bash
+python train/train_super_nvfp4.py        # Nemotron-3-Super-120B (edit paths at top)
 python scripts/merge_lora_into_nvfp4.py \
     --base-model-dir models/Nemotron-3-Super-120B-A12B-NVFP4 \
     --lora-adapter-dir <your-adapter-dir> \
     --output-dir models/Nemotron-3-Super-120B-A12B-NVFP4-ft
+MODEL_DIR=models/Nemotron-3-Super-120B-A12B-NVFP4-ft ./serve/run_super_ft_merged.sh
 ```
 
-Serve the merged checkpoint via vLLM CUTLASS:
-
-```bash
-MODEL_DIR=models/Nemotron-3-Super-120B-A12B-NVFP4-ft \
-    ./serve/run_super_ft_merged.sh
-```
-
-The merged checkpoint serves at ~13 tok/s on Spark with the FT behavior baked into the served weights. See [serve/README.md](serve/README.md) for the Nano LoRA-attach recipe and the Super base-inference recipe.
+The merged Super checkpoint serves at ~13 tok/s on Spark with the FT behavior baked into the served weights. See [serve/README.md](serve/README.md) for the Nano LoRA-attach recipe and the Super base-inference recipe, and [docs/SUPPORTED_TOPOLOGIES.md](docs/SUPPORTED_TOPOLOGIES.md) for the exact checkpoint-layout contract.
 
 ## Why use nvfp4-lora-spark
 
@@ -251,8 +283,10 @@ The core stack (dequant kernel, NVFP4LoRALinear, fused-3D MoE, save/load round-t
 
 [`scripts/train_nvfp4_lora.py`](scripts/train_nvfp4_lora.py) trains any supported family with the right strategy detected from the checkpoint itself:
 
-* **Family** (auto class, expert-tensor key translation, multimodal-tower freezing) resolves from `config.json` `model_type` via a small registry.
-* **LoRA mechanism** is detected, not configured: if every `--target-modules` suffix is NVFP4-quantized in the checkpoint, LoRA is baked into `NVFP4LoRALinear` at load; if none are quantized (BF16 attention recipes), standard PEFT wrapping with a family-scoped regex. Mixed targets are rejected with an explanation.
+* **Family** (auto class, expert-tensor key translation, multimodal-tower freezing) resolves from `config.json` `model_type` via the shared registry in [`nvfp4_lora/families.py`](nvfp4_lora/families.py) - the same registry the loader, the inspector and the merge scripts use, so train-time and merge-time key translation cannot drift apart.
+* **LoRA mechanism** is detected, not configured: if the `--target-modules` are NVFP4-quantized in the checkpoint, LoRA is baked into `NVFP4LoRALinear` at load; if they are plain BF16 (BF16-attention recipes), standard PEFT wrapping with a family-scoped regex.
+* **Target coverage is fail-fast.** Every module matching a target suffix is classified individually before load. A suffix that is quantized in some layers but BF16 in others, or that lands on FP8-demoted modules, is a hard error (override with `--allow-partial-targets` / `--allow-fp8-targets`); a suffix that matches nothing is a hard error. The exact coverage report is written to `<output_dir>/target_coverage.json` so every adapter records what was and was not trained.
+* **Loading is strict.** On-disk tensors that map to no model path fail at load time with the offending keys named, and after loading the trainer asserts no parameter is left on the meta device (frozen multimodal towers are explicitly allowlisted per family). `--permissive-load` restores warn-and-continue for bring-up of new families only.
 * **Crash safety**: atomic adapter saves, rotated `checkpoint_step_N/` dirs, best-by-val-loss tracking at `<output_dir>/best/`, and full resume via `--resume-from` (adapter + optimizer + scheduler + RNG + deterministic per-epoch data order).
 
 ```bash
@@ -264,7 +298,7 @@ python -u scripts/train_nvfp4_lora.py \
     --output-dir adapters/my_run
 ```
 
-Porting another NVFP4 family means adding a `FAMILIES` entry (and a `make_key_translator` branch in `loader.py` if the safetensors layout is new); the step-by-step guide with a worked Qwen3.5 example is in [docs/PORTING.md](docs/PORTING.md). The [smoke_tests/](smoke_tests/) directory has working templates for both ModelOpt and compressed-tensors layouts.
+All four families train through this one entry point, including Nemotron-3 (`nemotron_h`, validated with a Nano-30B dry-run + 3-step smoke; the per-model scripts under [train/](train/) remain as the frozen v1.0 measurement-run artifacts). Porting another NVFP4 family means adding ONE entry to `FAMILIES` in [`nvfp4_lora/families.py`](nvfp4_lora/families.py); run [`scripts/inspect_nvfp4_checkpoint.py`](scripts/inspect_nvfp4_checkpoint.py) on the checkpoint first, then follow [docs/PORTING.md](docs/PORTING.md) (worked Qwen3.5 example). The supported checkpoint-layout contract is spelled out in [docs/SUPPORTED_TOPOLOGIES.md](docs/SUPPORTED_TOPOLOGIES.md).
 
 ### Known issues on GB10 (DGX Spark)
 
@@ -339,23 +373,27 @@ The Phase 1 ICH-v1.0 merge validated at cosine p01 = 0.9998 with 6/40961 (0.01%)
 
 ```
 nvfp4_lora/                  # core library
+  families.py                # per-family registry: key translation, PEFT scope, skip lists, MoE class
   linear.py                  # NVFP4LoRALinear (on-the-fly dequant + LoRA delta)
-  loader.py                  # multi-family NVFP4 loader (Nemotron-3, Mistral3, Qwen3.5)
+  loader.py                  # multi-family NVFP4 loader + target inventory + strict-load/no-meta checks
   experts.py                 # NVFP4Experts3D fused-3D routed-MoE container + per-family replacement
   dequant.py                 # NVFP4 -> bf16 dequant kernel (Triton fast path + PyTorch fallback)
   gb10_prep.py               # GB10 UMA helpers: alloc conf, page-cache drop, memory snapshot
-train/                       # training scripts (edit paths at top of each)
+train/                       # frozen v1.0 Nemotron-3 training scripts (edit paths at top of each)
   train_super_nvfp4.py
   train_nano_nvfp4.py
   train_nano_bf16.py         # BF16 quantization ablation
 scripts/
+  inspect_nvfp4_checkpoint.py  # FIRST command for any new checkpoint: layout + trainability report
   train_nvfp4_lora.py        # unified multi-family LoRA trainer (auto family + LoRA mode, resume)
   train_watchdog.sh          # crash watchdog: auto-resume from latest checkpoint (systemd-driven)
-  merge_lora_into_nvfp4.py   # merge LoRA into NVFP4 base + re-quantize
+  merge_lora_into_nvfp4.py   # merge LoRA into ModelOpt NVFP4 base + re-quantize (--dry-run)
+  merge_lora_into_ct_nvfp4.py  # merge LoRA into compressed-tensors NVFP4 base (--dry-run, --self-test)
   validate_merge.py          # per-tensor cosine + no-op-fraction audit
   distinguish_ft.py          # base vs FT distinguishing-prompt test
-tests/                       # CPU-only suite (29 tests) run by CI; no GPU required by construction
+tests/                       # CPU-only suite (62 tests) run by CI; no GPU required by construction
 serve/
+  local_env.example.sh                  # machine-local model/adapter/venv roots (copy to local_env.sh)
   run_super_base_inference_cutlass.sh  # recommended Super base recipe
   run_super_ft_merged.sh                # recommended Super-FT serve recipe
   serve_nemotron_nvfp4.sh               # Nano launcher (base + optional LoRA)
@@ -367,7 +405,9 @@ plots/
   extract_train_metrics.py   # parse training logs -> train_metrics.json
 smoke_tests/                 # library correctness tests, including GPU-backed loader smoke
 docs/
+  SUPPORTED_TOPOLOGIES.md    # the exact checkpoint-layout contract (topology v1)
   PORTING.md                 # bring-your-own-NVFP4-model guide (worked Qwen3.5 example)
+  RELEASE_CHECKLIST.md       # what to run before tagging a release
   TROUBLESHOOTING.md         # failure-signature playbook incl. GB10 unified-memory signatures
   PERFORMANCE_ROADMAP.md     # five routes to close the NVFP4-vs-bf16 throughput gap
   PHASE2.md                  # dynamic LoRA at CUTLASS speeds (parked)
@@ -389,8 +429,9 @@ results/                     # published bench + validation artifacts
 
 ## Scope
 
-- LoRA targets `up_proj` and `down_proj` on the routed MoE experts. In Super-120B, shared expert MLPs and Mamba projections are FP8, not NVFP4. The loader silently demotes any LoRA target on those modules to frozen and prints a count at load time.
-- Training paths are hardcoded at the top of each `train/*.py`. Edit the constants for the local layout.
+- The unified trainer accepts any `--target-modules` whose coverage checks pass; the validated recipes are attention q/k/v/o on Qwen3.5 (native NVFP4), MLA attention on Mistral-Small-4 (PEFT), and `up_proj`/`down_proj` on the Nemotron routed experts (legacy `train/*.py`). In Super-120B, shared expert MLPs and Mamba projections are FP8, not NVFP4; FP8-landing targets are a hard error in the unified trainer unless `--allow-fp8-targets` is passed (the legacy scripts demote them to frozen and print a count).
+- The frozen v1.0 `train/*.py` scripts have their paths hardcoded at the top; they are kept as proven measurement-run artifacts. New runs should use `scripts/train_nvfp4_lora.py`.
+- The exact checkpoint-layout contract (what "supported NVFP4 model" means precisely) is [docs/SUPPORTED_TOPOLOGIES.md](docs/SUPPORTED_TOPOLOGIES.md).
 
 ## Contributing
 
