@@ -54,7 +54,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 ADAPTER_PREFIX = "base_model.model."
-BASE_PREFIX = "backbone."
+DEFAULT_BASE_PREFIX = "backbone."
 torch = None
 safe_open = None
 save_file = None
@@ -72,10 +72,29 @@ def ensure_runtime_imports():
         save_file = save_file_mod
 
 
-def adapter_key_to_base_key(akey: str) -> str:
+def detect_base_prefix(weight_map: dict) -> str:
+    """Derive the text-backbone prefix from the base index itself.
+
+    Nemotron-family checkpoints store the backbone under a single top-level
+    prefix ("backbone."); lm_head and the MTP speculation layers sit beside
+    it. The same heuristic the loader's fallback translator uses.
+    """
+    prefixes = {k.split(".", 1)[0] for k in weight_map}
+    candidates = sorted(p for p in prefixes if p not in ("lm_head", "mtp"))
+    if len(candidates) != 1:
+        raise SystemExit(
+            f"could not derive the base backbone prefix from the index; "
+            f"top-level candidates: {candidates}. This merge script expects a "
+            f"Nemotron-style single-backbone ModelOpt layout; for "
+            f"compressed-tensors checkpoints use merge_lora_into_ct_nvfp4.py."
+        )
+    return candidates[0] + "."
+
+
+def adapter_key_to_base_key(akey: str, base_prefix: str = DEFAULT_BASE_PREFIX) -> str:
     """Convert an adapter tensor key to the corresponding base weight key.
 
-    Examples:
+    Examples (base_prefix="backbone."):
       base_model.model.backbone.layers.1.mixer.experts.0.up_proj.lora_A.weight
       base_model.model.model.backbone.layers.1.mixer.experts.0.up_proj.lora_A.weight
       -> backbone.layers.1.mixer.experts.0.up_proj.weight
@@ -86,14 +105,14 @@ def adapter_key_to_base_key(akey: str) -> str:
             "expected keys produced by the v1.0 Nano/Super training scripts"
         )
     tail = akey[len(ADAPTER_PREFIX):]
-    if tail.startswith("model."):
+    if tail.startswith("model.") and not base_prefix.startswith("model."):
         tail = tail[len("model."):]
     m = re.search(r"\.lora_[AB]\.weight$", tail)
     if m is None:
         raise ValueError(f"adapter key {akey!r} does not look like a PEFT LoRA tensor")
     base_key = tail[:m.start()] + ".weight"
-    if not base_key.startswith(BASE_PREFIX):
-        base_key = BASE_PREFIX + base_key
+    if not base_key.startswith(base_prefix):
+        base_key = base_prefix + base_key
     return base_key
 
 
@@ -142,7 +161,7 @@ def parse_shard_selection(shards_arg: str, n_shards: int) -> list[int]:
     return selected
 
 
-def load_adapter(adapter_dir: Path):
+def load_adapter(adapter_dir: Path, base_prefix: str = DEFAULT_BASE_PREFIX):
     """Load every LoRA A/B tensor into a dict keyed by base weight key.
 
     Returns: (lora_map, adapter_config)
@@ -163,14 +182,14 @@ def load_adapter(adapter_dir: Path):
         with safe_open(af, framework="pt") as sf:
             translated_keys = []
             for akey in sf.keys():
-                base_key = adapter_key_to_base_key(akey)
+                base_key = adapter_key_to_base_key(akey, base_prefix)
                 translated_keys.append(base_key)
                 side = re.search(r"\.lora_([AB])\.weight$", akey)
                 if not side:
                     continue
                 tensor = sf.get_tensor(akey)
                 lora_map[base_key][side.group(1)] = tensor
-            assert all(k.startswith(BASE_PREFIX) for k in translated_keys)
+            assert all(k.startswith(base_prefix) for k in translated_keys)
 
     # Validate: every base_key has both A and B
     missing = [k for k, ab in lora_map.items() if "A" not in ab or "B" not in ab]
@@ -387,7 +406,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-model-dir", required=True, type=Path)
     ap.add_argument("--lora-adapter-dir", required=True, type=Path)
-    ap.add_argument("--output-dir", required=True, type=Path)
+    ap.add_argument("--output-dir", type=Path, default=None,
+                    help="required unless --dry-run")
     ap.add_argument(
         "--shards",
         default="all",
@@ -395,30 +415,35 @@ def main():
     )
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="validate adapter-to-base key coverage and report what "
+                         "would be merged, writing NOTHING")
     args = ap.parse_args()
 
     ensure_runtime_imports()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device)
 
     print(f"[merge] base = {args.base_model_dir}")
     print(f"[merge] adapter = {args.lora_adapter_dir}")
     print(f"[merge] output = {args.output_dir}")
 
-    # Load adapter (~960 MB for Super; small enough to keep in CPU RAM)
-    print("[merge] loading adapter...")
-    lora_map, adapter_cfg = load_adapter(args.lora_adapter_dir)
-    alpha_over_r = adapter_cfg["lora_alpha"] / adapter_cfg["r"]
-    print(f"[merge] loaded {len(lora_map)} LoRA target weights")
-    print(f"[merge] alpha/r = {alpha_over_r}")
-
-    # Load base index
+    # Load base index first: the backbone prefix used for adapter-key
+    # translation is derived from it (not hardcoded).
     base_idx_path = args.base_model_dir / "model.safetensors.index.json"
     if not base_idx_path.exists():
         raise FileNotFoundError(base_idx_path)
     with open(base_idx_path) as f:
         base_idx = json.load(f)
     weight_map = base_idx["weight_map"]
+    base_prefix = detect_base_prefix(weight_map)
+    print(f"[merge] base backbone prefix = {base_prefix!r}")
+
+    # Load adapter (~960 MB for Super; small enough to keep in CPU RAM)
+    print("[merge] loading adapter...")
+    lora_map, adapter_cfg = load_adapter(args.lora_adapter_dir, base_prefix)
+    alpha_over_r = adapter_cfg["lora_alpha"] / adapter_cfg["r"]
+    print(f"[merge] loaded {len(lora_map)} LoRA target weights")
+    print(f"[merge] alpha/r = {alpha_over_r}")
 
     # Group base tensors by shard
     shard_to_tensors = defaultdict(list)
@@ -437,6 +462,32 @@ def main():
             f"Sample: {sorted(missing)[:5]}"
         )
     print(f"[merge] LoRA coverage OK: 100% of {len(targeted_keys)} targets matched in base")
+
+    # Every target must map to an actual NVFP4-quantized tensor (scales present),
+    # not just any same-named bf16 weight.
+    unquantized = [
+        k for k in targeted_keys
+        if k.replace(".weight", ".weight_scale") not in base_keys
+        or k.replace(".weight", ".weight_scale_2") not in base_keys
+    ]
+    if unquantized:
+        raise SystemExit(
+            f"{len(unquantized)} LoRA targets map to base tensors WITHOUT NVFP4 "
+            f"scales (unquantized in this base): {sorted(unquantized)[:5]}"
+        )
+
+    if args.dry_run:
+        for k in sorted(targeted_keys)[:10]:
+            print(f"[dry-run] target: {k}")
+        if len(targeted_keys) > 10:
+            print(f"[dry-run] ... and {len(targeted_keys) - 10} more")
+        print(f"[dry-run] all {len(targeted_keys)} targets map to NVFP4 base tensors; "
+              f"no files written")
+        return
+
+    if args.output_dir is None:
+        ap.error("--output-dir is required unless --dry-run")
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
     # Shard selection
     selected = parse_shard_selection(args.shards, len(shard_files))
@@ -464,6 +515,7 @@ def main():
     stats_log_mode = "a" if args.resume and manifest_path.exists() else "w"
     stats_log_f = open(stats_log_path, stats_log_mode)
     metadata_passthrough = {}
+    worst_cosine: tuple[float, str] | None = None
 
     # Process selected shards
     for sh_idx in selected:
@@ -491,6 +543,8 @@ def main():
         # Flush stats
         for s in stats_log_buffer:
             stats_log_f.write(json.dumps(s) + "\n")
+            if worst_cosine is None or s["merge_cosine"] < worst_cosine[0]:
+                worst_cosine = (s["merge_cosine"], s["key"])
         stats_log_f.flush()
 
         # Compute hashes
@@ -522,6 +576,8 @@ def main():
         if not out_f.exists():
             shutil.copy2(f, out_f)
 
+    if worst_cosine is not None:
+        print(f"[merge] worst merge_cosine={worst_cosine[0]:.6f} at {worst_cosine[1]}")
     print(f"[merge] complete. Manifest: {manifest_path}")
     print(f"[merge] per-tensor stats: {stats_log_path}")
 

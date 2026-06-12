@@ -30,11 +30,18 @@ import safetensors
 
 from .linear import NVFP4LoRALinear
 from .dequant import format_for_record
+from . import families
 
 
 # --------------------------------------------------------------------------------------
 # Inventory: which modules are NVFP4-quantized vs plain bf16
 # --------------------------------------------------------------------------------------
+
+def _load_weight_map(model_dir: str | Path) -> dict[str, str]:
+    idx_path = Path(model_dir) / "model.safetensors.index.json"
+    with open(idx_path) as f:
+        return json.load(f)["weight_map"]
+
 
 def list_quantized_modules(model_dir: str | Path) -> set[str]:
     """Return the set of NVFP4-quantized module names by scanning the safetensors index.
@@ -43,12 +50,12 @@ def list_quantized_modules(model_dir: str | Path) -> set[str]:
     OR a compressed-tensors `.weight_packed` tensor.
     Keys are returned VERBATIM from the safetensors index; the caller is responsible
     for translating to model-attribute paths via `make_key_translator`.
+
+    NOTE: FP8 per-tensor modules also carry `.weight` + `.weight_scale`, so they
+    are included here (the load path probes the weight dtype and demotes them).
+    Use `classify_module_storage` when the distinction matters before load time.
     """
-    idx_path = Path(model_dir) / "model.safetensors.index.json"
-    with open(idx_path) as f:
-        idx = json.load(f)
-    wm = idx["weight_map"]
-    keys = set(wm.keys())
+    keys = set(_load_weight_map(model_dir).keys())
     out = set()
     for key in keys:
         if key.endswith(".weight_packed"):
@@ -59,6 +66,182 @@ def list_quantized_modules(model_dir: str | Path) -> set[str]:
             if f"{prefix}.weight_scale" in keys:
                 out.add(prefix)
     return out
+
+
+def classify_module_storage(keys: set[str], prefix: str) -> str:
+    """Classify one module prefix's storage format from index keys alone.
+
+    Returns one of:
+      "nvfp4_ct"        compressed-tensors NVFP4 (.weight_packed)
+      "nvfp4_modelopt"  ModelOpt NVFP4 (.weight + .weight_scale + .weight_scale_2)
+      "fp8"             FP8 per-tensor (.weight + .weight_scale, no .weight_scale_2)
+      "bf16"            plain high-precision (.weight only)
+      "absent"          no weight tensor under this prefix
+
+    This is index-only and needs no shard reads: ModelOpt NVFP4 always carries
+    the fp32 per-tensor `.weight_scale_2`, which FP8 per-tensor records lack.
+    """
+    if f"{prefix}.weight_packed" in keys:
+        return "nvfp4_ct"
+    if f"{prefix}.weight" in keys:
+        if f"{prefix}.weight_scale" in keys:
+            return "nvfp4_modelopt" if f"{prefix}.weight_scale_2" in keys else "fp8"
+        return "bf16"
+    return "absent"
+
+
+def list_weight_module_prefixes(keys: set[str]) -> set[str]:
+    """All module prefixes that own a weight tensor (.weight or .weight_packed)."""
+    out = set()
+    for key in keys:
+        if key.endswith(".weight_packed"):
+            out.add(key[: -len(".weight_packed")])
+        elif key.endswith(".weight"):
+            out.add(key[: -len(".weight")])
+    return out
+
+
+_LAYER_RE_TEXT = r"\.layers\.(\d+)\."
+
+
+def build_target_inventory(model_dir: str | Path, target_suffixes: Sequence[str]) -> dict:
+    """Full per-module inventory for each requested LoRA target suffix.
+
+    For every suffix, enumerates every module in the safetensors index whose
+    last name component equals the suffix and classifies its storage format
+    individually. This is what makes partial quantization (the same suffix
+    NVFP4 in some layers, BF16/FP8 in others) visible BEFORE load time.
+
+    Returns a JSON-able dict:
+      {suffix: {"counts": {class: n, ...},
+                "examples": {class: [up to 3 module names], ...},
+                "layers": {class: sorted layer indices (capped)}}}
+    """
+    import re
+
+    keys = set(_load_weight_map(model_dir).keys())
+    prefixes = list_weight_module_prefixes(keys)
+    inventory: dict[str, dict] = {}
+    for suffix in target_suffixes:
+        matches = sorted(p for p in prefixes if p.rsplit(".", 1)[-1] == suffix)
+        counts: dict[str, int] = {}
+        examples: dict[str, list[str]] = {}
+        layers: dict[str, list[int]] = {}
+        for p in matches:
+            cls = classify_module_storage(keys, p)
+            counts[cls] = counts.get(cls, 0) + 1
+            examples.setdefault(cls, [])
+            if len(examples[cls]) < 3:
+                examples[cls].append(p)
+            m = re.search(_LAYER_RE_TEXT, p)
+            if m:
+                layers.setdefault(cls, [])
+                idx = int(m.group(1))
+                if idx not in layers[cls]:
+                    layers[cls].append(idx)
+        inventory[suffix] = {
+            "counts": counts,
+            "examples": examples,
+            "layers": {cls: sorted(v) for cls, v in layers.items()},
+        }
+    return inventory
+
+
+def decide_lora_mode(
+    model_dir: str | Path,
+    target_suffixes: Sequence[str],
+    *,
+    allow_partial_targets: bool = False,
+    allow_fp8_targets: bool = False,
+) -> tuple[str, dict]:
+    """Decide native-NVFP4 vs PEFT LoRA from a full module inventory, fail-fast.
+
+    Hard errors (SystemExit) unless explicitly allowed:
+      * a suffix matches no module at all (typo / wrong family)
+      * a suffix matches a MIX of NVFP4 and BF16 modules across layers
+        (training would silently cover only the quantized ones)
+        -> --allow-partial-targets to proceed, training the NVFP4 ones only
+      * a suffix matches FP8-demoted modules (the loader freezes those, so
+        they would silently receive no LoRA at all)
+        -> --allow-fp8-targets to proceed with them frozen
+      * suffixes split across native and PEFT mechanisms (unchanged behavior)
+
+    Returns (mode, coverage) where mode is "native" or "peft" and coverage is
+    a JSON-able report worth persisting next to the adapter.
+    """
+    inventory = build_target_inventory(model_dir, target_suffixes)
+    problems: list[str] = []
+    suffix_modes: dict[str, str] = {}
+
+    for suffix in target_suffixes:
+        info = inventory[suffix]
+        counts = info["counts"]
+        n_nvfp4 = counts.get("nvfp4_ct", 0) + counts.get("nvfp4_modelopt", 0)
+        n_bf16 = counts.get("bf16", 0)
+        n_fp8 = counts.get("fp8", 0)
+        total = n_nvfp4 + n_bf16 + n_fp8
+
+        if total == 0:
+            problems.append(
+                f"target suffix '{suffix}' matches no module in the checkpoint "
+                f"index (typo, or this family names its projections differently; "
+                f"run scripts/inspect_nvfp4_checkpoint.py to list suffixes)"
+            )
+            continue
+        if n_fp8 and not allow_fp8_targets:
+            ex = info["examples"].get("fp8", ["?"])[0]
+            problems.append(
+                f"target suffix '{suffix}' matches {n_fp8} FP8-per-tensor "
+                f"module(s) (e.g. {ex}). The NVFP4 loader demotes FP8 modules "
+                f"to frozen, so they would receive NO LoRA training. Pass "
+                f"--allow-fp8-targets to accept training only the non-FP8 "
+                f"instances, or drop the suffix."
+            )
+        if n_nvfp4 and n_bf16:
+            ex_q = info["examples"].get("nvfp4_ct", info["examples"].get("nvfp4_modelopt", ["?"]))[0]
+            ex_b = info["examples"].get("bf16", ["?"])[0]
+            if not allow_partial_targets:
+                problems.append(
+                    f"target suffix '{suffix}' is PARTIALLY quantized: "
+                    f"{n_nvfp4} NVFP4 module(s) (e.g. {ex_q}) but {n_bf16} "
+                    f"BF16 module(s) (e.g. {ex_b}). A native-NVFP4 run would "
+                    f"silently train only the quantized instances. Pass "
+                    f"--allow-partial-targets to accept that, or split the "
+                    f"target list."
+                )
+            suffix_modes[suffix] = "native"
+        elif n_nvfp4:
+            suffix_modes[suffix] = "native"
+        elif n_bf16:
+            suffix_modes[suffix] = "peft"
+        else:  # fp8 only
+            suffix_modes[suffix] = "native"
+
+    distinct = sorted(set(suffix_modes.values()))
+    if len(distinct) > 1:
+        native = sorted(s for s, m in suffix_modes.items() if m == "native")
+        peft = sorted(s for s, m in suffix_modes.items() if m == "peft")
+        problems.append(
+            f"Mixed LoRA targets: {native} are NVFP4-quantized but {peft} are "
+            f"not. Native NVFP4-LoRA and PEFT cannot be combined in one run; "
+            f"split the target list."
+        )
+
+    coverage = {
+        "targets": list(target_suffixes),
+        "inventory": inventory,
+        "suffix_modes": suffix_modes,
+        "allow_partial_targets": allow_partial_targets,
+        "allow_fp8_targets": allow_fp8_targets,
+    }
+    if problems:
+        raise SystemExit(
+            "Target coverage check failed:\n  - " + "\n  - ".join(problems)
+        )
+
+    mode = distinct[0]
+    coverage["mode"] = mode
+    return mode, coverage
 
 
 def make_key_translator(model: nn.Module, model_dir: str | Path):
@@ -79,57 +262,18 @@ def make_key_translator(model: nn.Module, model_dir: str | Path):
     cfg = getattr(model, "config", None)
     model_type = getattr(cfg, "model_type", None)
 
-    # ----- Qwen3.5 MoE (text-only training; skip vision branch) -----
-    # NB: `AutoModelForCausalLM.from_config(cfg)` instantiates the text-only causal LM
-    # variant, whose `config.model_type` is "qwen3_5_moe_text" — different from the
-    # outer multimodal `qwen3_5_moe`. Match both so the translator works whether the
-    # caller built via from_config (text-only) or held the full wrapper.
-    if model_type in ("qwen3_5_moe", "qwen3_5_moe_text"):
-        # safetensors:  model.language_model.layers.X.*, model.language_model.embed_tokens, model.language_model.norm
-        #               model.visual.*  (vision tower — skip for text-only)
-        #               lm_head.*
-        # in-memory:    model.layers.X.*, model.embed_tokens, model.norm, lm_head
-        st_prefix = "model.language_model"
-        model_prefix = "model"
-
-        def translate(key: str) -> Optional[str]:
-            if key.startswith("model.visual."):
-                return None  # skip vision tower (text-only training)
-            if key.startswith("model.language_model."):
-                return "model." + key[len("model.language_model."):]
-            return key  # lm_head.* passes through
-
-        return translate, st_prefix, model_prefix
-
-    # ----- Mistral3 (HF model_type for Mistral-Small-4) -----
-    # NB: text-only causal LM variant may report `mistral4` (the inner text-backbone
-    # model_type per Sonnet pass-2 verification of axolotl config). Match both.
-    if model_type in ("mistral3", "mistral4"):
-        # safetensors layout (Mistral3ForConditionalGeneration on-disk):
-        #   language_model.lm_head.weight
-        #   language_model.model.layers.X.*, language_model.model.embed_tokens, language_model.model.norm
-        #   vision_tower.*                  (Pixtral encoder — skip for text-only training)
-        #   multi_modal_projector.*         (MM projector — skip for text-only training)
-        # in-memory (transformers 5.8.1):
-        #   lm_head                          (top-level on the LM-head wrapper)
-        #   model.language_model.layers.X.*, model.language_model.embed_tokens, model.language_model.norm
-        #   model.vision_tower.*
-        #   model.multi_modal_projector.*
-        st_prefix = "language_model.model"
-        model_prefix = "model.language_model"
-
-        def translate(key: str) -> Optional[str]:
-            # Multimodal branches — skip for text-only training
-            if key.startswith("vision_tower.") or key.startswith("multi_modal_projector."):
-                return None
-            # Text backbone — strip `language_model.model.` add `model.language_model.`
-            if key.startswith("language_model.model."):
-                return "model.language_model." + key[len("language_model.model."):]
-            # LM head — `language_model.lm_head.weight` → in-memory `lm_head.weight`
-            if key.startswith("language_model.lm_head."):
-                return "lm_head." + key[len("language_model.lm_head."):]
-            return key
-
+    # ----- Registry-driven families (Qwen3.5 MoE, Mistral3/4) -----
+    # Skip prefixes and st->model rewrite rules live in nvfp4_lora/families.py
+    # so the trainer, inspector and merge scripts all share one translation.
+    # NB: `AutoModelForCausalLM.from_config(cfg)` instantiates the text-only
+    # causal LM variant of Qwen3.5 whose `config.model_type` is
+    # "qwen3_5_moe_text"; the registry carries both names.
+    # A registry entry with st_to_model=None (nemotron_h) declares its layout
+    # dynamic and falls through to the heuristic below.
+    fam = families.FAMILIES.get(model_type)
+    if fam is not None and fam["st_to_model"] is not None:
+        translate = families.make_family_translator(fam)
+        st_prefix, model_prefix = families.translator_log_prefixes(fam)
         return translate, st_prefix, model_prefix
 
     # ----- Nemotron-H (existing default heuristic — unchanged for backwards compat) -----
@@ -690,6 +834,7 @@ def load_non_nvfp4_weights(
     model_dir: str | Path,
     device: torch.device = torch.device("cuda"),
     dtype: torch.dtype = torch.bfloat16,
+    strict: bool = True,
 ) -> int:
     """Load all on-disk tensors that are NOT part of an NVFP4 module's storage.
 
@@ -697,6 +842,13 @@ def load_non_nvfp4_weights(
     - `.weight`, `.weight_scale`, `.weight_scale_2`, `.input_scale`, `.bias` of any module
       already replaced with NVFP4LoRALinear (those buffers were already set during replacement)
     - tensors that are themselves NVFP4 metadata (scale/scale_2/input_scale)
+    - keys the family translator marks as intentionally absent (vision tower, MTP)
+
+    strict=True (default): any on-disk tensor that maps to a missing model path,
+    or that fails to assign, is collected and raised as ONE RuntimeError after
+    the walk (models built under init_empty_weights would otherwise defer the
+    failure to first forward as an opaque meta-tensor error). strict=False
+    restores the old warn-and-continue behavior for bring-up of new families.
 
     Returns: number of tensors loaded.
     """
@@ -726,13 +878,16 @@ def load_non_nvfp4_weights(
     nvfp4_replaced = replaced_module_names
 
     n_loaded = 0
-    n_skipped_mtp = 0
+    n_skipped_by_translator = 0
+    missing_paths: list[str] = []
+    failed_assignments: list[str] = []
     # Walk tensors in the safetensors index
     for key, shard_rel in wm.items():
-        # Translate safetensors-side key to model-side path. None means "skip" (e.g. MTP).
+        # Translate safetensors-side key to model-side path. None means the family
+        # registry intentionally skips it (vision tower, projector, MTP).
         model_key = translate(key)
         if model_key is None:
-            n_skipped_mtp += 1
+            n_skipped_by_translator += 1
             continue
 
         # Identify the module name for this tensor (everything before the last dot, on model side)
@@ -745,17 +900,19 @@ def load_non_nvfp4_weights(
         ):
             continue
 
-        # For non-NVFP4 modules: load the tensor and assign to the model
-        shard_path = model_dir / shard_rel
-        with safetensors.safe_open(str(shard_path), framework="pt", device="cpu") as f:
-            tensor = f.get_tensor(key)
-
         # Navigate to the parent module and find the attribute (using model-side path)
         try:
             parent, attr = _get_parent(model, model_key)
         except AttributeError:
-            print(f"  WARN: path not found in model: {model_key} (from safetensors key {key})")
+            missing_paths.append(f"{model_key} (from safetensors key {key})")
+            if not strict:
+                print(f"  WARN: path not found in model: {model_key} (from safetensors key {key})")
             continue
+
+        # For non-NVFP4 modules: load the tensor and assign to the model
+        shard_path = model_dir / shard_rel
+        with safetensors.safe_open(str(shard_path), framework="pt", device="cpu") as f:
+            tensor = f.get_tensor(key)
 
         # Determine dtype to use:
         # - bf16 for general weights / norms / embeddings
@@ -775,13 +932,58 @@ def load_non_nvfp4_weights(
                 else:
                     setattr(parent, attr, t)
         except Exception as e:
-            print(f"  WARN: failed to load {key}: {type(e).__name__}: {e}")
+            failed_assignments.append(f"{key}: {type(e).__name__}: {e}")
+            if not strict:
+                print(f"  WARN: failed to load {key}: {type(e).__name__}: {e}")
             continue
 
         n_loaded += 1
-    if n_skipped_mtp > 0:
-        print(f"  skipped {n_skipped_mtp} mtp.* tensors (Multi-Token Prediction; serve-only)")
+    if n_skipped_by_translator > 0:
+        print(
+            f"  skipped {n_skipped_by_translator} tensors via the family skip-list "
+            f"(multimodal towers / MTP; intentionally not loaded)"
+        )
+    if (missing_paths or failed_assignments) and strict:
+        sample = (missing_paths + failed_assignments)[:10]
+        raise RuntimeError(
+            f"strict load failed: {len(missing_paths)} on-disk tensor(s) map to "
+            f"paths missing from the model and {len(failed_assignments)} failed "
+            f"to assign. First {len(sample)}:\n  " + "\n  ".join(sample) + "\n"
+            f"If these tensors are intentionally absent from the training graph "
+            f"(a new multimodal tower or speculation head), add their prefix to "
+            f"the family's skip_st_prefixes in nvfp4_lora/families.py. Use "
+            f"strict=False / --permissive-load only for bring-up."
+        )
     return n_loaded
+
+
+def assert_no_meta_tensors(model: nn.Module, allowed_prefixes: Sequence[str] = ()) -> None:
+    """Fail if any parameter or buffer is still on the meta device after loading.
+
+    Models are built under init_empty_weights, so a tensor the loader never
+    reached stays on meta and only explodes at first forward (or worse, at
+    save time). Everything left on meta must be covered by an explicit
+    `allowed_prefixes` entry (e.g. a frozen vision tower that text-only
+    training never materializes).
+    """
+    allowed = tuple(allowed_prefixes)
+    offenders: list[str] = []
+    for name, p in model.named_parameters():
+        if p.is_meta and not name.startswith(allowed):
+            offenders.append(f"param {name}")
+    for name, b in model.named_buffers():
+        if b.is_meta and not name.startswith(allowed):
+            offenders.append(f"buffer {name}")
+    if offenders:
+        raise RuntimeError(
+            f"{len(offenders)} tensor(s) are still on the meta device after "
+            f"loading (first {min(10, len(offenders))}):\n  "
+            + "\n  ".join(offenders[:10])
+            + "\nThese were never loaded from the checkpoint. If they are "
+            f"intentionally unmaterialized (frozen multimodal tower), add the "
+            f"prefix to the family's meta_allowed_prefixes in "
+            f"nvfp4_lora/families.py; otherwise this is a load bug."
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -797,6 +999,7 @@ def load_nemotron_with_nvfp4_lora(
     device: torch.device | str = "cuda",
     dtype: torch.dtype = torch.bfloat16,
     pooled_loader_buffers: bool = False,
+    strict: bool = True,
 ) -> nn.Module:
     """Load a Nemotron-3 NVFP4 checkpoint with NVFP4LoRALinear modules at target paths.
 
@@ -805,6 +1008,7 @@ def load_nemotron_with_nvfp4_lora(
     2. Replace target NVFP4 Linears with `NVFP4LoRALinear` (LoRA-trainable on `target_lora_suffixes`,
        frozen elsewhere).
     3. Load all non-NVFP4 weights (embeddings, norms, Mamba state matrices, conv1d, lm_head).
+    4. Verify no parameter or buffer is left on the meta device (strict=True).
 
     Returns the assembled model on `device` with the requested dtype.
 
@@ -848,7 +1052,18 @@ def load_nemotron_with_nvfp4_lora(
     print(f"  dequant workspace pool: {len(workspace_pool)} shared buffers")
 
     print("=== loader: loading non-NVFP4 weights (norms, embeddings, Mamba, conv1d, lm_head) ===")
-    n = load_non_nvfp4_weights(model, model_dir, device=device, dtype=dtype)
+    n = load_non_nvfp4_weights(model, model_dir, device=device, dtype=dtype, strict=strict)
     print(f"  loaded {n} non-NVFP4 tensors")
+
+    # Tied embeddings never appear as a separate lm_head tensor on disk; re-tie
+    # so lm_head does not stay on meta. No-op for untied checkpoints.
+    if getattr(config, "tie_word_embeddings", False) and hasattr(model, "tie_weights"):
+        model.tie_weights()
+
+    if strict:
+        # `mtp.` is allowlisted defensively: the translator already skips MTP
+        # tensors on disk, and the in-memory causal-LM graph normally has no
+        # mtp submodule at all.
+        assert_no_meta_tensors(model, allowed_prefixes=("mtp.",))
 
     return model

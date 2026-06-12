@@ -34,11 +34,28 @@ def test_families_registry_contents(train_mod):
         "qwen3_5_moe_text",
         "mistral3",
         "mistral4",
+        "nemotron_h",
     }
     for fam in train_mod.FAMILIES.values():
         assert fam["auto_class"] in ("causal_lm", "image_text_to_text")
-        assert isinstance(fam["expert_prefix"], tuple) and len(fam["expert_prefix"]) == 2
+        # expert_prefix is a (mem, st) pair for fused-3D MoE families, None for
+        # per-expert-linear families (Nemotron).
+        if fam["expert_prefix"] is not None:
+            assert isinstance(fam["expert_prefix"], tuple) and len(fam["expert_prefix"]) == 2
         assert isinstance(fam["freeze"], tuple)
+        # st_to_model=None declares a dynamic layout; the dynamic family stores
+        # experts as per-module linears, so no fused-MoE expectations.
+        if fam["st_to_model"] is None:
+            assert fam["expert_prefix"] is None
+            assert fam["moe_experts_class"] is None
+
+
+def test_nemotron_resolves(train_mod, fixtures_dir):
+    model_type, family = train_mod.resolve_family(fixtures_dir / "fp8_demoted")
+    assert model_type == "nemotron_h"
+    assert family["auto_class"] == "causal_lm"
+    assert family["moe_experts_class"] is None
+    assert family["st_to_model"] is None
 
 
 def test_unsupported_model_type_raises_systemexit(train_mod, fixtures_dir):

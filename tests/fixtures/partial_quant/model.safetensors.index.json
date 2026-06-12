@@ -1,0 +1,15 @@
+{
+  "weight_map": {
+    "model.language_model.layers.0.self_attn.q_proj.weight_packed": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.0.self_attn.q_proj.weight_scale": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.0.self_attn.q_proj.weight_global_scale": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.1.self_attn.q_proj.weight_packed": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.1.self_attn.q_proj.weight_scale": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.1.self_attn.q_proj.weight_global_scale": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.0.self_attn.o_proj.weight_packed": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.0.self_attn.o_proj.weight_scale": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.0.self_attn.o_proj.weight_global_scale": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.1.self_attn.o_proj.weight": "model-00001-of-00001.safetensors",
+    "model.language_model.layers.0.input_layernorm.weight": "model-00001-of-00001.safetensors"
+  }
+}

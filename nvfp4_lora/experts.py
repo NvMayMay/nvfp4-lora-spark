@@ -444,7 +444,9 @@ def assemble_nvfp4_experts3d_batched(
             if not torch.equal(gate_gscale.reshape(1), up_gscale.reshape(1)):
                 raise ValueError(
                     f"{base}.gate_proj.weight_global_scale and up_proj.weight_global_scale differ; "
-                    "fused gate_up storage has one global scale per expert"
+                    "fused gate_up storage has one global scale per expert. This checkpoint "
+                    "falls outside supported topology v1 (docs/SUPPORTED_TOPOLOGIES.md); "
+                    "separate gate/up global scales are not implemented yet."
                 )
             module.gate_up_global_scale[expert_idx].copy_(
                 gate_gscale.reshape(1).to(device=module.gate_up_global_scale.device, dtype=torch.float32)
@@ -471,17 +473,15 @@ def replace_moe_experts_with_nvfp4_3d(
     """
     import torch.nn as nn
 
-    family_class_names = {
-        "qwen3_5_moe": "Qwen3_5MoeExperts",
-        "qwen3_5_moe_text": "Qwen3_5MoeExperts",
-        "mistral3": "Mistral4NaiveMoe",
-        "mistral4": "Mistral4NaiveMoe",
-    }
-    target_cls_name = family_class_names.get(model_family)
+    from .families import FAMILIES
+
+    fam = FAMILIES.get(model_family)
+    target_cls_name = fam.get("moe_experts_class") if fam is not None else None
     if target_cls_name is None:
         raise RuntimeError(
             f"replace_moe_experts_with_nvfp4_3d does not have a fused-3D MoE class for "
-            f"model_family={model_family!r}. Add a mapping here."
+            f"model_family={model_family!r}. Add moe_experts_class to the family's "
+            f"entry in nvfp4_lora/families.py (see docs/SUPPORTED_TOPOLOGIES.md)."
         )
 
     # Activation: probe the model config for hidden_act, fall back to SiLU which is

@@ -139,3 +139,33 @@ def test_nemotron_fallback_translate(tmp_path):
     )
     assert translate("mtp.0.fc.weight") is None
     assert translate("lm_head.weight") == "lm_head.weight"
+
+
+class _NemotronNanoStub(nn.Module):
+    """Mimics Nano-30B: self.backbone = NemotronHModel(...) -> in-memory prefix 'backbone'."""
+
+    def __init__(self):
+        super().__init__()
+        self.backbone = _InnerWithLayers()
+        self.config = types.SimpleNamespace(model_type="nemotron_h")
+
+
+def test_nemotron_nano_identity_prefix(tmp_path):
+    # nemotron_h IS in the family registry, but with st_to_model=None, which
+    # must fall through to the dynamic heuristic: Nano's in-memory prefix is
+    # 'backbone' (identity mapping), unlike Super's 'model'. A static registry
+    # rule could not express both, which is why the entry stays dynamic.
+    _write_index(
+        tmp_path,
+        {
+            "backbone.layers.0.mixer.in_proj.weight": "s.safetensors",
+            "lm_head.weight": "s.safetensors",
+        },
+    )
+    model = _NemotronNanoStub()
+    translate, st_prefix, model_prefix = make_key_translator(model, tmp_path)
+    assert (st_prefix, model_prefix) == ("backbone", "backbone")
+    assert (
+        translate("backbone.layers.0.mixer.in_proj.weight")
+        == "backbone.layers.0.mixer.in_proj.weight"
+    )

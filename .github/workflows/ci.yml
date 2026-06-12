@@ -42,5 +42,10 @@ jobs:
             peft==0.19.1 \
             pytest
 
+      - name: Syntax checks (compileall + bash -n)
+        run: |
+          python -m compileall -q nvfp4_lora scripts train serve smoke_tests tests plots
+          bash -n serve/*.sh serve/diagnostics/*.sh scripts/*.sh
+
       - name: Run CPU test suite
         run: python -m pytest tests/ -q

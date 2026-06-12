@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Merge a PEFT LoRA adapter into a compressed-tensors NVFP4 base checkpoint.
 
-DO NOT RUN UNTIL TRAINING COMPLETES. The 13h Qwen3.5 run owns the GPU until
-roughly 01:30; this script may initialize CUDA at import time (the quantizer
-module probes torch.cuda.is_available()), so do not even --dry-run it while
-the trainer is alive unless you pass --device cpu AND set
+CAUTION while a trainer owns the GPU: this script may initialize CUDA at
+import time (the quantizer module probes torch.cuda.is_available()). To run
+coverage checks alongside a live training run, pass --device cpu AND set
 CUDA_VISIBLE_DEVICES="" in the environment.
 
 Compressed-tensors counterpart of scripts/merge_lora_into_nvfp4.py (which is
@@ -15,10 +14,12 @@ modelopt/Nemotron specific). Differences, by design:
       {prefix}.weight_scale         fp8_e4m3(out, in/16)
       {prefix}.weight_global_scale  fp32    (1,)   <- stored as a DIVISOR
       {prefix}.input_global_scale   fp32    (1,)   <- activation side, untouched
-- Adapter naming: the Qwen3.5 v3.5 trainer saved keys like
-      base_model.model.model.layers.3.self_attn.q_proj.lora_A.weight
-  while the base checkpoint uses model.language_model.layers.3....
-  This script inserts the missing "language_model." segment.
+- Adapter naming: PEFT adapters carry IN-MEMORY module paths (e.g.
+      base_model.model.model.layers.3.self_attn.q_proj.lora_A.weight)
+  while the base checkpoint uses the family's on-disk layout (e.g.
+      model.language_model.layers.3...). The prefix swap comes from the
+  family registry (nvfp4_lora/families.py), resolved from the base model's
+  config.json, so it matches whatever family the adapter was trained on.
 - Dequant uses the repo's own nvfp4_lora.dequant.dequantize_nvfp4_weight with
   format="compressed_tensors", i.e. EXACTLY the function the trainer used in
   its forward pass, so merged = trained function up to one requantization.
@@ -36,18 +37,16 @@ Phases:
      delta magnitudes) go to <output>/merge_stats.jsonl.
   3. Rewrite each base shard once, swapping in the new packed weights and
      scales; everything else (including input_global_scale) passes through.
-     NOTE: the Qwen base is 2 shards x ~36 GB, so expect ~40 GB host RAM
-     peak per shard. Fine once training has released the UMA.
+     NOTE: a 120B-class base is ~36 GB per shard, so expect ~40 GB host RAM
+     peak per shard.
   4. Copy index + config/tokenizer files unchanged (tensor keys, shapes and
      dtypes are unchanged, so the original index stays valid).
 
 Usage (post-training):
-    cd /home/veritan-spark-01/Veritan/Sandbox/repos/nvfp4-lora-spark
-    /home/veritan-spark-01/Veritan/.venvs/qwen-serve/bin/python \
-        scripts/merge_lora_into_ct_nvfp4.py \
-        --base-model-dir /home/veritan-spark-01/Veritan/Models/RedHatAI-Qwen3.5-122B-A10B-NVFP4 \
-        --lora-adapter-dir /home/veritan-spark-01/Veritan/Sandbox/adapters/qwen3_5_122b_a10b_rh_nvfp4_lora_ich_v3_5 \
-        --output-dir /home/veritan-spark-01/Veritan/Models/RedHatAI-Qwen3.5-122B-A10B-NVFP4-ich-v3.5
+    python scripts/merge_lora_into_ct_nvfp4.py \
+        --base-model-dir /path/to/RedHatAI-Qwen3.5-122B-A10B-NVFP4 \
+        --lora-adapter-dir /path/to/adapter \
+        --output-dir /path/to/RedHatAI-Qwen3.5-122B-A10B-NVFP4-merged
 
 Cheap checks first:
     ... --self-test                  # CPU round-trip on random tensors, no model files
@@ -70,43 +69,32 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))          # for nvfp4_lora
 sys.path.insert(0, str(REPO_ROOT / "scripts"))  # for quantize_mistral_to_nvfp4
 
-ADAPTER_PREFIX = "base_model.model."
-LM_PREFIX = "model.language_model."
+from nvfp4_lora.families import adapter_key_to_base_prefix, resolve_family  # noqa: E402
 
-_QKV_RE = re.compile(
-    r"^(?P<layer>model\.language_model\.layers\.\d+)\.self_attn\.(?P<proj>q_proj|k_proj|v_proj)$"
-)
+ADAPTER_PREFIX = "base_model.model."
 
 
 # ---------------------------------------------------------------------------
 # Adapter key mapping
 # ---------------------------------------------------------------------------
+# The in-memory <-> on-disk prefix swap comes from the family registry
+# (nvfp4_lora/families.py), so the merge translates adapter keys with EXACTLY
+# the same rule the trainer used at load time. For qwen3_5_moe:
+#   base_model.model.model.layers.3.self_attn.q_proj.lora_A.weight
+#       -> ("model.language_model.layers.3.self_attn.q_proj", "A")
+# For mistral3/4:
+#   base_model.model.model.language_model.layers.0.mlp.experts.0.gate_proj...
+#       -> ("language_model.model.layers.0.mlp.experts.0.gate_proj", ...)
 
-def adapter_key_to_base_prefix(akey: str) -> tuple[str, str]:
-    """Map a PEFT adapter tensor key to (base module prefix, 'A'|'B').
-
-    base_model.model.model.layers.3.self_attn.q_proj.lora_A.weight
-        -> ("model.language_model.layers.3.self_attn.q_proj", "A")
-    base_model.model.model.language_model.layers.3....   (already prefixed)
-        -> passthrough
-    """
-    if not akey.startswith(ADAPTER_PREFIX):
-        raise ValueError(f"adapter key {akey!r} does not start with {ADAPTER_PREFIX!r}")
-    tail = akey[len(ADAPTER_PREFIX):]
-    m = re.search(r"\.lora_(?P<side>[AB])\.weight$", tail)
-    if m is None:
-        raise ValueError(f"adapter key {akey!r} is not a lora_A/lora_B weight")
-    prefix = tail[: m.start()]
-    if prefix.startswith(LM_PREFIX):
-        pass
-    elif prefix.startswith("model."):
-        prefix = LM_PREFIX + prefix[len("model."):]
-    else:
-        raise ValueError(f"adapter key {akey!r} has unrecognized module path {prefix!r}")
-    return prefix, m.group("side")
+def make_qkv_regex(st_text_prefix: str) -> re.Pattern:
+    """q/k/v projections under the family's on-disk text-backbone prefix."""
+    return re.compile(
+        r"^(?P<layer>" + re.escape(st_text_prefix)
+        + r"layers\.\d+)\.self_attn\.(?P<proj>q_proj|k_proj|v_proj)$"
+    )
 
 
-def load_adapter(adapter_dir: Path):
+def load_adapter(adapter_dir: Path, mem_prefix: str, st_prefix: str):
     from safetensors import safe_open
 
     cfg_path = adapter_dir / "adapter_config.json"
@@ -127,7 +115,9 @@ def load_adapter(adapter_dir: Path):
     for af in adapter_files:
         with safe_open(af, framework="pt") as sf:
             for akey in sf.keys():
-                prefix, side = adapter_key_to_base_prefix(akey)
+                prefix, side = adapter_key_to_base_prefix(
+                    akey, mem_prefix, st_prefix, adapter_prefix=ADAPTER_PREFIX
+                )
                 lora_map[prefix][side] = sf.get_tensor(akey)
 
     missing = [k for k, ab in lora_map.items() if "A" not in ab or "B" not in ab]
@@ -136,7 +126,7 @@ def load_adapter(adapter_dir: Path):
     return dict(lora_map), cfg, scale
 
 
-def scale_groups(prefixes: list[str]) -> list[list[str]]:
+def scale_groups(prefixes: list[str], qkv_re: re.Pattern) -> list[list[str]]:
     """Group target prefixes that must share one requant per-tensor max.
 
     q/k/v of the same layer form one group (vLLM fuses them into qkv_proj and
@@ -145,7 +135,7 @@ def scale_groups(prefixes: list[str]) -> list[list[str]]:
     qkv: dict[str, list[str]] = defaultdict(list)
     singles: list[list[str]] = []
     for p in prefixes:
-        m = _QKV_RE.match(p)
+        m = qkv_re.match(p)
         if m:
             qkv[m.group("layer")].append(p)
         else:
@@ -195,7 +185,7 @@ def dequant_merge(packed, gs_fp8, global_scale, A, B, scale, device):
 
 
 def merge_targets(lora_map, scale, base_dir: Path, weight_map: dict, device,
-                  stats_out: list) -> dict:
+                  stats_out: list, qkv_re: re.Pattern) -> dict:
     """Compute requantized CT trios for every LoRA target.
 
     Returns {tensor_key: cpu_tensor} covering weight_packed / weight_scale /
@@ -207,7 +197,7 @@ def merge_targets(lora_map, scale, base_dir: Path, weight_map: dict, device,
 
     opened: dict = {}
     replacements: dict = {}
-    groups = scale_groups(sorted(lora_map.keys()))
+    groups = scale_groups(sorted(lora_map.keys()), qkv_re)
     print(f"[merge] {len(lora_map)} targets in {len(groups)} scale groups")
 
     for group in groups:
@@ -393,7 +383,14 @@ def main() -> int:
     print(f"[merge] output  = {args.output_dir}")
     print(f"[merge] device  = {device}")
 
-    lora_map, cfg, scale = load_adapter(args.lora_adapter_dir)
+    # Adapter-key translation and the q/k/v shared-scale rule come from the
+    # family registry, so they match the layout the trainer used at load time.
+    model_type, family = resolve_family(args.base_model_dir)
+    mem_prefix, st_prefix = family["expert_prefix"]
+    qkv_re = make_qkv_regex(st_prefix)
+    print(f"[merge] family  = {model_type} (mem={mem_prefix!r} -> disk={st_prefix!r})")
+
+    lora_map, cfg, scale = load_adapter(args.lora_adapter_dir, mem_prefix, st_prefix)
     print(f"[merge] {len(lora_map)} LoRA targets, r={cfg['r']} alpha={cfg['lora_alpha']} scale={scale}")
 
     idx_path = args.base_model_dir / "model.safetensors.index.json"
@@ -406,7 +403,7 @@ def main() -> int:
             f"{len(missing)} targets have no .weight_packed in the base index "
             f"(unquantized or misnamed): {sorted(missing)[:5]}"
         )
-    groups = scale_groups(sorted(lora_map.keys()))
+    groups = scale_groups(sorted(lora_map.keys()), qkv_re)
     n_trios = sum(1 for g in groups if len(g) > 1)
     print(f"[merge] coverage OK: {len(lora_map)} targets, {n_trios} shared-scale q/k/v groups")
 
@@ -422,7 +419,7 @@ def main() -> int:
 
     stats: list[dict] = []
     replacements = merge_targets(
-        lora_map, scale, args.base_model_dir, weight_map, device, stats
+        lora_map, scale, args.base_model_dir, weight_map, device, stats, qkv_re
     )
 
     stats_path = args.output_dir / "merge_stats.jsonl"

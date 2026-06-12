@@ -1,0 +1,12 @@
+{
+  "weight_map": {
+    "backbone.layers.1.mixer.experts.0.up_proj.weight": "model-00001-of-00001.safetensors",
+    "backbone.layers.1.mixer.experts.0.up_proj.weight_scale": "model-00001-of-00001.safetensors",
+    "backbone.layers.1.mixer.experts.0.up_proj.weight_scale_2": "model-00001-of-00001.safetensors",
+    "backbone.layers.1.mixer.shared_experts.up_proj.weight": "model-00001-of-00001.safetensors",
+    "backbone.layers.1.mixer.shared_experts.up_proj.weight_scale": "model-00001-of-00001.safetensors",
+    "backbone.layers.2.attention.q_proj.weight": "model-00001-of-00001.safetensors",
+    "backbone.layers.2.attention.q_proj.weight_scale": "model-00001-of-00001.safetensors",
+    "backbone.embeddings.weight": "model-00001-of-00001.safetensors"
+  }
+}
