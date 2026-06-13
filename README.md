@@ -4,7 +4,7 @@
 
 NVIDIA and partners ship the largest open MoE families in NVFP4 (4-bit) form so models well past the 100B class fit on a 128 GB GB10 box. NVFP4 weights are not a format that off-the-shelf LoRA libraries understand: packed E2M1 nibbles with `fp8_e4m3fn` block scales and an `fp32` per-tensor scale, in either NVIDIA ModelOpt or compressed-tensors layout, mixed with FP8 Mamba and shared-expert layers. nvfp4-lora-spark closes that gap with an NVFP4-aware LoRA training stack and validated serving recipes on a single GB10 system.
 
-The core dequant kernel (a fused Triton implementation as of v1.2, see [Training throughput](#training-throughput)), the `NVFP4LoRALinear` module, and the fused-3D MoE machinery are all model-family agnostic. Per-family loaders bind them to a specific safetensors layout. Shipped end-to-end on `main`: Nemotron-3 Nano-30B-A3B and Super-120B-A12B (NVIDIA ModelOpt NVFP4). The same stack has been validated against community NVFP4 checkpoints in development branches: Mistral-Small-4-119B-2603 (RedHatAI compressed-tensors NVFP4), Qwen3.5-122B-A10B and Qwen3.6-35B-A3B (NVIDIA ModelOpt NVFP4). Porting to a new NVFP4 family is a loader change, not a kernel change.
+The core dequant kernel (a fused Triton implementation as of v1.2, see [Training throughput](#training-throughput)), the `NVFP4LoRALinear` module, and the fused-3D MoE machinery are all model-family agnostic; a per-family registry ([`nvfp4_lora/families.py`](nvfp4_lora/families.py)) binds them to a specific safetensors layout. As of v1.3 one unified trainer covers every supported family, validated on real checkpoints: Nemotron-3 Nano-30B-A3B and Super-120B-A12B (NVIDIA ModelOpt NVFP4), Mistral-Small-4-119B-2603 (RedHatAI compressed-tensors NVFP4), and Qwen3.5-122B-A10B (both the RedHatAI and NVIDIA NVFP4 releases). Unsupported layouts fail before any weight is read, with the broken assumption named, and [`scripts/inspect_nvfp4_checkpoint.py`](scripts/inspect_nvfp4_checkpoint.py) reports what any checkpoint needs. Porting a new NVFP4 family is one registry entry, not a kernel change.
 
 > **Tip:** see [REPRODUCE.md](REPRODUCE.md) for the exact stack, [serve/README.md](serve/README.md) for the serving recipes, and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for the failure-signature playbook.
 
@@ -287,6 +287,7 @@ The core stack (dequant kernel, NVFP4LoRALinear, fused-3D MoE, save/load round-t
 * **LoRA mechanism** is detected, not configured: if the `--target-modules` are NVFP4-quantized in the checkpoint, LoRA is baked into `NVFP4LoRALinear` at load; if they are plain BF16 (BF16-attention recipes), standard PEFT wrapping with a family-scoped regex.
 * **Target coverage is fail-fast.** Every module matching a target suffix is classified individually before load. A suffix that is quantized in some layers but BF16 in others, or that lands on FP8-demoted modules, is a hard error (override with `--allow-partial-targets` / `--allow-fp8-targets`); a suffix that matches nothing is a hard error. The exact coverage report is written to `<output_dir>/target_coverage.json` so every adapter records what was and was not trained.
 * **Loading is strict.** On-disk tensors that map to no model path fail at load time with the offending keys named, and after loading the trainer asserts no parameter is left on the meta device (frozen multimodal towers are explicitly allowlisted per family). `--permissive-load` restores warn-and-continue for bring-up of new families only.
+* **MoE expert storage is probed, not assumed.** Per-expert routed experts in either compressed-tensors or ModelOpt key naming; checkpoints whose quantizer gave gate and up different per-tensor scales automatically get split gate/up storage (exact, slightly slower) instead of the fused single-scale fast path. See [docs/SUPPORTED_TOPOLOGIES.md](docs/SUPPORTED_TOPOLOGIES.md).
 * **Crash safety**: atomic adapter saves, rotated `checkpoint_step_N/` dirs, best-by-val-loss tracking at `<output_dir>/best/`, and full resume via `--resume-from` (adapter + optimizer + scheduler + RNG + deterministic per-epoch data order).
 
 ```bash
@@ -391,7 +392,7 @@ scripts/
   merge_lora_into_ct_nvfp4.py  # merge LoRA into compressed-tensors NVFP4 base (--dry-run, --self-test)
   validate_merge.py          # per-tensor cosine + no-op-fraction audit
   distinguish_ft.py          # base vs FT distinguishing-prompt test
-tests/                       # CPU-only suite (62 tests) run by CI; no GPU required by construction
+tests/                       # CPU-only suite (79 tests) run by CI; no GPU required by construction
 serve/
   local_env.example.sh                  # machine-local model/adapter/venv roots (copy to local_env.sh)
   run_super_base_inference_cutlass.sh  # recommended Super base recipe
