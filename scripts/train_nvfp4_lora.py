@@ -66,6 +66,7 @@ from transformers import (  # noqa: E402
 from nvfp4_lora.experts import (  # noqa: E402
     NVFP4Experts3D,
     assemble_nvfp4_experts3d_batched,
+    detect_moe_expert_storage,
     replace_moe_experts_with_nvfp4_3d,
 )
 from nvfp4_lora.families import FAMILIES, resolve_family  # noqa: E402, F401
@@ -204,10 +205,28 @@ def load_model(
 
     model_type = getattr(model.config, "model_type", None)
     if family.get("moe_experts_class"):
-        print("[load] replacing fused-3D MoE blocks with NVFP4Experts3D…", flush=True)
+        # Probe the checkpoint's expert storage: ModelOpt vs compressed-tensors
+        # key naming, and whether gate/up per-tensor scales differ (which
+        # requires split storage with one global scale per projection).
+        idx_obj = json.loads((model_dir / "model.safetensors.index.json").read_text())
+        moe_storage = detect_moe_expert_storage(model_dir, idx_obj["weight_map"])
+        if moe_storage is None:
+            raise SystemExit(
+                f"family {model_type!r} declares fused-3D MoE "
+                f"({family['moe_experts_class']}) but the checkpoint has no "
+                f"per-expert NVFP4 projection keys; run "
+                f"scripts/inspect_nvfp4_checkpoint.py to see its layout."
+            )
+        print(f"[load] replacing fused-3D MoE blocks with NVFP4Experts3D "
+              f"(format={moe_storage['quant_format']}, "
+              f"split_gate_up_scales={moe_storage['split_gate_up_scales']})…", flush=True)
         # device= is load-bearing on GB10 UMA: the default (None) allocates the
         # packed expert buffers (~weight-sized) on CPU, permanently starving CUDA.
-        replace_moe_experts_with_nvfp4_3d(model, model_family=model_type, device=device)
+        replace_moe_experts_with_nvfp4_3d(
+            model, model_family=model_type, device=device,
+            quant_format=moe_storage["quant_format"],
+            split_gate_up_scales=moe_storage["split_gate_up_scales"],
+        )
         _stage("post-moe-replace")
     else:
         # Family stores routed experts as per-expert nn.Linear modules

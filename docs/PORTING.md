@@ -22,9 +22,9 @@ python scripts/inspect_nvfp4_checkpoint.py /path/to/model \
 It reports the quant format per module, per-suffix coverage with layer-level
 gaps, the MoE topology and whether the fused-3D path supports it, and the
 exact LoRA mechanism your target set would get (or the precise rejection
-reason). Add `--deep` to also verify the per-expert gate/up global-scale
-equality assumption against the shards, and `--json` for machine-readable
-output. The checkpoint-layout contract the inspector checks against is
+reason). Add `--deep` to also read the per-expert gate/up per-tensor scales
+from the shards and report whether the fused gate_up fast path applies or
+split storage will be selected, and `--json` for machine-readable output. The checkpoint-layout contract the inspector checks against is
 [SUPPORTED_TOPOLOGIES.md](SUPPORTED_TOPOLOGIES.md).
 
 The rest of this section explains what the inspector is looking at, for when
@@ -192,16 +192,19 @@ its fused expert block (the `module.__class__.__name__` that
 swaps in `NVFP4Experts3D`. A family without the field raises
 `replace_moe_experts_with_nvfp4_3d does not have a fused-3D MoE class...`.
 
-`NVFP4Experts3D` expects the standard gate/up/down per-expert layout: gate and
-up are stacked along the output axis as `[gate, up]` (matching the reference
-forward's `.chunk(2, dim=-1)`), down is separate, and gate and up share one
-per-expert global scale. `assemble_nvfp4_experts3d_batched` (and the validating
-`assemble_nvfp4_experts3d_from_safetensors_keys`) enforce these shapes; if your
-checkpoint differs (e.g. separate gate/up global scales, or a w1/w3 naming),
-you will need to adapt the assembler too.
+`NVFP4Experts3D` expects the standard gate/up/down per-expert layout in either
+compressed-tensors or ModelOpt key naming (the trainer probes the index and
+selects the format). When gate and up share one per-tensor scale per expert,
+they are stored fused along the output axis as `[gate, up]` (matching the
+reference forward's `.chunk(2, dim=-1)`, the fast path); when the scales
+differ, the trainer selects split gate/up storage automatically.
+`assemble_nvfp4_experts3d_batched` (and the validating
+`assemble_nvfp4_experts3d_from_safetensors_keys`) enforce the shapes; if your
+checkpoint differs structurally (e.g. a w1/w3 naming), you will need to adapt
+the assembler too.
 
 If your routed experts are plain NVFP4 Linears in the graph (Nemotron layout),
-skip (c) entirely; `replace_nvfp4_modules` handles them.
+skip this entirely; `replace_nvfp4_modules` handles them.
 
 ## 3. What LoRA-mode detection does to your adapter
 

@@ -20,8 +20,9 @@ runs in seconds even for 100B+ checkpoints) and reports:
     (native NVFP4 / PEFT), or the precise reason it would be rejected
 
 With --deep (and shard files present) it additionally reads the per-expert
-gate/up weight_global_scale scalars and verifies the fused-gate_up equality
-assumption (supported topology v1 requires them equal per expert).
+gate/up per-tensor-scale scalars and reports whether they are equal (the
+fused gate_up fast path) or differ (handled via split gate/up storage,
+selected automatically by the trainer).
 
 Exit codes: 0 = inspected fine (and targets, if given, are trainable);
 2 = a requested --target-modules set would be rejected; 1 = bad input.
@@ -131,7 +132,7 @@ def build_report(model_dir: Path, target_suffixes: list[str] | None, deep: bool)
                 family is not None
                 and family.get("moe_experts_class") is not None
                 and gate_up_down
-                and classes == ["nvfp4_ct"]
+                and classes in (["nvfp4_ct"], ["nvfp4_modelopt"])
             ),
         }
     else:
@@ -144,15 +145,19 @@ def build_report(model_dir: Path, target_suffixes: list[str] | None, deep: bool)
         except ImportError:
             report["deep_gate_up_scale_check"] = "skipped (safetensors not installed)"
         else:
-            # Collect every gate/up global-scale key, group by shard so each
-            # shard is opened once, then compare per expert.
+            # Collect every gate/up per-tensor-scale key (suffix depends on the
+            # storage format), group by shard so each shard is opened once,
+            # then compare per expert. A mismatch is handled at load time via
+            # split gate/up storage, so this is informational, not a failure.
             pairs: list[tuple[str, str]] = []
             for moe, blk in moe_blocks.items():
                 for i in range(blk["max_expert"] + 1):
-                    g = f"{moe}.{i}.gate_proj.weight_global_scale"
-                    u = f"{moe}.{i}.up_proj.weight_global_scale"
-                    if g in weight_map and u in weight_map:
-                        pairs.append((g, u))
+                    for g_suffix in ("weight_global_scale", "weight_scale_2"):
+                        g = f"{moe}.{i}.gate_proj.{g_suffix}"
+                        u = f"{moe}.{i}.up_proj.{g_suffix}"
+                        if g in weight_map and u in weight_map:
+                            pairs.append((g, u))
+                            break
             by_shard: dict[str, list[str]] = defaultdict(list)
             for g, u in pairs:
                 by_shard[weight_map[g]].append(g)
@@ -232,10 +237,14 @@ def print_human(report: dict) -> None:
     deep = report.get("deep_gate_up_scale_check")
     if deep is not None:
         if isinstance(deep, dict):
-            verdict = "OK" if deep["mismatched"] == 0 else f"{deep['mismatched']} MISMATCHED"
-            p(f"  gate/up global-scale equality: {deep['experts_checked']} experts checked, {verdict}")
+            if deep["mismatched"] == 0:
+                verdict = "OK (fused gate_up fast path applies)"
+            else:
+                verdict = (f"{deep['mismatched']} differ (handled via split gate/up "
+                           f"storage; the trainer selects it automatically)")
+            p(f"  gate/up per-tensor-scale equality: {deep['experts_checked']} experts checked, {verdict}")
             for ex in deep["mismatch_examples"]:
-                p(f"    mismatch: {ex}")
+                p(f"    differs: {ex}")
         else:
             p(f"  gate/up global-scale check: {deep}")
     tv = report.get("target_verdict")
