@@ -156,15 +156,21 @@ def decide_lora_mode(
 ) -> tuple[str, dict]:
     """Decide native-NVFP4 vs PEFT LoRA from a full module inventory, fail-fast.
 
+    A module's runtime form decides which mechanism can train it: NVFP4 ->
+    native (baked into NVFP4LoRALinear); BF16 -> PEFT-wrappable nn.Linear; FP8
+    per-tensor -> the loader dequantizes it to a frozen BF16 nn.Linear, which
+    PEFT can also wrap. So a suffix with NVFP4 modules is "native", and one
+    with no NVFP4 (only BF16 and/or FP8) is "peft" and trains ALL of them.
+
     Hard errors (SystemExit) unless explicitly allowed:
       * a suffix matches no module at all (typo / wrong family)
-      * a suffix matches a MIX of NVFP4 and BF16 modules across layers
-        (training would silently cover only the quantized ones)
-        -> --allow-partial-targets to proceed, training the NVFP4 ones only
-      * a suffix matches FP8-demoted modules (the loader freezes those, so
-        they would silently receive no LoRA at all)
-        -> --allow-fp8-targets to proceed with them frozen
-      * suffixes split across native and PEFT mechanisms (unchanged behavior)
+      * a NATIVE suffix (has NVFP4 modules) also matches BF16 modules across
+        layers -> a native run trains only the NVFP4 ones
+        (--allow-partial-targets to proceed)
+      * a NATIVE suffix also matches FP8 modules -> those stay frozen with no
+        LoRA in a native run (--allow-fp8-targets to proceed). FP8 under a
+        PEFT suffix is NOT blocked: PEFT wraps the dequantized BF16 Linear.
+      * suffixes split across native and PEFT mechanisms
 
     Returns (mode, coverage) where mode is "native" or "peft" and coverage is
     a JSON-able report worth persisting next to the adapter.
@@ -188,14 +194,18 @@ def decide_lora_mode(
                 f"run scripts/inspect_nvfp4_checkpoint.py to list suffixes)"
             )
             continue
-        if n_fp8 and not allow_fp8_targets:
+        # FP8 modules stay frozen only under a NATIVE suffix (no native adapter
+        # is installed on them and PEFT is not active). Under a PEFT suffix the
+        # loader's FP8 -> frozen-BF16-Linear conversion is wrappable, so FP8 is
+        # not a problem there.
+        if n_fp8 and n_nvfp4 and not allow_fp8_targets:
             ex = info["examples"].get("fp8", ["?"])[0]
             problems.append(
-                f"target suffix '{suffix}' matches {n_fp8} FP8-per-tensor "
-                f"module(s) (e.g. {ex}). The NVFP4 loader demotes FP8 modules "
-                f"to frozen, so they would receive NO LoRA training. Pass "
-                f"--allow-fp8-targets to accept training only the non-FP8 "
-                f"instances, or drop the suffix."
+                f"target suffix '{suffix}' mixes {n_nvfp4} NVFP4 module(s) with "
+                f"{n_fp8} FP8-per-tensor module(s) (e.g. {ex}). In a native-NVFP4 "
+                f"run the FP8 modules stay frozen and receive NO LoRA training. "
+                f"Pass --allow-fp8-targets to train only the NVFP4 instances, or "
+                f"drop the suffix."
             )
         if n_nvfp4 and n_bf16:
             ex_q = info["examples"].get("nvfp4_ct", info["examples"].get("nvfp4_modelopt", ["?"]))[0]
@@ -212,10 +222,9 @@ def decide_lora_mode(
             suffix_modes[suffix] = "native"
         elif n_nvfp4:
             suffix_modes[suffix] = "native"
-        elif n_bf16:
+        else:
+            # No NVFP4: BF16 and/or FP8, all wrappable as frozen BF16 Linears.
             suffix_modes[suffix] = "peft"
-        else:  # fp8 only
-            suffix_modes[suffix] = "native"
 
     distinct = sorted(set(suffix_modes.values()))
     if len(distinct) > 1:

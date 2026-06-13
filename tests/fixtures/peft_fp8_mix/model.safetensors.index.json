@@ -1,0 +1,10 @@
+{
+  "weight_map": {
+    "model.layers.0.self_attn.q_proj.weight": "model-00001-of-00001.safetensors",
+    "model.layers.1.self_attn.q_proj.weight": "model-00001-of-00001.safetensors",
+    "model.layers.0.self_attn.o_proj.weight": "model-00001-of-00001.safetensors",
+    "model.layers.1.self_attn.o_proj.weight": "model-00001-of-00001.safetensors",
+    "model.layers.1.self_attn.o_proj.weight_scale": "model-00001-of-00001.safetensors",
+    "model.embed_tokens.weight": "model-00001-of-00001.safetensors"
+  }
+}

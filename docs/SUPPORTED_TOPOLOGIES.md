@@ -66,14 +66,19 @@ dequant+bmm pairs for the gate_up projection.
 ## Trainability rules (enforced before load)
 
 For each `--target-modules` suffix, every matching module in the index is
-classified individually. The run proceeds only when:
+classified individually by its runtime form: NVFP4 -> native LoRA; BF16 ->
+PEFT-wrappable nn.Linear; FP8 per-tensor -> dequantized to a frozen BF16
+nn.Linear, which PEFT can also wrap. A suffix with any NVFP4 modules is
+"native"; a suffix with none (only BF16 and/or FP8) is "peft". The run
+proceeds only when:
 
 * every target suffix matches at least one module
-* matched modules are uniformly NVFP4 (-> native LoRA) or uniformly BF16
-  (-> PEFT LoRA); native and PEFT suffixes cannot be mixed in one run
-* no target module is FP8 (override: `--allow-fp8-targets`)
-* no suffix is quantized in some layers but BF16 in others
-  (override: `--allow-partial-targets`)
+* native and PEFT suffixes are not mixed in one run
+* a native suffix is not also partly BF16 (those BF16 instances would not
+  train natively; override `--allow-partial-targets`)
+* a native suffix is not also partly FP8 (those stay frozen in a native run;
+  override `--allow-fp8-targets`). FP8 under a PEFT suffix is fine — PEFT
+  wraps the frozen BF16 Linear and trains it.
 
 The verdict plus the full inventory is persisted to
 `<output_dir>/target_coverage.json`.
