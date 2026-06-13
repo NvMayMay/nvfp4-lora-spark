@@ -168,10 +168,30 @@ def test_fp8_target_allowed_with_flag(fixtures_dir):
     assert coverage["inventory"]["up_proj"]["counts"] == {"nvfp4_modelopt": 1, "fp8": 1}
 
 
-def test_fp8_only_suffix_is_hard_error(fixtures_dir):
-    # q_proj in this fixture is FP8 everywhere: nothing would train at all.
-    with pytest.raises(SystemExit):
-        decide_lora_mode(fixtures_dir / "fp8_demoted", ["q_proj"])
+def test_fp8_only_suffix_trains_via_peft(fixtures_dir):
+    # q_proj in this fixture is FP8 everywhere. The loader dequantizes FP8 to a
+    # frozen BF16 nn.Linear, which PEFT can wrap, so an FP8-only suffix resolves
+    # to peft and trains (no nvfp4 -> no native demotion, no flag needed).
+    mode, coverage = decide_lora_mode(fixtures_dir / "fp8_demoted", ["q_proj"])
+    assert mode == "peft"
+    assert coverage["inventory"]["q_proj"]["counts"] == {"fp8": 1}
+
+
+def test_bf16_fp8_mix_resolves_to_peft_without_flags(fixtures_dir):
+    # The Super attention o_proj shape: some layers BF16, some FP8, no NVFP4.
+    # Under PEFT both are wrappable, so this must NOT require --allow-fp8-targets.
+    mode, coverage = decide_lora_mode(fixtures_dir / "peft_fp8_mix", ["q_proj", "o_proj"])
+    assert mode == "peft"
+    assert coverage["inventory"]["o_proj"]["counts"] == {"bf16": 1, "fp8": 1}
+    assert coverage["inventory"]["q_proj"]["counts"] == {"bf16": 2}
+
+
+def test_native_suffix_with_fp8_still_blocks(fixtures_dir):
+    # up_proj is NVFP4 + FP8 (no bf16): a native suffix, so the FP8 stragglers
+    # would stay frozen -> still a hard error until --allow-fp8-targets.
+    with pytest.raises(SystemExit) as exc:
+        decide_lora_mode(fixtures_dir / "fp8_demoted", ["up_proj"])
+    assert "--allow-fp8-targets" in str(exc.value)
 
 
 def test_build_target_inventory_shape(fixtures_dir):

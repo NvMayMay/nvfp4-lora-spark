@@ -497,9 +497,10 @@ def main():
                          "are trained. Without this flag, partial coverage is a "
                          "hard error.")
     ap.add_argument("--allow-fp8-targets", action="store_true",
-                    help="Proceed when a target suffix matches FP8-per-tensor "
-                         "modules; those are demoted to frozen (no LoRA). Without "
-                         "this flag, FP8 targets are a hard error.")
+                    help="Proceed when a NATIVE suffix also matches FP8-per-tensor "
+                         "modules; those stay frozen (no native LoRA). Only needed "
+                         "for native (NVFP4) suffixes — under a PEFT suffix the "
+                         "FP8 modules are wrapped as frozen BF16 Linears and train.")
     ap.add_argument("--permissive-load", action="store_true",
                     help="Bring-up escape hatch: downgrade strict-load errors "
                          "(unmapped on-disk tensors, tensors left on the meta "
