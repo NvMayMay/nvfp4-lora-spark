@@ -46,14 +46,22 @@ A `model_type` outside the registry is a hard error naming the registry file.
 
 For families using `NVFP4Experts3D`, the checkpoint must satisfy:
 
-* routed experts stored as per-expert 2D tensors:
+* routed experts stored as per-expert 2D tensors, in either key naming:
+  compressed-tensors
   `<moe>.<i>.{gate_proj,up_proj,down_proj}.{weight_packed,weight_scale,weight_global_scale}`
+  or ModelOpt
+  `<moe>.<i>.{gate_proj,up_proj,down_proj}.{weight,weight_scale,weight_scale_2}`
+  (the trainer probes the index and picks the format; ModelOpt naming is
+  CPU-parity-tested but no public fused-MoE checkpoint ships it yet)
 * the in-memory HF module class matches the registry's `moe_experts_class`
   and exposes `num_experts` / `hidden_dim` / `intermediate_dim`
-* **per expert, `gate_proj.weight_global_scale == up_proj.weight_global_scale`**
-  (the fused gate_up buffer stores one global scale per expert). Checked at
-  assembly time and by the inspector's `--deep` pass. Supporting separate
-  gate/up global scales is a known future-work item.
+
+Per-expert gate/up per-tensor scales may be equal or differ. Equal scales
+(every public CT checkpoint validated so far: 12288/12288 experts on both
+Qwen3.5-122B releases) use the fused gate_up fast path, one dequant + one
+bmm per K-batch. Differing scales select split gate/up storage at load
+(probed from the shards in about a second), which is exact but costs two
+dequant+bmm pairs for the gate_up projection.
 
 ## Trainability rules (enforced before load)
 
@@ -87,7 +95,6 @@ Checkpoints that will be rejected today, by design:
 * fused-3D expert storage on disk (single `(num_experts, ...)` tensors
   rather than per-expert keys)
 * NVFP4 with group size other than 16
-* per-expert gate/up global scales that differ
 * MoE module classes not named in the registry (`moe_experts_class`)
 * `model_type` values without a registry entry
 
