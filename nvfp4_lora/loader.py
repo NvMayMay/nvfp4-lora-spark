@@ -112,6 +112,11 @@ def build_target_inventory(model_dir: str | Path, target_suffixes: Sequence[str]
     individually. This is what makes partial quantization (the same suffix
     NVFP4 in some layers, BF16/FP8 in others) visible BEFORE load time.
 
+    Modules the resolved family never loads into the training graph (its
+    `skip_st_prefixes`: MTP speculation heads, vision towers) are excluded, so
+    counts reflect what would actually train. A checkpoint whose family is not
+    in the registry is inventoried in full (no skip-list known).
+
     Returns a JSON-able dict:
       {suffix: {"counts": {class: n, ...},
                 "examples": {class: [up to 3 module names], ...},
@@ -121,6 +126,17 @@ def build_target_inventory(model_dir: str | Path, target_suffixes: Sequence[str]
 
     keys = set(_load_weight_map(model_dir).keys())
     prefixes = list_weight_module_prefixes(keys)
+    # Drop modules outside the training graph (e.g. nemotron_h `mtp.*`,
+    # multimodal towers) so they cannot inflate trainable-target counts.
+    try:
+        _, fam = families.resolve_family(model_dir)
+        skip = tuple(fam.get("skip_st_prefixes", ()))
+    except (SystemExit, OSError, ValueError):
+        # Unknown family / missing or unreadable config.json -> no skip-list;
+        # inventory the checkpoint in full (the inspector runs on these too).
+        skip = ()
+    if skip:
+        prefixes = {p for p in prefixes if not p.startswith(skip)}
     inventory: dict[str, dict] = {}
     for suffix in target_suffixes:
         matches = sorted(p for p in prefixes if p.rsplit(".", 1)[-1] == suffix)

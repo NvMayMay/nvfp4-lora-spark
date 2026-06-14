@@ -1,0 +1,6 @@
+{
+  "architectures": ["NemotronHForCausalLM"],
+  "model_type": "nemotron_h",
+  "num_hidden_layers": 8,
+  "tie_word_embeddings": false
+}
