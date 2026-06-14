@@ -17,10 +17,16 @@ likely already runs; the work is validation plus a couple of correctness fixes.
 Nemotron-3 is a hybrid stack; the `hybrid_override_pattern` marks layer types
 (`M` = Mamba2, `E` = MoE/MLP, `*` = attention):
 
-| | attention layers | attention projection storage | naming |
+| | attention layers (`*` in `hybrid_override_pattern`) | attention projection storage | naming |
 |---|---|---|---|
 | Nano-30B | 6 (idx 5,12,19,26,33,42) | q/k/v/o all **bf16** (24/24) | `backbone.layers.N.mixer.{q,k,v,o}_proj` |
-| Super-120B | 9 (idx 0,7,16,25,36,47,58,69,78) | 34 bf16 + **2 fp8** (`layers.69` & `layers.78` `o_proj`) | same |
+| Super-120B | 8 (idx 7,16,25,36,47,58,69,78) | 30 bf16 + **2 fp8** (`layers.69` & `layers.78` `o_proj`) | `model.layers.N.mixer.{q,k,v,o}_proj` |
+
+(Mamba2 layers — e.g. Super layer 0 — also live under `mixer.` but expose
+`in_proj`/`out_proj`/`conv1d`, not q/k/v/o, so attention targeting never hits
+them. The `mtp.*` Multi-Token Prediction head also carries an attention block
+with q/k/v/o, but it is on the family skip-list and never trains. Super's
+in-memory backbone prefix is `model.`, Nano's is `backbone.`.)
 
 Notes that matter downstream:
 - Projections sit under `mixer.`, not `self_attn.`. The `nemotron_h`
@@ -35,23 +41,43 @@ Notes that matter downstream:
 ## What almost certainly already works
 
 `scripts/train_nvfp4_lora.py --model-dir <nano> --target-modules q_proj,k_proj,v_proj,o_proj`
-should resolve to `lora_mode=peft` (all targets bf16) and attach PEFT LoRA to
-the 6 attention layers, with the NVFP4 experts and Mamba2 layers loaded frozen.
-No code change anticipated for the Nano happy path — it needs **validation**,
-which is GPU work (deferred while the box is busy).
+resolves to `lora_mode=peft` (all targets bf16) and attaches PEFT LoRA to the
+attention layers, with the NVFP4 experts and Mamba2 layers loaded frozen.
 
-## Real gaps / risks to resolve
+**Phase A is VALIDATED end-to-end on hardware (2026-06-14).**
+- Nano: dry-run + 3-step ICH train. PEFT attached to all 6 attention layers
+  (48 adapter tensors = 24 modules x A/B, all on `mixer.{q,k,v,o}_proj`, no
+  expert/Mamba leakage), trainable 1.87M, losses 1.66 -> 1.53 -> 1.31, 39 GB
+  peak. The real risk (PEFT silently matching zero modules on the hybrid
+  graph) is cleared.
+- Super: 3-step ICH train, `lora_mode=peft` with NO override flags. PEFT
+  attached to all 8 attention layers (64 tensors = 32 modules), trainable
+  3.21M, losses 1.27 -> 1.31 -> 1.08, ~90 GB peak, zero NVRM. Both FP8
+  `o_proj` (layers 69, 78) received `lora_A`/`lora_B` — the on-hardware
+  confirmation of item 1 below.
 
-1. **FP8-target semantics for the PEFT path — DONE (CPU-validated).**
+## Resolved / open items
+
+0. **Target inventory now excludes skip-listed modules — DONE.** Validation
+   surfaced that `build_target_inventory` (and thus `decide_lora_mode`, the
+   saved `target_coverage.json`, and the inspector verdict) counted the
+   `mtp.*` attention head as a trainable target, even though the loader skips
+   it — Super reported 9 q_proj when only 8 train. Fixed: the inventory drops
+   prefixes on the resolved family's `skip_st_prefixes`, so counts reflect
+   reality (verdict now `q_proj: 8`). The inspector's raw storage census still
+   shows all 9 as a layout fact. Two CPU tests added; unknown-family /
+   config-less checkpoints inventory in full as before.
+
+1. **FP8-target semantics for the PEFT path — DONE (shipped + hardware-validated).**
    The fail-fast guard used to treat any FP8-matching target as "demoted to
    frozen → hard error unless `--allow-fp8-targets`". Correct for the native
    path, wrong for PEFT: the loader converts FP8 to a frozen bf16 `nn.Linear`,
    which PEFT *can* wrap. `decide_lora_mode` now fires the FP8 guard only for
    NATIVE suffixes (those with NVFP4 modules); a suffix with no NVFP4 resolves
-   to `peft` and trains its bf16 AND fp8 modules with no override. This is
-   exactly the Super `o_proj` case (7 bf16 + 2 fp8 → peft, all 9 trainable).
-   Shipped with a `peft_fp8_mix` fixture and three CPU tests (suite 79 → 81).
-   End-to-end Nemotron PEFT run still pending GPU validation.
+   to `peft` and trains its bf16 AND fp8 modules with no override. Confirmed on
+   Super (`o_proj` = bf16 + 2 fp8 → peft, all 8 layers incl. the 2 fp8 trained
+   without flags). Shipped in PR #5 with a `peft_fp8_mix` fixture and three CPU
+   tests (suite 79 → 81).
 
 2. **Merging a BF16 attention adapter is unsupported (decide serve path).**
    Both merge scripts requantize into NVFP4 base tensors and reject targets
@@ -79,9 +105,9 @@ which is GPU work (deferred while the box is busy).
 
 ## Proposed sequencing
 
-- **Phase A (small, mostly done):** fix item 1 (PEFT FP8 semantics) + CPU test;
-  validate Nano attention LoRA end-to-end (dry-run → 3-step → dynamic-serve)
-  when the GPU frees up. Ships "attention LoRA on Nano" honestly.
+- **Phase A — DONE.** Item 1 shipped (PR #5); Nano and Super attention LoRA
+  validated end-to-end on hardware (training only — a `dynamic-serve` smoke is
+  still nice-to-have but the train/save path is proven).
 - **Phase B:** decide item 2; if extending merge, do the bf16-in-place fold +
   validate Super attention LoRA through merge-then-serve.
 - **Phase C (the real feature):** item 3, combined attention+expert LoRA in one

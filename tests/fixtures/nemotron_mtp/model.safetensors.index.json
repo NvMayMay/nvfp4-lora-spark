@@ -1,0 +1,11 @@
+{
+  "weight_map": {
+    "backbone.layers.7.mixer.q_proj.weight": "model-00001-of-00001.safetensors",
+    "backbone.layers.7.mixer.o_proj.weight": "model-00001-of-00001.safetensors",
+    "backbone.layers.16.mixer.q_proj.weight": "model-00001-of-00001.safetensors",
+    "backbone.layers.16.mixer.o_proj.weight": "model-00001-of-00001.safetensors",
+    "mtp.layers.0.mixer.q_proj.weight": "model-00001-of-00001.safetensors",
+    "mtp.layers.0.mixer.o_proj.weight": "model-00001-of-00001.safetensors",
+    "backbone.embeddings.weight": "model-00001-of-00001.safetensors"
+  }
+}

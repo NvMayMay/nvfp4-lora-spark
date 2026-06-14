@@ -194,6 +194,22 @@ def test_native_suffix_with_fp8_still_blocks(fixtures_dir):
     assert "--allow-fp8-targets" in str(exc.value)
 
 
+def test_inventory_excludes_family_skip_list(fixtures_dir):
+    # nemotron_h skips mtp.* (Multi-Token Prediction head). The MTP attention
+    # block has q_proj/o_proj too, but it never trains, so it must not inflate
+    # the target counts: 2 backbone attention layers, not 3.
+    inv = build_target_inventory(fixtures_dir / "nemotron_mtp", ["q_proj", "o_proj"])
+    assert inv["q_proj"]["counts"] == {"bf16": 2}
+    assert inv["o_proj"]["counts"] == {"bf16": 2}
+    assert all("mtp." not in ex for ex in inv["q_proj"]["examples"].get("bf16", []))
+
+
+def test_skip_list_aware_mode_decision(fixtures_dir):
+    mode, coverage = decide_lora_mode(fixtures_dir / "nemotron_mtp", ["q_proj", "o_proj"])
+    assert mode == "peft"
+    assert coverage["inventory"]["q_proj"]["counts"] == {"bf16": 2}
+
+
 def test_build_target_inventory_shape(fixtures_dir):
     inv = build_target_inventory(fixtures_dir / "qwen3_5_moe", ["gate_proj", "nope"])
     assert inv["gate_proj"]["counts"] == {"nvfp4_ct": 1}
