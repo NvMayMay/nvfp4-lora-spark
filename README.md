@@ -1,8 +1,8 @@
-# nvfp4-lora-spark
+# nybbloris
 
-**LoRA fine-tuning and serving for NVFP4 MoE models on a single NVIDIA DGX Spark (GB10, sm_121, 128 GB unified memory)**
+**LoRA fine-tuning and runtime-LoRA serving for NVFP4 MoE models on consumer NVIDIA Blackwell (DGX Spark / GB10, sm_121, 128 GB unified memory)**
 
-NVIDIA and partners ship the largest open MoE families in NVFP4 (4-bit) form so models well past the 100B class fit on a 128 GB GB10 box. NVFP4 weights are not a format that off-the-shelf LoRA libraries understand: packed E2M1 nibbles with `fp8_e4m3fn` block scales and an `fp32` per-tensor scale, in either NVIDIA ModelOpt or compressed-tensors layout, mixed with FP8 Mamba and shared-expert layers. nvfp4-lora-spark closes that gap with an NVFP4-aware LoRA training stack and validated serving recipes on a single GB10 system.
+NVIDIA and partners ship the largest open MoE families in NVFP4 (4-bit) form so models well past the 100B class fit on a 128 GB GB10 box. NVFP4 weights are not a format that off-the-shelf LoRA libraries understand: packed E2M1 nibbles with `fp8_e4m3fn` block scales and an `fp32` per-tensor scale, in either NVIDIA ModelOpt or compressed-tensors layout, mixed with FP8 Mamba and shared-expert layers. nybbloris closes that gap with an NVFP4-aware LoRA training stack and validated serving recipes on a single GB10 system.
 
 The core dequant kernel (a fused Triton implementation as of v1.2, see [Training throughput](#training-throughput)), the `NVFP4LoRALinear` module, and the fused-3D MoE machinery are all model-family agnostic; a per-family registry ([`nvfp4_lora/families.py`](nvfp4_lora/families.py)) binds them to a specific safetensors layout. As of v1.3 one unified trainer covers every supported family, validated on real checkpoints: Nemotron-3 Nano-30B-A3B and Super-120B-A12B (NVIDIA ModelOpt NVFP4), Mistral-Small-4-119B-2603 (RedHatAI compressed-tensors NVFP4), and Qwen3.5-122B-A10B (both the RedHatAI and NVIDIA NVFP4 releases). Unsupported layouts fail before any weight is read, with the broken assumption named, and [`scripts/inspect_nvfp4_checkpoint.py`](scripts/inspect_nvfp4_checkpoint.py) reports what any checkpoint needs. Porting a new NVFP4 family is one registry entry, not a kernel change.
 
@@ -13,8 +13,8 @@ The core dequant kernel (a fused Triton implementation as of v1.2, see [Training
 Training environment:
 
 ```bash
-git clone https://github.com/NvMayMay/nvfp4-lora-spark
-cd nvfp4-lora-spark
+git clone https://github.com/NvMayMay/nybbloris
+cd nybbloris
 python -m venv .venv-train && source .venv-train/bin/activate
 pip install -r requirements.txt
 MAX_JOBS=1 pip install --no-build-isolation causal-conv1d==1.6.2.post1
@@ -101,9 +101,9 @@ MODEL_DIR=models/Nemotron-3-Super-120B-A12B-NVFP4-ft ./serve/run_super_ft_merged
 
 The merged Super checkpoint serves at ~13 tok/s on Spark with the FT behavior baked into the served weights. See [serve/README.md](serve/README.md) for the Nano LoRA-attach recipe and the Super base-inference recipe, and [docs/SUPPORTED_TOPOLOGIES.md](docs/SUPPORTED_TOPOLOGIES.md) for the exact checkpoint-layout contract.
 
-## Why use nvfp4-lora-spark
+## Why use nybbloris
 
-Single-GPU fine-tuning of Nemotron-3-Super on a 128 GB GB10 system previously required either training on a BF16 base in the cloud (the adapter then shifts under quantization), renting datacenter GPUs for the whole pipeline, or skipping fine-tuning entirely. nvfp4-lora-spark removes those constraints by training and serving directly on the NVFP4 base.
+Single-GPU fine-tuning of Nemotron-3-Super on a 128 GB GB10 system previously required either training on a BF16 base in the cloud (the adapter then shifts under quantization), renting datacenter GPUs for the whole pipeline, or skipping fine-tuning entirely. nybbloris removes those constraints by training and serving directly on the NVFP4 base.
 
 ### Training fits comfortably on a single GB10
 
@@ -447,9 +447,9 @@ The Nemotron-3 base models are licensed under the [NVIDIA Nemotron Open Model Li
 ## Citation
 
 ```bibtex
-@software{nvfp4_lora_spark_2026,
-  title  = {nvfp4-lora-spark: LoRA fine-tuning Nemotron-3 NVFP4 MoE on a single DGX Spark},
+@software{nybbloris_2026,
+  title  = {nybbloris: LoRA fine-tuning and runtime-LoRA serving for NVFP4 MoE on consumer Blackwell},
   year   = {2026},
-  url    = {https://github.com/NvMayMay/nvfp4-lora-spark}
+  url    = {https://github.com/NvMayMay/nybbloris}
 }
 ```
