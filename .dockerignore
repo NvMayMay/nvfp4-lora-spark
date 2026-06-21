@@ -1,0 +1,17 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+logs/
+plots/
+results/
+# model weights / large artifacts never belong in the build context
+*.safetensors
+*.bin
+*.pt
+*.gguf
+*.png
+*.log
