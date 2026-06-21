@@ -287,6 +287,22 @@ def per_tensor_stats(dequant, delta, merged, new_dequant):
 # Shard processing
 # ---------------------------------------------------------------------------
 
+def _read_base_tensor(base_model_dir: Path, weight_map: dict, key: str, cur_sf,
+                      cur_keys: set):
+    """Read a base tensor by key.
+
+    Returns it from the current shard handle when present, otherwise from
+    whatever shard the base ``weight_map`` assigns it to. This handles bases
+    where NVIDIA's sharder split a weight from its NVFP4 scales across a shard
+    boundary (the scales then live in a neighbouring shard).
+    """
+    if key in cur_keys:
+        return cur_sf.get_tensor(key)
+    shard_fn = weight_map[key]
+    with safe_open(base_model_dir / shard_fn, framework="pt") as other_sf:
+        return other_sf.get_tensor(key)
+
+
 def process_shard(
     base_shard_path: Path,
     output_shard_path: Path,
@@ -295,6 +311,8 @@ def process_shard(
     device: torch.device,
     stats_log: list,
     metadata_passthrough: dict,
+    base_model_dir: Path,
+    weight_map: dict,
 ):
     """Read base_shard, merge any tensors with matching LoRA pairs, write output_shard.
 
@@ -309,28 +327,37 @@ def process_shard(
         # Preserve the safetensors metadata block if present (HF stores quant_config etc)
         meta = sf.metadata() or {}
         metadata_passthrough.update({k: v for k, v in meta.items() if k not in metadata_passthrough})
+        cur_keys = set(sf.keys())
 
         for key in sf.keys():
             tensor = sf.get_tensor(key)
 
             # Decide: merge or passthrough?
             if key in lora_map:
-                # Get accompanying scale + scale_2 from same shard
+                # Accompanying NVFP4 scales. They usually live in the same shard as
+                # the weight, but NVIDIA's sharder occasionally splits a weight from
+                # its scales across a shard boundary, so resolve each via the base
+                # weight_map rather than assuming co-location. The merged weight and
+                # its re-quantized scales are written together into THIS weight's
+                # output shard; main() updates the output index for any scale so
+                # relocated.
                 scale_key = key.replace(".weight", ".weight_scale")
                 scale2_key = key.replace(".weight", ".weight_scale_2")
-                # Both scale tensors live in the same shard as the weight per NVIDIA's
-                # release; assert that.
-                if scale_key not in sf.keys() or scale2_key not in sf.keys():
+                if scale_key not in weight_map or scale2_key not in weight_map:
                     print(
-                        f"WARN: {key} has LoRA pair but missing scales in shard "
-                        f"{base_shard_path.name}; passing weight through unchanged."
+                        f"WARN: {key} has a LoRA pair but no NVFP4 scales anywhere "
+                        f"in the base index; passing weight through unchanged."
                     )
                     out_tensors[key] = tensor
                     n_passthrough += 1
                     continue
 
-                group_scale = sf.get_tensor(scale_key)
-                per_tensor_scale = sf.get_tensor(scale2_key)
+                group_scale = _read_base_tensor(
+                    base_model_dir, weight_map, scale_key, sf, cur_keys
+                )
+                per_tensor_scale = _read_base_tensor(
+                    base_model_dir, weight_map, scale2_key, sf, cur_keys
+                )
 
                 merged, delta, dequant = get_nvfp4_dequant_then_merge(
                     tensor,
@@ -476,6 +503,20 @@ def main():
             f"scales (unquantized in this base): {sorted(unquantized)[:5]}"
         )
 
+    # Some bases shard a weight apart from its NVFP4 scales. Such scales are
+    # merged + re-quantized alongside the weight and written into the weight's
+    # output shard; record them so the output index can be updated to match.
+    relocated_scales = {}  # scale tensor key -> weight's shard filename
+    for wk in targeted_keys:
+        wshard = weight_map[wk]
+        for sk in (wk.replace(".weight", ".weight_scale"),
+                   wk.replace(".weight", ".weight_scale_2")):
+            if weight_map.get(sk) is not None and weight_map[sk] != wshard:
+                relocated_scales[sk] = wshard
+    if relocated_scales:
+        print(f"[merge] {len(relocated_scales)} NVFP4 scale tensor(s) sharded apart "
+              f"from their weight; relocating into the weight's shard + updating index")
+
     if args.dry_run:
         for k in sorted(targeted_keys)[:10]:
             print(f"[dry-run] target: {k}")
@@ -491,6 +532,11 @@ def main():
 
     # Shard selection
     selected = parse_shard_selection(args.shards, len(shard_files))
+    if relocated_scales and set(selected) != set(range(len(shard_files))):
+        raise SystemExit(
+            "cross-shard NVFP4 scales detected; a partial --shards selection could "
+            "drop relocated scales. Re-run with --shards all for this base model."
+        )
 
     # Resume support: read existing manifest if present
     manifest_path = args.output_dir / "merge_manifest.json"
@@ -538,6 +584,8 @@ def main():
             device,
             stats_log_buffer,
             metadata_passthrough,
+            args.base_model_dir,
+            weight_map,
         )
 
         # Flush stats
@@ -569,8 +617,17 @@ def main():
         if f.suffix == ".safetensors":
             continue
         if f.name == "model.safetensors.index.json":
-            # We use the same index since shard names and tensor keys are unchanged
-            shutil.copy2(f, args.output_dir / f.name)
+            # Reuse the base index, but if any scales were relocated into their
+            # weight's shard, update those entries so the merged checkpoint loads.
+            if relocated_scales:
+                with open(f) as idx_f:
+                    out_index = json.load(idx_f)
+                for sk, wshard in relocated_scales.items():
+                    out_index["weight_map"][sk] = wshard
+                with open(args.output_dir / f.name, "w") as idx_out:
+                    json.dump(out_index, idx_out)
+            else:
+                shutil.copy2(f, args.output_dir / f.name)
             continue
         out_f = args.output_dir / f.name
         if not out_f.exists():
