@@ -24,11 +24,14 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=8"]
 
+[project.scripts]
+nybbloris = "nybbloris.cli:main"
+
 [project.urls]
 Repository = "https://github.com/NvMayMay/nvfp4-lora-spark"
 
 [tool.setuptools]
-packages = ["nvfp4_lora"]
+packages = ["nvfp4_lora", "nybbloris"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,74 +1,24 @@
 #!/usr/bin/env python3
 """Binding contract: does every LoRA target resolve to a base module, AND is its
-weight a quant type that can actually take LoRA at serve time?
+weight a quant type that can take LoRA at serve time?
 
-Two silent-no-op classes, both caught from key names + the base index alone (no
-weights, no GPU) -- a cheap pre-flight gate before train / merge / serve:
-
-  1) KEY mismatch -- the adapter's module paths don't match the base (e.g. a
-     multimodal base nests the LM under `language_model.` while the adapter keys
-     omit it); a naive load binds ZERO and silently serves the un-adapted base.
-
-  2) QUANT-type mismatch -- a target resolves to an FP8-quantized weight. The
-     NVFP4-LoRA runtime path applies the delta on the NVFP4 dequant; FP8 weights
-     are demoted to frozen (no LoRA) unless allow_fp8_targets. So an adapter
-     trained on a bf16 base can bind by key yet serve FROZEN on the quantized
-     base, silently dropping those deltas. We report which targets are LIVE
-     (NVFP4 / bf16) vs served FROZEN (FP8).
-
-Quant type is read from the scale tensors present in the index:
-  - weight_packed / weight_global_scale  -> NVFP4 (compressed-tensors)
-  - weight_scale_2                        -> NVFP4 (ModelOpt)
-  - input_scale (and none of the above)  -> FP8 static-scaled
-  - weight only                          -> bf16 / unquantized
+Two silent-no-op classes, caught from key names + the base index alone (no weights,
+no GPU): KEY mismatch (a naive load binds ZERO and serves the un-adapted base) and
+QUANT-type freeze (FP8 weights are served frozen, deltas dropped, unless
+allow_fp8_targets). This is the binding-focused report; the full serve plan is
+`nybbloris inspect` (nybbloris.plan.serve_plan). Shared primitives live in
+nybbloris/plan.py (single source of truth).
 """
 from __future__ import annotations
 
 import argparse
-import glob
 import json
-import re
-import struct
+import sys
 from collections import Counter
 from pathlib import Path
 
-
-def adapter_modules(adapter_dir: Path):
-    """Target module paths (lora suffix stripped) from the adapter header."""
-    mods = set()
-    for f in sorted(glob.glob(str(adapter_dir / "adapter_model*.safetensors"))):
-        with open(f, "rb") as fh:
-            n = struct.unpack("<Q", fh.read(8))[0]
-            hdr = json.loads(fh.read(n))
-        for k in hdr:
-            if k == "__metadata__" or not re.search(r"\.lora_[AB]\.weight$", k):
-                continue
-            t = k[len("base_model.model."):] if k.startswith("base_model.model.") else k
-            mods.add(re.sub(r"\.lora_[AB]\.weight$", "", t))
-    return sorted(mods)
-
-
-# Candidate re-key transforms (extend as new base layouts appear).
-REKEYS = [
-    ("identity", lambda k: k),
-    ("language_model", lambda k: k.replace("model.layers.", "model.language_model.layers.", 1)),
-    ("language_model-prefix", lambda k: k.replace("model.", "model.language_model.", 1)),
-]
-
-
-def classify(base_path: str, base_keys: set):
-    """None (unbound) or NVFP4 / FP8 / BF16 for a resolved target module."""
-    has_w = f"{base_path}.weight" in base_keys
-    has_wp = f"{base_path}.weight_packed" in base_keys
-    if not (has_w or has_wp):
-        return None
-    if (has_wp
-            or f"{base_path}.weight_global_scale" in base_keys
-            or f"{base_path}.weight_scale_2" in base_keys):
-        return "NVFP4"            # LoRA-live
-    if f"{base_path}.input_scale" in base_keys:
-        return "FP8"              # demoted to frozen on the NVFP4-LoRA path
-    return "BF16"                 # unquantized -> LoRA-live
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root for the nybbloris package
+from nybbloris.plan import REKEYS, adapter_modules, classify  # noqa: E402
 
 
 def main():
