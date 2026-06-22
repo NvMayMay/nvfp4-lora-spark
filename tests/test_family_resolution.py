@@ -35,19 +35,23 @@ def test_families_registry_contents(train_mod):
         "mistral3",
         "mistral4",
         "nemotron_h",
+        "glm4_moe",
     }
     for fam in train_mod.FAMILIES.values():
         assert fam["auto_class"] in ("causal_lm", "image_text_to_text")
-        # expert_prefix is a (mem, st) pair for fused-3D MoE families, None for
-        # per-expert-linear families (Nemotron).
+        # A family either declares a fused-3D routed-MoE (an expert_prefix pair AND a
+        # moe_experts_class) or it is per-module/dense (both None); the two fields must
+        # agree. Nemotron is per-module (both None); GLM is fused-3D with an identity
+        # model.->model. prefix.
+        has_fused_moe = fam["moe_experts_class"] is not None
+        assert (fam["expert_prefix"] is not None) == has_fused_moe
         if fam["expert_prefix"] is not None:
             assert isinstance(fam["expert_prefix"], tuple) and len(fam["expert_prefix"]) == 2
         assert isinstance(fam["freeze"], tuple)
-        # st_to_model=None declares a dynamic layout; the dynamic family stores
-        # experts as per-module linears, so no fused-MoE expectations.
-        if fam["st_to_model"] is None:
-            assert fam["expert_prefix"] is None
-            assert fam["moe_experts_class"] is None
+        # st_to_model is either a static (st_prefix, model_prefix) rewrite ruleset or
+        # None, which selects the loader's dynamic translator (Nemotron's probed
+        # backbone prefix, or GLM's identity map). Independent of the MoE structure.
+        assert fam["st_to_model"] is None or isinstance(fam["st_to_model"], tuple)
 
 
 def test_nemotron_resolves(train_mod, fixtures_dir):
