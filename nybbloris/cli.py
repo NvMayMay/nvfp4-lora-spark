@@ -233,12 +233,53 @@ def cmd_serve(args):
         return 0
 
 
+def _sniff(passthrough, name):
+    """Pull '--name VALUE' or '--name=VALUE' out of a passthrough arg list."""
+    for i, tok in enumerate(passthrough):
+        if tok == name and i + 1 < len(passthrough):
+            return passthrough[i + 1]
+        if tok.startswith(name + "="):
+            return tok.split("=", 1)[1]
+    return None
+
+
 def cmd_train(args):
     trainer = REPO_ROOT / "scripts" / "train_nvfp4_lora.py"
     if not trainer.exists():
         print(f"[train] trainer not found at {trainer}")
         return 1
-    return subprocess.call([sys.executable, str(trainer), *args.passthrough])
+    rc = subprocess.call([sys.executable, str(trainer), *args.passthrough])
+    if rc != 0:
+        return rc
+
+    # Post-train serve pre-flight: close the train -> serve loop. A freshly trained
+    # adapter has flat PEFT keys, which silently NO-OP on a multimodal-wrapped base
+    # at serve (the whole reason `inspect`/`serve --rekey` exist) -- so surface that
+    # the moment training finishes, not at deploy time. The binding/quant verdict is
+    # layout-based (target-module names + base quant), so it holds for best/ and final
+    # alike. Best-effort: never let an inspect hiccup mask a successful train.
+    try:
+        model_dir = _sniff(args.passthrough, "--model-dir")
+        out_dir = _sniff(args.passthrough, "--output-dir")
+        if not (model_dir and out_dir):
+            print("[train] (post-train inspect skipped: --model-dir/--output-dir not found in args)")
+            return 0
+        adapter = next((c for c in (Path(out_dir), Path(out_dir) / "best")
+                        if (c / "adapter_config.json").exists()), None)
+        if adapter is None:
+            print(f"[train] (post-train inspect skipped: no adapter_config.json under {out_dir})")
+            return 0
+        print("\n[train] post-train serve pre-flight (will this adapter bind + apply at serve?):")
+        plan = serve_plan(model_dir, str(adapter))
+        print(render_plan(plan))
+        v = plan["verdict"]
+        if v in ("NO-OP", "NEEDS-REKEY"):
+            print("[train] -> flat keys on a wrapped base; `nybbloris serve --rekey auto` re-keys it for you.")
+        elif v in ("FAIL", "EMPTY"):
+            print("[train] -> WARNING: does not bind to this base (see UNRESOLVED above).")
+    except Exception as e:  # noqa: BLE001
+        print(f"[train] (post-train inspect skipped: {type(e).__name__}: {e})")
+    return 0
 
 
 def build_parser():
@@ -293,9 +334,11 @@ def build_parser():
     ps.add_argument("--verify-timeout", type=int, default=600, help="seconds to wait for READY")
     ps.set_defaults(func=cmd_serve)
 
-    pt = sub.add_parser("train", help="LoRA fine-tune (pass-through to the unified trainer)")
+    pt = sub.add_parser("train",
+                        help="LoRA fine-tune (unified trainer) + a post-train serve pre-flight")
     pt.add_argument("passthrough", nargs=argparse.REMAINDER,
-                    help="arguments forwarded to scripts/train_nvfp4_lora.py")
+                    help="arguments forwarded to scripts/train_nvfp4_lora.py "
+                         "(e.g. --model-dir ... --output-dir ... --data ...)")
     pt.set_defaults(func=cmd_train)
     return p
 
