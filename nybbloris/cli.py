@@ -335,16 +335,23 @@ def build_parser():
     ps.set_defaults(func=cmd_serve)
 
     pt = sub.add_parser("train",
-                        help="LoRA fine-tune (unified trainer) + a post-train serve pre-flight")
-    pt.add_argument("passthrough", nargs=argparse.REMAINDER,
-                    help="arguments forwarded to scripts/train_nvfp4_lora.py "
-                         "(e.g. --model-dir ... --output-dir ... --data ...)")
+                        help="LoRA fine-tune (unified trainer) + a post-train serve pre-flight; "
+                             "all other args forward to scripts/train_nvfp4_lora.py "
+                             "(e.g. --model-dir ... --output-dir ... --target-modules ...)")
     pt.set_defaults(func=cmd_train)
     return p
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    # `train` forwards arbitrary args to the unified trainer; parse_known_args lets
+    # them through (argparse.REMAINDER drops a *leading* optional like --model-dir).
+    # Other subcommands stay strict.
+    parser = build_parser()
+    args, extra = parser.parse_known_args(argv)
+    if getattr(args, "cmd", None) == "train":
+        args.passthrough = extra
+    elif extra:
+        parser.error("unrecognized arguments: " + " ".join(extra))
     raise SystemExit(args.func(args))
 
 
