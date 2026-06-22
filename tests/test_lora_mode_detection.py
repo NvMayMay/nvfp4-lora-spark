@@ -92,12 +92,14 @@ def test_mistral_targets_detect_peft(train_mod, fixtures_dir):
 
 
 def test_mixed_targets_raise_systemexit(train_mod, fixtures_dir):
-    # gate_proj is quantized, o_proj is not -> native and PEFT can't be combined.
+    # gate_proj is quantized, o_proj is bf16. A native run trains the quantized targets
+    # natively and would silently DROP the bf16 ones -> blocked unless the user consents
+    # with --allow-partial-targets (the global-mode coverage check).
     with pytest.raises(SystemExit) as exc:
         train_mod.detect_lora_mode(fixtures_dir / "mixed_quant", ["gate_proj", "o_proj"])
     msg = str(exc.value)
-    assert "Mixed LoRA targets" in msg
-    assert "gate_proj" in msg
+    assert "PARTIALLY quantized" in msg
+    assert "--allow-partial-targets" in msg
     assert "o_proj" in msg
 
 
@@ -149,15 +151,16 @@ def test_fully_quantized_suffix_unaffected(fixtures_dir):
 
 
 # ---------------------------------------------------------------------------
-# FP8-demoted targets (loader freezes them; silent no-training without consent)
+# FP8 targets now train NATIVELY via FP8LoRALinear (frozen FP8 base + bf16 LoRA),
+# so a native run adapts FP8 attention instead of freezing it.
 # ---------------------------------------------------------------------------
 
-def test_fp8_target_is_hard_error(fixtures_dir):
-    with pytest.raises(SystemExit) as exc:
-        decide_lora_mode(fixtures_dir / "fp8_demoted", ["up_proj"])
-    msg = str(exc.value)
-    assert "FP8" in msg
-    assert "--allow-fp8-targets" in msg
+def test_nvfp4_fp8_suffix_trains_native(fixtures_dir):
+    # up_proj is NVFP4 + FP8 (no bf16). FP8 trains natively now, so a native run
+    # adapts both -- no error, no flag needed (formerly a hard error).
+    mode, coverage = decide_lora_mode(fixtures_dir / "fp8_demoted", ["up_proj"])
+    assert mode == "native"
+    assert coverage["inventory"]["up_proj"]["counts"] == {"nvfp4_modelopt": 1, "fp8": 1}
 
 
 def test_fp8_target_allowed_with_flag(fixtures_dir):
@@ -168,12 +171,11 @@ def test_fp8_target_allowed_with_flag(fixtures_dir):
     assert coverage["inventory"]["up_proj"]["counts"] == {"nvfp4_modelopt": 1, "fp8": 1}
 
 
-def test_fp8_only_suffix_trains_via_peft(fixtures_dir):
-    # q_proj in this fixture is FP8 everywhere. The loader dequantizes FP8 to a
-    # frozen BF16 nn.Linear, which PEFT can wrap, so an FP8-only suffix resolves
-    # to peft and trains (no nvfp4 -> no native demotion, no flag needed).
+def test_fp8_only_suffix_trains_native(fixtures_dir):
+    # q_proj is FP8 everywhere. An FP8-only suffix (no nvfp4, no bf16) trains
+    # natively via FP8LoRALinear -- no flag needed.
     mode, coverage = decide_lora_mode(fixtures_dir / "fp8_demoted", ["q_proj"])
-    assert mode == "peft"
+    assert mode == "native"
     assert coverage["inventory"]["q_proj"]["counts"] == {"fp8": 1}
 
 
@@ -186,12 +188,12 @@ def test_bf16_fp8_mix_resolves_to_peft_without_flags(fixtures_dir):
     assert coverage["inventory"]["q_proj"]["counts"] == {"bf16": 2}
 
 
-def test_native_suffix_with_fp8_still_blocks(fixtures_dir):
-    # up_proj is NVFP4 + FP8 (no bf16): a native suffix, so the FP8 stragglers
-    # would stay frozen -> still a hard error until --allow-fp8-targets.
-    with pytest.raises(SystemExit) as exc:
-        decide_lora_mode(fixtures_dir / "fp8_demoted", ["up_proj"])
-    assert "--allow-fp8-targets" in str(exc.value)
+def test_allow_fp8_flag_is_now_vestigial(fixtures_dir):
+    # The old --allow-fp8-targets gate is vestigial now that FP8 trains natively:
+    # passing it must not change the (native) decision.
+    m1, _ = decide_lora_mode(fixtures_dir / "fp8_demoted", ["up_proj"])
+    m2, _ = decide_lora_mode(fixtures_dir / "fp8_demoted", ["up_proj"], allow_fp8_targets=True)
+    assert m1 == m2 == "native"
 
 
 def test_inventory_excludes_family_skip_list(fixtures_dir):

@@ -71,7 +71,7 @@ from nvfp4_lora.experts import (  # noqa: E402
 )
 from nvfp4_lora.families import FAMILIES, resolve_family  # noqa: E402, F401
 from nvfp4_lora.gb10_prep import drop_shard_page_cache, memory_snapshot  # noqa: E402
-from nvfp4_lora.linear import NVFP4LoRALinear  # noqa: E402
+from nvfp4_lora.linear import FP8LoRALinear, NVFP4LoRALinear  # noqa: E402
 from nvfp4_lora.loader import (  # noqa: E402
     _assign_dequant_workspaces,
     assert_no_meta_tensors,
@@ -364,7 +364,7 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
         state = {}
         skipped = []
         for name, mod in model.named_modules():
-            if isinstance(mod, NVFP4LoRALinear) and mod.r > 0:
+            if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear)) and mod.r > 0:
                 a, b = mod.lora_A, mod.lora_B
                 if (hasattr(a, "is_meta") and a.is_meta) or (hasattr(b, "is_meta") and b.is_meta):
                     skipped.append(name)
@@ -412,7 +412,7 @@ def _load_adapter_weights(model, adapter_dir: Path, lora_mode: str, log_fn) -> N
     if lora_mode == "native":
         loaded = 0
         for name, mod in model.named_modules():
-            if isinstance(mod, NVFP4LoRALinear) and mod.r > 0:
+            if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear)) and mod.r > 0:
                 k_a = f"base_model.model.{name}.lora_A.weight"
                 k_b = f"base_model.model.{name}.lora_B.weight"
                 if k_a in sd and k_b in sd:

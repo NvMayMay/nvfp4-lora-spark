@@ -14,14 +14,25 @@ from .plan import lm_head_status, render_plan, serve_plan
 REPO_ROOT = Path(__file__).resolve().parent.parent  # nvfp4-lora-spark/
 
 
+# Documented `inspect` exit codes, so a CI step / serve script can branch on the verdict:
+#   0  PASS            binds + serves live as-is
+#   1  FAIL / EMPTY    does not bind to this base (or no LoRA tensors found)
+#   3  NO-OP/NEEDS-REKEY  binds only after re-keying (`serve --rekey auto`)
+#   4  BLOCKED-ROUTED  binds, but targets are routed-expert (not served at runtime)
+VERDICT_EXIT = {"PASS": 0, "FAIL": 1, "EMPTY": 1, "NO-OP": 3, "NEEDS-REKEY": 3, "BLOCKED-ROUTED": 4}
+
+
 def cmd_inspect(args):
     plan = serve_plan(args.base_model_dir, args.adapter_dir, allow_fp8_targets=args.allow_fp8_targets)
-    print(render_plan(plan))
+    if args.json:
+        print(json.dumps(plan, indent=2))
+    else:
+        print(render_plan(plan))
     if args.json_out:
         Path(args.json_out).write_text(json.dumps(plan, indent=2))
-        print(f"\n[inspect] wrote plan object -> {args.json_out}")
-    # non-zero only when the adapter would not bind, so this can gate a serve script / CI.
-    return 0 if plan["verdict"] != "FAIL" else 1
+        if not args.json:
+            print(f"\n[inspect] wrote plan object -> {args.json_out}")
+    return VERDICT_EXIT.get(plan["verdict"], 1)
 
 
 def _parse_adapter(spec):
@@ -282,6 +293,50 @@ def cmd_train(args):
     return 0
 
 
+def cmd_doctor(args):
+    """Environment pre-flight: are the train/serve deps present, and which versions?
+
+    Pure metadata + PATH probing (no torch/vllm import, no CUDA init) so it is fast
+    and safe to run while a GPU job holds the device. Exits non-zero only if a CORE
+    dep is missing; serve/train-specific gaps (vllm, fla, ninja, nvcc) are warnings.
+    """
+    import importlib.metadata as im
+    import shutil
+
+    def ver(pkg):
+        try:
+            return im.version(pkg)
+        except Exception:  # noqa: BLE001
+            return None
+
+    rows = [("python", "OK", sys.version.split()[0])]
+    for pkg, critical, note in [
+        ("torch", True, "core"),
+        ("transformers", True, "core"),
+        ("safetensors", True, "core"),
+        ("peft", False, "bf16 LoRA path"),
+        ("vllm", False, "runtime-LoRA serve"),
+        ("flash-linear-attention", False, "GDN training (Qwen3.x)"),
+    ]:
+        v = ver(pkg)
+        rows.append((pkg, "OK", v) if v else (pkg, "FAIL" if critical else "WARN", f"missing ({note})"))
+    for tool, note in [("ninja", "flashinfer JIT at serve"), ("nvcc", "CUDA toolchain")]:
+        path = shutil.which(tool)
+        rows.append((tool, "OK" if path else "WARN", path or f"not on PATH ({note})"))
+    if args.base_model_dir:
+        st = lm_head_status(args.base_model_dir)
+        rows.append(("lm_head", "OK" if not st["quantized"] else "WARN", st["note"]))
+
+    print("=== nybbloris doctor ===")
+    for label, status, detail in rows:
+        print(f"  [{status:<4}] {label:<24} {detail}")
+    n_ok = sum(1 for r in rows if r[1] == "OK")
+    n_warn = sum(1 for r in rows if r[1] == "WARN")
+    n_fail = sum(1 for r in rows if r[1] == "FAIL")
+    print(f"doctor: {'FAIL' if n_fail else 'OK'} ({n_ok} ok, {n_warn} warn, {n_fail} fail)")
+    return 1 if n_fail else 0
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="nybbloris",
                                 description="NVFP4 LoRA fit / serve on consumer Blackwell (GB10)")
@@ -293,7 +348,9 @@ def build_parser():
     pi.add_argument("--adapter-dir", required=True)
     pi.add_argument("--allow-fp8-targets", action="store_true",
                     help="count FP8 targets as live (only if the serve loader enables FP8 LoRA)")
-    pi.add_argument("--json-out", default=None)
+    pi.add_argument("--json-out", default=None, help="also write the plan object to this file")
+    pi.add_argument("--json", action="store_true",
+                    help="emit the plan as JSON on stdout (machine-readable; suppresses the human report)")
     pi.set_defaults(func=cmd_inspect)
 
     ps = sub.add_parser("serve",
@@ -339,6 +396,10 @@ def build_parser():
                              "all other args forward to scripts/train_nvfp4_lora.py "
                              "(e.g. --model-dir ... --output-dir ... --target-modules ...)")
     pt.set_defaults(func=cmd_train)
+
+    pd = sub.add_parser("doctor", help="environment pre-flight: train/serve deps + versions")
+    pd.add_argument("--base-model-dir", default=None, help="also check this base's lm_head serve-compat")
+    pd.set_defaults(func=cmd_doctor)
     return p
 
 

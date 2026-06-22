@@ -28,7 +28,7 @@ import torch
 import torch.nn as nn
 import safetensors
 
-from .linear import NVFP4LoRALinear
+from .linear import FP8LoRALinear, NVFP4LoRALinear
 from .dequant import format_for_record
 from . import families
 
@@ -172,20 +172,17 @@ def decide_lora_mode(
 ) -> tuple[str, dict]:
     """Decide native-NVFP4 vs PEFT LoRA from a full module inventory, fail-fast.
 
-    A module's runtime form decides which mechanism can train it: NVFP4 ->
-    native (baked into NVFP4LoRALinear); BF16 -> PEFT-wrappable nn.Linear; FP8
-    per-tensor -> the loader dequantizes it to a frozen BF16 nn.Linear, which
-    PEFT can also wrap. So a suffix with NVFP4 modules is "native", and one
-    with no NVFP4 (only BF16 and/or FP8) is "peft" and trains ALL of them.
+    A module's runtime form decides which mechanism trains it: NVFP4 -> native
+    (NVFP4LoRALinear); FP8 per-tensor -> native (FP8LoRALinear: frozen FP8 base +
+    bf16 LoRA) when in a native run, or PEFT (dequant->BF16->wrap) when unified
+    with BF16; plain BF16 -> PEFT. So a suffix with NVFP4 is "native" (FP8 joins
+    it natively); a suffix with no NVFP4 is "peft" if it also has BF16, else
+    native (FP8-only).
 
     Hard errors (SystemExit) unless explicitly allowed:
       * a suffix matches no module at all (typo / wrong family)
-      * a NATIVE suffix (has NVFP4 modules) also matches BF16 modules across
-        layers -> a native run trains only the NVFP4 ones
-        (--allow-partial-targets to proceed)
-      * a NATIVE suffix also matches FP8 modules -> those stay frozen with no
-        LoRA in a native run (--allow-fp8-targets to proceed). FP8 under a
-        PEFT suffix is NOT blocked: PEFT wraps the dequantized BF16 Linear.
+      * a NATIVE suffix (has NVFP4) also matches BF16 modules -> a native run
+        trains only the quantized ones (--allow-partial-targets to proceed)
       * suffixes split across native and PEFT mechanisms
 
     Returns (mode, coverage) where mode is "native" or "peft" and coverage is
@@ -193,78 +190,56 @@ def decide_lora_mode(
     """
     inventory = build_target_inventory(model_dir, target_suffixes)
     problems: list[str] = []
-    suffix_modes: dict[str, str] = {}
-
+    tot_nvfp4 = tot_fp8 = tot_bf16 = 0
+    bf16_suffixes: list[str] = []
     for suffix in target_suffixes:
-        info = inventory[suffix]
-        counts = info["counts"]
+        counts = inventory[suffix]["counts"]
         n_nvfp4 = counts.get("nvfp4_ct", 0) + counts.get("nvfp4_modelopt", 0)
-        n_bf16 = counts.get("bf16", 0)
         n_fp8 = counts.get("fp8", 0)
-        total = n_nvfp4 + n_bf16 + n_fp8
-
-        if total == 0:
+        n_bf16 = counts.get("bf16", 0)
+        if n_nvfp4 + n_fp8 + n_bf16 == 0:
             problems.append(
                 f"target suffix '{suffix}' matches no module in the checkpoint "
                 f"index (typo, or this family names its projections differently; "
                 f"run scripts/inspect_nvfp4_checkpoint.py to list suffixes)"
             )
             continue
-        # FP8 modules stay frozen only under a NATIVE suffix (no native adapter
-        # is installed on them and PEFT is not active). Under a PEFT suffix the
-        # loader's FP8 -> frozen-BF16-Linear conversion is wrappable, so FP8 is
-        # not a problem there.
-        if n_fp8 and n_nvfp4 and not allow_fp8_targets:
-            ex = info["examples"].get("fp8", ["?"])[0]
-            problems.append(
-                f"target suffix '{suffix}' mixes {n_nvfp4} NVFP4 module(s) with "
-                f"{n_fp8} FP8-per-tensor module(s) (e.g. {ex}). In a native-NVFP4 "
-                f"run the FP8 modules stay frozen and receive NO LoRA training. "
-                f"Pass --allow-fp8-targets to train only the NVFP4 instances, or "
-                f"drop the suffix."
-            )
-        if n_nvfp4 and n_bf16:
-            ex_q = info["examples"].get("nvfp4_ct", info["examples"].get("nvfp4_modelopt", ["?"]))[0]
-            ex_b = info["examples"].get("bf16", ["?"])[0]
-            if not allow_partial_targets:
-                problems.append(
-                    f"target suffix '{suffix}' is PARTIALLY quantized: "
-                    f"{n_nvfp4} NVFP4 module(s) (e.g. {ex_q}) but {n_bf16} "
-                    f"BF16 module(s) (e.g. {ex_b}). A native-NVFP4 run would "
-                    f"silently train only the quantized instances. Pass "
-                    f"--allow-partial-targets to accept that, or split the "
-                    f"target list."
-                )
-            suffix_modes[suffix] = "native"
-        elif n_nvfp4:
-            suffix_modes[suffix] = "native"
-        else:
-            # No NVFP4: BF16 and/or FP8, all wrappable as frozen BF16 Linears.
-            suffix_modes[suffix] = "peft"
+        tot_nvfp4 += n_nvfp4
+        tot_fp8 += n_fp8
+        tot_bf16 += n_bf16
+        if n_bf16:
+            bf16_suffixes.append(suffix)
 
-    distinct = sorted(set(suffix_modes.values()))
-    if len(distinct) > 1:
-        native = sorted(s for s, m in suffix_modes.items() if m == "native")
-        peft = sorted(s for s, m in suffix_modes.items() if m == "peft")
+    # Mode is decided across ALL suffixes (not per-suffix): NVFP4 and FP8 train NATIVELY
+    # (NVFP4LoRALinear / FP8LoRALinear); plain BF16 needs PEFT. So the run is native if
+    # there is ANY NVFP4 or FP8 target -- BF16 stragglers (e.g. a single MTP/speculation
+    # head module per suffix on the 3.6) are then a partial-coverage drop, not a mode
+    # conflict. The only PEFT run is no-NVFP4 with BF16 present (pure BF16, or FP8+BF16
+    # with no NVFP4, unified via PEFT's dequant->wrap).
+    mode = "native" if (tot_nvfp4 > 0 or (tot_fp8 > 0 and tot_bf16 == 0)) else "peft"
+
+    # In a native run, BF16 modules under a target suffix cannot train (no native
+    # BF16-LoRA); they are dropped. Require consent unless the user accepts it.
+    if mode == "native" and tot_bf16 > 0 and not allow_partial_targets:
         problems.append(
-            f"Mixed LoRA targets: {native} are NVFP4-quantized but {peft} are "
-            f"not. Native NVFP4-LoRA and PEFT cannot be combined in one run; "
-            f"split the target list."
+            f"target suffix(es) {sorted(bf16_suffixes)} are PARTIALLY quantized: "
+            f"{tot_bf16} BF16 module(s) (e.g. an MTP/speculation head) cannot train in a "
+            f"native NVFP4/FP8 run and will be dropped. Pass --allow-partial-targets to "
+            f"accept that, or split the target list."
         )
 
     coverage = {
         "targets": list(target_suffixes),
         "inventory": inventory,
-        "suffix_modes": suffix_modes,
+        "suffix_modes": {s: mode for s in target_suffixes if inventory[s]["counts"]},
         "allow_partial_targets": allow_partial_targets,
         "allow_fp8_targets": allow_fp8_targets,
+        "totals": {"nvfp4": tot_nvfp4, "fp8": tot_fp8, "bf16": tot_bf16},
     }
     if problems:
         raise SystemExit(
             "Target coverage check failed:\n  - " + "\n  - ".join(problems)
         )
-
-    mode = distinct[0]
     coverage["mode"] = mode
     return mode, coverage
 
@@ -680,25 +655,40 @@ def replace_nvfp4_modules(
             counts["lora" if is_lora_target else "frozen_nvfp4"] += 1
         elif w_tensor.dtype == torch.float8_e4m3fn:
             # ---- FP8 per-tensor path ----
-            # weight is fp8_e4m3fn (out, in); weight_scale is a fp32 scalar.
-            # No LoRA support for these in this loader (FP8 LoRA needs a different autograd path).
-            # If suffix matched a LoRA target (e.g. shared_experts.up_proj in Super), demote to
-            # frozen. Counted separately so the caller can see what was demoted.
-            if is_lora_target:
-                counts.setdefault("lora_demoted_fp8", 0)
-                counts["lora_demoted_fp8"] += 1
-            scale = float(w_scale.to(torch.float32).item())
-            W = w_tensor.to(torch.float32).mul_(scale).to(dtype=dtype, device=device).contiguous()
-            new_mod = nn.Linear(in_features, out_features, bias=(bias is not None), device=device, dtype=dtype)
-            with torch.no_grad():
-                new_mod.weight.copy_(W)
+            # weight is fp8_e4m3fn (out, in); weight_scale is fp32 (scalar or per-channel).
+            if is_lora_target and r > 0:
+                # Trainable: frozen FP8 base + bf16 LoRA. This is what lets a native run
+                # adapt FP8 targets (the 3.6's attention) instead of freezing them.
+                new_mod = FP8LoRALinear(
+                    in_features=in_features,
+                    out_features=out_features,
+                    weight_fp8=w_tensor,
+                    weight_scale=w_scale,
+                    bias=bias,
+                    r=r,
+                    lora_alpha=lora_alpha,
+                    lora_dropout=lora_dropout,
+                    device=device,
+                    dtype=dtype,
+                )
+                setattr(parent, attr, new_mod)
+                counts.setdefault("lora_fp8", 0)
+                counts["lora_fp8"] += 1
+                counts["lora"] += 1
+            else:
+                # Frozen: dequant to a plain bf16 Linear (no LoRA).
+                scale = float(w_scale.to(torch.float32).item())
+                W = w_tensor.to(torch.float32).mul_(scale).to(dtype=dtype, device=device).contiguous()
+                new_mod = nn.Linear(in_features, out_features, bias=(bias is not None), device=device, dtype=dtype)
+                with torch.no_grad():
+                    new_mod.weight.copy_(W)
+                    if bias is not None:
+                        new_mod.bias.copy_(bias.to(device=device, dtype=dtype))
+                new_mod.weight.requires_grad_(False)
                 if bias is not None:
-                    new_mod.bias.copy_(bias.to(device=device, dtype=dtype))
-            new_mod.weight.requires_grad_(False)
-            if bias is not None:
-                new_mod.bias.requires_grad_(False)
-            setattr(parent, attr, new_mod)
-            counts["frozen_fp8"] += 1
+                    new_mod.bias.requires_grad_(False)
+                setattr(parent, attr, new_mod)
+                counts["frozen_fp8"] += 1
         else:
             raise RuntimeError(
                 f"Unknown quantization format for {name}: weight dtype is {w_tensor.dtype}"

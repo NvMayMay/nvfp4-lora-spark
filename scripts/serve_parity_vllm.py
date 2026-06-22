@@ -71,6 +71,24 @@ def char_lcp(a, b):
     return n
 
 
+def token_f1(pred, ref):
+    """Whitespace-token F1 of a generation against the reference answer.
+
+    A coarse but repeatable lexical-overlap proxy for "did this arm move toward the
+    fine-tune target". Used for the base/full/shared-only retention comparison; the
+    absolute value is crude, the RELATIVE ordering across arms is the signal.
+    """
+    from collections import Counter
+    p, r = pred.split(), ref.split()
+    if not p or not r:
+        return 0.0
+    overlap = sum((Counter(p) & Counter(r)).values())
+    if overlap == 0:
+        return 0.0
+    prec, rec = overlap / len(p), overlap / len(r)
+    return 2 * prec * rec / (prec + rec)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default="http://localhost:8000")
@@ -122,6 +140,7 @@ def main():
             "item_id": row.get("item_id", str(len(per_example))),
             "prompt_chars": nchars,
             "generations": gens,
+            "reference": reference,
             "reference_head": reference[:160],
         })
         print(f"[{len(per_example)}/{args.n}] {row.get('item_id','')} ({nchars} chars)")
@@ -148,12 +167,29 @@ def main():
         for j in range(i + 1, len(ms)):
             pairs[f"{ms[i]}__vs__{ms[j]}"] = pair_stats(ms[i], ms[j])
 
+    # Per-model quality vs the ground-truth reference: does this arm's generation move
+    # toward the fine-tune target? base < shared-only < full would mean attention LoRA
+    # adds retention on top of shared-expert (the FP8-train decision input).
+    def ref_stats(model):
+        f1s, prefs = [], []
+        for ex in per_example:
+            g, ref = ex["generations"][model], ex["reference"]
+            f1s.append(token_f1(g, ref))
+            m = max(len(g), len(ref))
+            prefs.append(char_lcp(g, ref) / m if m else 1.0)
+        k = len(per_example) or 1
+        return {"mean_token_f1_vs_ref": sum(f1s) / k,
+                "mean_char_prefix_vs_ref": sum(prefs) / k}
+
+    per_model_vs_reference = {m: ref_stats(m) for m in ms}
+
     summary = {
         "n": len(per_example),
         "skipped": skipped,
         "max_new_tokens": args.max_new_tokens,
         "models": ms,
         "pairs": pairs,
+        "per_model_vs_reference": per_model_vs_reference,
     }
     Path(args.out).write_text(
         json.dumps({"summary": summary, "examples": per_example}, indent=2)

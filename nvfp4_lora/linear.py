@@ -297,3 +297,157 @@ class NVFP4LoRALinear(nn.Module):
             device=device,
             dtype=dtype,
         )
+
+
+class _FP8DequantLinear(torch.autograd.Function):
+    """Frozen FP8 (e4m3) base: dequant on forward, recompute on backward (no bf16 shadow).
+
+    FP8 dequant is a cheap cast+scale (no nibble unpack / group scales), so unlike the
+    NVFP4 path there is no eval-mode bf16 cache -- the weight is recomputed each forward.
+    The frozen base produces no gradient; only `x` gets dx = dy @ W.
+    """
+
+    @staticmethod
+    def forward(ctx, x, weight_fp8, weight_scale):
+        ctx.save_for_backward(weight_fp8, weight_scale)
+        W = weight_fp8.to(x.dtype) * weight_scale.to(x.dtype)
+        return F.linear(x, W, bias=None)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        weight_fp8, weight_scale = ctx.saved_tensors
+        grad_x = None
+        if ctx.needs_input_grad[0]:
+            W = weight_fp8.to(grad_output.dtype) * weight_scale.to(grad_output.dtype)
+            grad_x = grad_output @ W
+        return grad_x, None, None
+
+
+class FP8LoRALinear(nn.Module):
+    """Frozen FP8-per-tensor base weight + trainable bf16 LoRA delta.
+
+    The FP8 sibling of NVFP4LoRALinear, for FP8-quantized targets such as the canonical
+    3.6's attention (q/k/v/o, GDN in/out proj: `.weight` fp8_e4m3 + `.weight_scale`). The
+    base stays frozen and is dequantized `W = weight.to(bf16) * weight_scale` on each
+    forward (recomputed in backward, no bf16 shadow); the only trainable params are the
+    bf16 LoRA A/B. This is what lets a NATIVE run adapt FP8 attention instead of freezing
+    it (MEASURED 2026-06-22: attention LoRA is ~61% of the ICH quality gain), without ever
+    re-quantizing the base.
+
+    `weight_scale` may be a per-tensor scalar or a per-output-channel vector; it is
+    normalized to broadcast over the input dim. nn.Linear-compatible interface, NOT a
+    subclass (`.weight` is not a trainable Parameter here) -- same rationale as
+    NVFP4LoRALinear.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        weight_fp8: torch.Tensor,
+        weight_scale: torch.Tensor,
+        bias: Optional[torch.Tensor] = None,
+        r: int = 0,
+        lora_alpha: int = 0,
+        lora_dropout: float = 0.0,
+        device: Optional[torch.device] = None,
+        dtype: torch.dtype = torch.bfloat16,
+        copy_base_tensors: bool = True,
+        lora_A_tensor: Optional[torch.Tensor] = None,
+        lora_B_tensor: Optional[torch.Tensor] = None,
+    ):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.r = r
+        self.lora_alpha = lora_alpha
+        self.lora_scale = (lora_alpha / r) if r > 0 else 0.0
+        self.dtype = dtype
+
+        device = device or weight_fp8.device
+        if copy_base_tensors:
+            weight_fp8 = weight_fp8.to(device=device).contiguous()
+            weight_scale = weight_scale.to(device=device)
+        # Normalize the scale to broadcast over the input dim: a per-output-channel
+        # (out,) vector becomes (out, 1); a scalar / (1,) broadcasts as-is.
+        weight_scale = weight_scale.to(torch.float32)
+        if weight_scale.ndim == 1 and weight_scale.shape[0] == out_features:
+            weight_scale = weight_scale.reshape(out_features, 1)
+        self.register_buffer("weight_fp8", weight_fp8)
+        self.register_buffer("weight_scale", weight_scale)
+
+        if bias is not None:
+            self.bias = nn.Parameter(bias.to(device=device, dtype=dtype), requires_grad=False)
+        else:
+            self.bias = None
+
+        if r > 0:
+            _A_supplied = lora_A_tensor is not None
+            _B_supplied = lora_B_tensor is not None
+            if lora_A_tensor is None:
+                lora_A_tensor = torch.empty(r, in_features, device=device, dtype=dtype)
+            if lora_B_tensor is None:
+                lora_B_tensor = torch.zeros(out_features, r, device=device, dtype=dtype)
+            self.lora_A = nn.Parameter(lora_A_tensor)
+            self.lora_B = nn.Parameter(lora_B_tensor)
+            if not _A_supplied:
+                nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            if not _B_supplied:
+                with torch.no_grad():
+                    self.lora_B.zero_()
+            self.lora_dropout = nn.Dropout(p=lora_dropout) if lora_dropout > 0 else nn.Identity()
+        else:
+            self.lora_A = None
+            self.lora_B = None
+            self.lora_dropout = nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = _FP8DequantLinear.apply(x, self.weight_fp8, self.weight_scale)
+        if self.r > 0:
+            lora_out = F.linear(self.lora_dropout(x), self.lora_A)
+            lora_out = F.linear(lora_out, self.lora_B)
+            y = y + self.lora_scale * lora_out
+        if self.bias is not None:
+            y = y + self.bias
+        return y
+
+    @property
+    def weight(self) -> torch.Tensor:
+        """Meta tensor (zero memory), correct shape/dtype; see NVFP4LoRALinear.weight."""
+        return torch.empty(self.out_features, self.in_features, dtype=self.dtype, device="meta")
+
+    def extra_repr(self) -> str:
+        return (
+            f"in_features={self.in_features}, out_features={self.out_features}, "
+            f"r={self.r}, lora_alpha={self.lora_alpha}, fp8_base=True, "
+            f"bias={self.bias is not None}"
+        )
+
+    @classmethod
+    def from_safetensors_record(
+        cls,
+        record: dict,
+        prefix: str,
+        in_features: int,
+        out_features: int,
+        r: int = 0,
+        lora_alpha: int = 0,
+        lora_dropout: float = 0.0,
+        device: Optional[torch.device] = None,
+        dtype: torch.dtype = torch.bfloat16,
+    ) -> "FP8LoRALinear":
+        """Build from safetensors tensors: {prefix}.weight (fp8_e4m3) + {prefix}.weight_scale
+        (+ optional {prefix}.bias). `.input_scale` is an inference activation scale, unused
+        for weight dequant."""
+        return cls(
+            in_features=in_features,
+            out_features=out_features,
+            weight_fp8=record[f"{prefix}.weight"],
+            weight_scale=record[f"{prefix}.weight_scale"],
+            bias=record.get(f"{prefix}.bias"),
+            r=r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            device=device,
+            dtype=dtype,
+        )
