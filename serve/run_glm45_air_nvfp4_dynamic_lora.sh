@@ -38,7 +38,12 @@ ADAPTER_NAME="${ADAPTER_NAME:-ich_v4_1}"
 SERVED_NAME="${SERVED_NAME:-glm-4.5-air-nvfp4}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
+# Serve context is independent of the 8192 training seq_len; GLM-4.5-Air's native
+# context is far larger. 32768 because REH-2 needs_input prompts reach ~9.4k tokens
+# and with the <think> block + up to ~7k output a request can exceed 16384 (the base
+# was evaluated at 16384 but tripped a 1-row edge case at 16385). 32768 is safe and
+# well within native range. Lower it only if KV-cache memory is tight.
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
 MAX_BATCHED_TOKENS="${MAX_BATCHED_TOKENS:-16384}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-4}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.80}"

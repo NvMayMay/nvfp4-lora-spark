@@ -93,3 +93,10 @@ The adapter targets only dense attention (q/k/v/o), so it serves via the same
 CUTLASS NVFP4 kernel with LoRA disabled, and dense-attention LoRA is applied via punica. GLM is a
 text-only causal LM with `model.layers.*` keys, so the Qwen multimodal key rewrite is a no-op here.
 See `serve/run_glm45_air_nvfp4_dynamic_lora.sh`.
+
+**Serve context length != training seq_len.** The adapter trained at 8192, but that does not cap
+inference; GLM-4.5-Air's native context is far larger. Set `--max-model-len` to fit your real
+prompt + output budget, not the training length. For REH-2, needs_input prompts reach ~9.4k tokens
+and with the `<think>` block + ~7k output a single request can exceed 16384, so the launcher
+defaults to `MAX_MODEL_LEN=32768`. Serving at 8192 will 400 every REH-2 request. KV cache at 32768
+fits comfortably (base ~58 GB + KV under gpu-mem-util 0.80).
