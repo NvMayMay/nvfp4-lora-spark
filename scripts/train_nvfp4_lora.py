@@ -525,6 +525,13 @@ def main():
                          "log a memory reading, and exit WITHOUT saving any adapter. Catches "
                          "out-of-memory in ~12 minutes instead of mid-run. --train-file is "
                          "not required in this mode.")
+    ap.add_argument("--fused-linear-ce", action="store_true",
+                    help="Bind Liger fused linear cross-entropy (lce_forward) onto the "
+                         "causal-LM head: computes the loss without ever materializing the "
+                         "full (seq x vocab) logits tensor or its fp32 upcast, cutting ~10 GB "
+                         "of peak activation. Required for seq>=8192 on 121 GB UMA. Binds ONLY "
+                         "lce_forward (NOT apply_liger_kernel_*, which would rewrite MoE MLPs "
+                         "into dense SwiGLU and corrupt NVFP4 experts). GLM-family validated.")
     args = ap.parse_args()
 
     if not args.dry_run and not args.train_file:
@@ -611,6 +618,26 @@ def main():
                          if isinstance(m, NVFP4LoRALinear) and m.r > 0)
     log("lora_attached", mode=lora_mode, targets=target_suffixes,
         native_modules=n_lora_modules, trainable=n_train)
+
+    if args.fused_linear_ce:
+        # Replace lm_head+CE with Liger's chunked fused linear cross-entropy. The
+        # full (seq x vocab) logits + its fp32 upcast is the single largest train-time
+        # activation spike at long seq (~10 GB at seq 8192, vocab 151552); FLCE never
+        # materializes it. Bind ONLY lce_forward onto the causal-LM module: it calls
+        # self.model(...) (the backbone, incl. MoE routing and the NVFP4 custom autograd)
+        # unchanged and only chunks the head. Do NOT use apply_liger_kernel_to_glm4 — on
+        # an instance it rewrites every decoder_layer.mlp into a dense SwiGLU MLP, which
+        # corrupts the Glm4MoeNaiveMoe / NVFP4Experts3D blocks.
+        from types import MethodType
+        from liger_kernel.transformers.model.glm4 import lce_forward as _lce_forward
+        ce_target = model.base_model.model if lora_mode == "peft" else model
+        if not (hasattr(ce_target, "model") and hasattr(ce_target, "lm_head")):
+            raise RuntimeError(
+                f"--fused-linear-ce target {type(ce_target).__name__} lacks .model/.lm_head; "
+                f"lce_forward binding only supports a causal-LM head."
+            )
+        ce_target.forward = MethodType(_lce_forward, ce_target)
+        log("fused_linear_ce_enabled", target=type(ce_target).__name__)
 
     if hasattr(model, "config"):
         try:

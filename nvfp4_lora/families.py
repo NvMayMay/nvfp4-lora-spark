@@ -111,6 +111,30 @@ FAMILIES: dict[str, dict] = {
         "meta_allowed_prefixes": (),
         "moe_experts_class": None,
     },
+    # GLM-4.5-Air (106B-A12B). The checkpoint stores routed experts per-expert
+    # (model.layers.N.mlp.experts.E.{gate,up,down}_proj), but transformers
+    # materializes them as a FUSED-3D block (Glm4MoeNaiveMoe: gate_up_proj +
+    # down_proj batched over experts) — structurally identical to
+    # Mistral4NaiveMoe. So this is the fused-3D path: replace_moe_experts_with_
+    # nvfp4_3d swaps Glm4MoeNaiveMoe -> NVFP4Experts3D and assemble_nvfp4_
+    # experts3d_batched gathers the per-expert NVFP4 tensors into the fused
+    # buffers (split_gate_up_scales is auto-probed from the shards). Text-only
+    # causal LM, so in-memory and on-disk share the `model.` backbone prefix:
+    # expert_prefix=("model.","model.") and st_to_model=None routes non-expert
+    # weights through the loader's dynamic heuristic (identity translation,
+    # safetensors_prefix==model_prefix=="model"). The router gate
+    # (mlp.gate.weight, BF16), shared expert and q/k/v attention biases load as
+    # frozen non-NVFP4 weights. No MTP/visual tensors to skip.
+    "glm4_moe": {
+        "auto_class": "causal_lm",
+        "expert_prefix": ("model.", "model."),
+        "peft_scope": r"^model\.layers\.",
+        "freeze": (),
+        "skip_st_prefixes": (),
+        "st_to_model": None,
+        "meta_allowed_prefixes": (),
+        "moe_experts_class": "Glm4MoeNaiveMoe",
+    },
 }
 
 

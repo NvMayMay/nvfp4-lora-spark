@@ -1,5 +1,9 @@
 # Long-context Super training experiments
 
+> Cross-model context-fit tracking (all families under the unified trainer, incl. FLCE
+> conditions) lives in [CONTEXT_FIT_MATRIX.md](CONTEXT_FIT_MATRIX.md). This doc is the
+> Super-120B (legacy `train/train_super_nvfp4.py`) deep dive.
+
 This log tracks bounded experiments to increase the Super-120B NVFP4 LoRA training context window. The standing rule is to use small smoke runs first, normally `--limit-examples 50`, and avoid full-dataset training unless explicitly promoted later.
 
 ## Operating rules
