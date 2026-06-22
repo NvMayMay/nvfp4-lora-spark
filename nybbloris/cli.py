@@ -33,6 +33,87 @@ def _parse_adapter(spec):
     return name, path
 
 
+def _wait_ready(base_url, timeout):
+    """Poll /v1/models until the server answers, or timeout (seconds)."""
+    import time
+    import urllib.request
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(base_url.rstrip("/") + "/v1/models", timeout=5) as r:
+                if r.status == 200:
+                    return True
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(5)
+    return False
+
+
+def _terminate(proc):
+    """Stop the vLLM process group: SIGINT (so vLLM shuts its EngineCore child down
+    gracefully, avoiding the orphan that holds GPU memory), then SIGKILL as a fallback."""
+    import signal
+    import time
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+    except Exception:  # noqa: BLE001
+        proc.terminate()
+    for _ in range(30):
+        if proc.poll() is not None:
+            return
+        time.sleep(0.5)
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:  # noqa: BLE001
+        proc.kill()
+
+
+def _verify(base_url, base_name, adapter_names, val_file, n, max_new, threshold, env,
+            max_prompt_chars=24000):
+    """Runtime behavioral check: base vs each adapter, via the serve-parity probe.
+
+    The static contract (`inspect`) proves an adapter BINDS; this proves it actually
+    CHANGED behavior at runtime, catching anything that binds-but-no-ops. Uses
+    char-prefix agreement vs base as a divergence proxy: low = the adapter diverged
+    (applied), ~base = a possible silent no-op. Advisory, not a correctness proof --
+    vLLM greedy is non-deterministic here, so it also prints a sample opening pair so
+    the divergence is visible. Returns True iff every adapter diverged.
+    """
+    import tempfile
+    probe = REPO_ROOT / "scripts" / "serve_parity_vllm.py"
+    out = str(Path(tempfile.gettempdir()) / "nybbloris_verify.json")
+    cmd = [sys.executable, str(probe), "--base-url", base_url, "--val-file", val_file,
+           "--models", base_name, *adapter_names,
+           "--n", str(n), "--max-new-tokens", str(max_new),
+           "--max-prompt-chars", str(max_prompt_chars), "--out", out]
+    if subprocess.call(cmd, env=env) != 0:
+        print("[verify] probe failed.")
+        return False
+    data = json.load(open(out))
+    pairs = data["summary"]["pairs"]
+    examples = data.get("examples", [])
+    ok = True
+    print("\n[verify] runtime behavioral check (base vs adapter):")
+    for a in adapter_names:
+        agree = pairs.get(f"{base_name}__vs__{a}", {}).get("mean_char_prefix_agreement", 1.0)
+        diverged = agree < threshold
+        verdict = "DIVERGED (adapter applied)" if diverged else "~BASE (possible SILENT NO-OP)"
+        print(f"  {a}: char-prefix agreement vs base = {agree:.2f} (< {threshold} => diverged) -> {verdict}")
+        if examples:
+            ex = examples[0]
+            gb = ex["generations"].get(base_name, "")[:90].replace("\n", " ")
+            ga = ex["generations"].get(a, "")[:90].replace("\n", " ")
+            print(f"      base : {gb!r}")
+            print(f"      {a:<8}: {ga!r}")
+        ok = ok and diverged
+    print(f"[verify] VERDICT: {'PASS' if ok else 'WARN'} -- "
+          + ("all adapters changed behavior vs base." if ok
+             else "an adapter looks behaviorally identical to base (investigate)."))
+    return ok
+
+
 def cmd_serve(args):
     base = args.base_model_dir
 
@@ -116,7 +197,40 @@ def cmd_serve(args):
     if args.dry_run:
         print("[serve] --dry-run: not launching.")
         return 0
-    return subprocess.call(cmd, env=env)
+
+    if not args.verify:
+        return subprocess.call(cmd, env=env)
+
+    # --verify: launch in the background, wait for READY, run the runtime parity,
+    # then keep serving (or tear down + exit on the verdict if --verify-only).
+    if not args.val_file:
+        print("[serve] --verify requires --val-file (prompts to diff base vs adapter).")
+        return 2
+    if not lora_modules:
+        print("[serve] --verify needs at least one --adapter.")
+        return 2
+    base_url = f"http://localhost:{args.port}"
+    proc = subprocess.Popen(cmd, env=env, start_new_session=True)
+    try:
+        print(f"[serve] launched (pid {proc.pid}); waiting for READY (<= {args.verify_timeout}s) ...")
+        if not _wait_ready(base_url, args.verify_timeout):
+            print("[serve] server did not become READY in time; aborting.")
+            _terminate(proc)
+            return 1
+        ok = _verify(base_url, served, [n for n, _ in lora_modules],
+                     args.val_file, args.verify_n, args.verify_max_new_tokens,
+                     args.verify_threshold, env, args.verify_max_prompt_chars)
+        if args.verify_only:
+            print("[serve] --verify-only: stopping the server.")
+            _terminate(proc)
+            return 0 if ok else 1
+        print("[serve] verify complete; serving continues. Ctrl-C to stop.")
+        proc.wait()
+        return proc.returncode
+    except KeyboardInterrupt:
+        print("\n[serve] interrupted; stopping the server.")
+        _terminate(proc)
+        return 0
 
 
 def cmd_train(args):
@@ -165,6 +279,18 @@ def build_parser():
     ps.add_argument("--launcher", default=None,
                     help="escape hatch: hand off to a serve/run_*.sh launcher after the pre-flight")
     ps.add_argument("--dry-run", action="store_true", help="print the vLLM command, do not launch")
+    ps.add_argument("--verify", action="store_true",
+                    help="after READY, run a runtime base-vs-adapter behavioral check (needs --val-file)")
+    ps.add_argument("--verify-only", action="store_true",
+                    help="with --verify: stop the server after the check (CI gate; non-zero exit on WARN)")
+    ps.add_argument("--val-file", default=None, help="jsonl of chat rows ({messages:[...]}) for --verify")
+    ps.add_argument("--verify-n", type=int, default=6, help="prompts to diff for --verify")
+    ps.add_argument("--verify-max-new-tokens", type=int, default=200)
+    ps.add_argument("--verify-threshold", type=float, default=0.3,
+                    help="char-prefix agreement vs base below which an adapter counts as DIVERGED (applied)")
+    ps.add_argument("--verify-max-prompt-chars", type=int, default=24000,
+                    help="skip --verify prompts longer than this (keep base+adapter+output within context)")
+    ps.add_argument("--verify-timeout", type=int, default=600, help="seconds to wait for READY")
     ps.set_defaults(func=cmd_serve)
 
     pt = sub.add_parser("train", help="LoRA fine-tune (pass-through to the unified trainer)")
