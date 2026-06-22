@@ -36,6 +36,7 @@ def test_families_registry_contents(train_mod):
         "mistral4",
         "nemotron_h",
         "glm4_moe",
+        "qwen3",
     }
     for fam in train_mod.FAMILIES.values():
         assert fam["auto_class"] in ("causal_lm", "image_text_to_text")
