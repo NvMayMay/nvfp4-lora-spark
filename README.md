@@ -10,6 +10,12 @@ The core dequant kernel (a fused Triton implementation as of v1.2, see [Training
 
 ## Quickstart
 
+> **The `nybbloris` CLI (runtime-LoRA).** For the productized end-to-end flow —
+> `train` → `inspect` (the binding contract) → `serve --rekey auto --verify` —
+> which serves the adapter **without re-quantizing the base** (so the fine-tune is
+> preserved), see the **[worked example](docs/WORKED_EXAMPLE.md)**. The
+> script-level walkthrough below stays valid and covers the merge-for-serve path.
+
 Training environment:
 
 ```bash

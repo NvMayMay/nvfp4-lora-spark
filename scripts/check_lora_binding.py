@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
-"""Binding contract: does every LoRA target resolve to a base module, AND is its
-weight a quant type that can take LoRA at serve time?
+"""Binding contract: will every LoRA target actually bind and apply when the
+adapter is served in vLLM?
 
-Two silent-no-op classes, caught from key names + the base index alone (no weights,
-no GPU): KEY mismatch (a naive load binds ZERO and serves the un-adapted base) and
-QUANT-type freeze (FP8 weights are served frozen, deltas dropped, unless
-allow_fp8_targets). This is the binding-focused report; the full serve plan is
-`nybbloris inspect` (nybbloris.plan.serve_plan). Shared primitives live in
-nybbloris/plan.py (single source of truth).
+Two silent-no-op classes, caught from key names + the base index alone (no
+weights, no GPU):
+  * KEY mismatch -- the adapter's module paths don't match the SERVE engine's
+    runtime module tree, so vLLM binds them to nothing and serves the un-adapted
+    base. This is resolved against the VLLM_BUILD naming (e.g. a multimodal
+    *ForConditionalGeneration wrapper exposes the LM as `language_model.model.*`,
+    NOT the on-disk `model.language_model.*`), so it predicts the REAL serve
+    binding (MEASURED §7h: the on-disk-keyed check returned the inverse).
+  * ROUTED-expert FusedMoE -- supports_lora=False at serve; those deltas can't
+    bind dynamically (merge-for-serve or skip). Dense targets (attention / MLP /
+    shared_expert) serve LIVE regardless of NVFP4 / FP8 / bf16 quant -- the delta
+    is applied in bf16 independently of the base weight (FP8 is frozen only by the
+    eager TRAIN loader, never by serve).
+
+This is the binding-focused CLI; the full serve plan is `nybbloris inspect`. All
+logic lives in nybbloris/plan.py (single source of truth); this just renders it.
 """
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root for the nybbloris package
-from nybbloris.plan import REKEYS, adapter_modules, classify  # noqa: E402
+from nybbloris.plan import serve_plan  # noqa: E402
 
 
 def main():
@@ -26,51 +34,47 @@ def main():
     ap.add_argument("--base-model-dir", required=True, type=Path)
     ap.add_argument("--adapter-dir", required=True, type=Path)
     ap.add_argument("--allow-fp8-targets", action="store_true",
-                    help="count FP8 targets as live (only valid if the serve loader enables FP8 LoRA)")
+                    help="(deprecated, ignored) serve no longer freezes dense FP8; kept for back-compat")
     args = ap.parse_args()
 
-    base_keys = set(json.load(open(args.base_model_dir / "model.safetensors.index.json"))["weight_map"])
-    mods = adapter_modules(args.adapter_dir)
-    print(f"[binding] adapter targets {len(mods)} modules; base index has {len(base_keys)} tensors")
+    plan = serve_plan(args.base_model_dir, args.adapter_dir, allow_fp8_targets=args.allow_fp8_targets)
+    b, bi, t = plan["base"], plan["binding"], plan["targets"]
+    n = plan["adapter"]["n_targets"]
+    fp8 = t["fp8_dense_live"]
 
-    best = None
-    for name, fn in REKEYS:
-        n = sum(1 for m in mods if classify(fn(m), base_keys) is not None)
-        print(f"  re-key '{name}': {n}/{len(mods)} resolve")
-        if best is None or n > best[1]:
-            best = (name, n, fn)
-    name, bound, fn = best
-    naive = sum(1 for m in mods if classify(m, base_keys) is not None)
+    print(f"[binding] adapter targets {n} modules; base arch {b['arch']} "
+          f"({'multimodal-wrapped' if b['wrapped'] else 'causal-LM'})")
+    print(f"[binding] vLLM binds against {b['serve_naming']}")
+    print(f"[binding] naive (no re-key): {bi['naive_resolve']}/{n} resolve")
+    print(f"[binding] best re-key '{bi['rekey']}': {bi['resolved']}/{n} resolve")
+    print(f"[quant]   by weight type: {t['by_quant']}")
+    live_note = f"  (incl. {fp8} dense-FP8 served live; frozen only by the eager TRAIN loader)" if fp8 else ""
+    blocked_note = f"  |  BLOCKED routed-MoE: {t['blocked_routed']}/{n}" if t["blocked_routed"] else ""
+    print(f"[quant]   LoRA-LIVE (served): {t['live']}/{n}{live_note}{blocked_note}")
 
-    kinds = Counter()
-    unresolved = []
-    for m in mods:
-        c = classify(fn(m), base_keys)
-        unresolved.append(m) if c is None else kinds.__setitem__(c, kinds[c] + 1)
-    frozen = 0 if args.allow_fp8_targets else kinds["FP8"]
-    live = len(mods) - len(unresolved) - frozen
-
-    print(f"\n[binding] naive (no re-key): {naive}/{len(mods)} resolve")
-    print(f"[binding] best re-key '{name}': {bound}/{len(mods)} resolve")
-    print(f"[quant]   by weight type: {dict(kinds)}")
-    print(f"[quant]   LoRA-LIVE: {live}/{len(mods)}  |  served FROZEN (FP8, deltas dropped): {frozen}"
-          + ("  [--allow-fp8-targets]" if args.allow_fp8_targets else ""))
-
-    if unresolved:
-        print(f"[binding] VERDICT: FAIL -- {len(unresolved)} target(s) unresolved even after re-key. "
-              f"e.g. {unresolved[:5]}")
-    elif frozen:
-        pct = 100 * frozen // len(mods)
-        rk = f" (only with the '{name}' re-key; a naive load would no-op {len(mods) - naive})" if naive < bound else ""
-        print(f"[binding] VERDICT: PARTIAL -- all {len(mods)} bind by key{rk}, but {frozen}/{len(mods)} = "
-              f"{pct}% resolve to FP8 weights and serve FROZEN (their deltas are silently dropped). "
-              f"Enable allow_fp8_targets, or target NVFP4 modules.")
-    elif naive < bound:
-        pct = 100 * (len(mods) - naive) // len(mods)
-        print(f"[binding] VERDICT: PASS *only* with the '{name}' re-key. A naive load would "
-              f"silently apply {len(mods) - naive}/{len(mods)} = {pct}% NOTHING.")
+    v = plan["verdict"]
+    miss = bi["resolved"] - bi["naive_resolve"]
+    if v == "EMPTY":
+        print(f"[binding] VERDICT: EMPTY -- no LoRA targets found in {plan['adapter']['dir']} "
+              f"(no adapter_model*.safetensors, or no lora_A/B weights). Check the adapter path.")
+    elif v == "FAIL":
+        print(f"[binding] VERDICT: FAIL -- {t['unresolved']} target(s) unresolved even after re-key. "
+              f"e.g. {bi['unresolved'][:5]}")
+    elif v == "NO-OP":
+        print(f"[binding] VERDICT: NO-OP -- all {n} targets bind ONLY via the '{bi['rekey']}' re-key; the "
+              f"adapter as-shipped resolves {bi['naive_resolve']}/{n} and would serve the un-adapted base. "
+              f"Re-key it (scripts/rekey_lora_for_vllm.py) before serving.")
+    elif v == "BLOCKED-ROUTED":
+        print(f"[binding] VERDICT: BLOCKED-ROUTED -- {t['blocked_routed']}/{n} targets are routed-expert "
+              f"FusedMoE (supports_lora=False at serve). Merge-for-serve those, or drop them.")
+    elif v == "NEEDS-REKEY":
+        pct = 100 * miss // n
+        print(f"[binding] VERDICT: NEEDS-REKEY -- binds only with the '{bi['rekey']}' re-key; a naive load "
+              f"would silently apply {miss}/{n} = {pct}% NOTHING.")
     else:
-        print(f"[binding] VERDICT: PASS -- all {len(mods)} targets bind and are LoRA-live.")
+        print(f"[binding] VERDICT: PASS -- all {n} targets bind directly and are LoRA-live at serve."
+              + (f" ({fp8} are dense-FP8: live at serve, frozen only when training via the eager loader.)"
+                 if fp8 else ""))
 
 
 if __name__ == "__main__":
