@@ -21,13 +21,16 @@ import struct
 from collections import Counter
 from pathlib import Path
 
-__all__ = ["serve_plan", "render_plan", "adapter_modules", "classify", "REKEYS"]
+__all__ = ["serve_plan", "render_plan", "adapter_modules", "classify", "REKEYS", "lm_head_status"]
 
-# Candidate re-key transforms (extend as new base layouts appear).
+# Candidate re-key transforms mapping an adapter's module path into the SERVE
+# engine's runtime module tree (extend as new layouts appear). For a multimodal
+# *ForConditionalGeneration wrapper, vLLM exposes the LM as
+# `language_model.model.layers.*`, so a flat `model.layers.*` adapter must be
+# re-keyed to bind -- a naive load otherwise no-ops (MEASURED §7h).
 REKEYS = [
     ("identity", lambda k: k),
-    ("language_model", lambda k: k.replace("model.layers.", "model.language_model.layers.", 1)),
-    ("language_model-prefix", lambda k: k.replace("model.", "model.language_model.", 1)),
+    ("language_model", lambda k: k.replace("model.layers.", "language_model.model.layers.", 1)),
 ]
 
 # Minimum-vLLM compatibility, from this project's MEASURED findings (extend as tested).
@@ -89,6 +92,34 @@ def _read_json(p):
         return {}
 
 
+def lm_head_status(base_model_dir):
+    """Checkpoint-compat pre-flight: is the `lm_head` quantized in a way vLLM can't load?
+
+    vLLM keeps `lm_head` in bf16 by class, so a ModelOpt/compressed-tensors checkpoint
+    that quantized `lm_head` (NVFP4 weight + scales) crashes vLLM at load with
+    "no module or parameter named lm_head.input_scale" (MEASURED §7h / notebook).
+    A quantized head shows scale tensors (`lm_head.weight_scale{,_2}` / `.input_scale`)
+    in the index; a bf16 head has only `lm_head.weight`. Returns a small dict so a
+    serve pre-flight can refuse + remediate (dequant the head to bf16, drop its scales).
+    """
+    base_model_dir = Path(base_model_dir)
+    idx = base_model_dir / "model.safetensors.index.json"
+    if not idx.exists():
+        return {"present": False, "quantized": False, "scale_keys": [], "note": "no index.json"}
+    wm = _read_json(idx).get("weight_map", {})
+    lh = sorted(k for k in wm if k.startswith("lm_head."))
+    scales = [k for k in lh if k.endswith((".weight_scale", ".weight_scale_2", ".input_scale",
+                                           ".weight_global_scale", ".weight_packed"))]
+    return {
+        "present": any(k == "lm_head.weight" or k.endswith(".weight_packed") for k in lh),
+        "quantized": bool(scales),
+        "scale_keys": scales,
+        "note": ("lm_head is quantized -> vLLM cannot load it; dequantize to bf16 and drop its "
+                 "scale tensors first (scripts/fix_nvfp4_lm_head.py)." if scales
+                 else "lm_head is bf16 (vLLM-loadable)."),
+    }
+
+
 def serve_plan(base_model_dir, adapter_dir, allow_fp8_targets=False):
     """Return the inspectable serve-plan object for a base + adapter."""
     base_model_dir, adapter_dir = Path(base_model_dir), Path(adapter_dir)
@@ -102,17 +133,45 @@ def serve_plan(base_model_dir, adapter_dir, allow_fp8_targets=False):
     base_keys = set(json.load(open(base_model_dir / "model.safetensors.index.json"))["weight_map"])
     mods = adapter_modules(adapter_dir)
 
+    # VLLM_BUILD naming: resolve against the SERVE engine's runtime module tree, not
+    # the on-disk index -- the two diverge for multimodal *ForConditionalGeneration
+    # wrappers, where the checkpoint nests the LM as `model.language_model.layers.*`
+    # but vLLM exposes it as `language_model.model.layers.*`. Resolving against the
+    # on-disk keys returned the INVERSE of the real serve binding (MEASURED §7h: it
+    # blessed the flat adapter, which no-ops, and failed the re-keyed one, which
+    # binds). Detect the layout from the keys (robust; no fragile arch-string match)
+    # and rebuild the set into the names vLLM actually binds LoRA against.
+    #   Version note: this targets vLLM >= 0.22.1 (the canonical serve engine).
+    #   vLLM 0.20.x auto-remapped flat LoRA keys via its hf_to_vllm_mapper, so a
+    #   flat adapter happened to bind there; 0.22.1 dropped that, requiring the
+    #   runtime-tree names. Predicting the stricter behavior is the SAFE direction
+    #   -- a re-keyed adapter binds on both, a flat one silently no-ops on 0.22.1.
+    wrapped = any(k.startswith("model.language_model.layers.") for k in base_keys)
+    if wrapped:
+        serve_keys = {(k.replace("model.language_model.", "language_model.model.", 1)
+                       if k.startswith("model.language_model.") else k) for k in base_keys}
+    else:
+        serve_keys = base_keys
+
     def resolves(fn):
-        return sum(1 for m in mods if classify(fn(m), base_keys) is not None)
+        return sum(1 for m in mods if classify(fn(m), serve_keys) is not None)
 
     rekey_name, fn = max(REKEYS, key=lambda nf: resolves(nf[1])) if mods else ("identity", lambda k: k)
-    naive = sum(1 for m in mods if classify(m, base_keys) is not None)
+    naive = sum(1 for m in mods if classify(m, serve_keys) is not None)
     resolved = resolves(fn)
 
+    # Quant-liveness at SERVE (MEASURED §7h, vLLM 0.22.1): the LoRA delta is applied
+    # in bf16 independently of the base weight's quant, so DENSE targets serve LIVE
+    # whether NVFP4, FP8, or bf16. Only ROUTED-expert FusedMoE is gated
+    # (supports_lora=False upstream). FP8 is frozen only by the eager TRAIN loader,
+    # never by serve -- so dense-FP8 is counted live and reported as info, not a
+    # dropped delta. (`allow_fp8_targets` is retained for back-compat and ignored;
+    # serve no longer freezes dense FP8.)
+    _ = allow_fp8_targets
     by_quant, by_kind, unresolved = Counter(), Counter(), []
-    live = frozen = blocked = 0
+    live = blocked = fp8_dense = 0
     for m in mods:
-        q = classify(fn(m), base_keys)
+        q = classify(fn(m), serve_keys)
         k = _kind(m)
         by_kind[k] += 1
         if q is None:
@@ -121,24 +180,31 @@ def serve_plan(base_model_dir, adapter_dir, allow_fp8_targets=False):
         by_quant[q] += 1
         if k == "routed_expert":
             blocked += 1
-        elif q == "FP8" and not allow_fp8_targets:
-            frozen += 1
         else:
             live += 1
+            if q == "FP8":
+                fp8_dense += 1
 
-    verdict = ("FAIL" if unresolved else "BLOCKED-ROUTED" if blocked
-               else "PARTIAL" if frozen else "PASS")
+    needs_rekey = resolved > 0 and naive < resolved
+    verdict = ("EMPTY" if not mods else
+               "FAIL" if unresolved else
+               "BLOCKED-ROUTED" if blocked else
+               "NO-OP" if naive == 0 and resolved > 0 else
+               "NEEDS-REKEY" if needs_rekey else
+               "PASS")
     return {
         "base": {"dir": str(base_model_dir), "arch": arch, "model_type": cfg.get("model_type"),
-                 "quant_method": quant_method,
+                 "quant_method": quant_method, "wrapped": wrapped,
+                 "serve_naming": ("language_model.model.layers.* (multimodal wrapper)" if wrapped
+                                  else "model.layers.* (causal-LM)"),
                  "serve_engine_note": ENGINE_NOTES.get(
                      quant_method, "unknown quant method; verify serve compatibility.")},
         "adapter": {"dir": str(adapter_dir), "r": acfg.get("r"), "alpha": acfg.get("lora_alpha"),
                     "n_targets": len(mods)},
         "binding": {"rekey": rekey_name, "naive_resolve": naive, "resolved": resolved,
-                    "unresolved": unresolved[:10]},
+                    "needs_rekey": needs_rekey, "unresolved": unresolved[:10]},
         "targets": {"by_kind": dict(by_kind), "by_quant": dict(by_quant),
-                    "live": live, "frozen_fp8": frozen, "blocked_routed": blocked,
+                    "live": live, "fp8_dense_live": fp8_dense, "blocked_routed": blocked,
                     "unresolved": len(unresolved)},
         "verdict": verdict,
     }
@@ -151,26 +217,32 @@ def render_plan(plan):
     out = ["=== nybbloris inspect: serve plan ===",
            f"base    : {Path(b['dir']).name}  (arch {b['arch']}, quant {b['quant_method']})",
            f"adapter : {Path(a['dir']).name}  (r={a['r']}, alpha={a['alpha']}, {n} targets)",
+           f"naming  : vLLM binds against {b['serve_naming']}",
            ""]
-    rk = ("directly" if bi["naive_resolve"] == bi["resolved"]
-          else f"via the '{bi['rekey']}' re-key  (a naive load resolves {bi['naive_resolve']} = silent no-op risk)")
+    rk = ("directly (a naive load binds them)" if not bi["needs_rekey"]
+          else (f"ONLY via the '{bi['rekey']}' re-key -- a naive load binds "
+                f"{bi['naive_resolve']}/{n} = SILENT NO-OP"))
     out.append(f"binding : {bi['resolved']}/{n} targets resolve {rk}")
     if bi["unresolved"]:
         out.append(f"          UNRESOLVED {t['unresolved']}: e.g. {bi['unresolved'][:4]}")
+    live_line = f"  LoRA-LIVE (served)   : {t['live']}/{n}"
+    if t["fp8_dense_live"]:
+        live_line += (f"  (incl. {t['fp8_dense_live']} dense-FP8: served live in vLLM; "
+                      "frozen only by the eager TRAIN loader)")
     out += [f"kinds   : {t['by_kind']}",
             f"quant   : {t['by_quant']}",
-            f"  LoRA-LIVE        : {t['live']}/{n}",
-            f"  FROZEN (FP8)     : {t['frozen_fp8']}/{n}",
-            f"  BLOCKED (routed) : {t['blocked_routed']}/{n}",
+            live_line,
+            f"  BLOCKED (routed-MoE) : {t['blocked_routed']}/{n}",
             "",
             f"engine  : {b['serve_engine_note']}",
             ""]
     tail = ""
-    if t["frozen_fp8"]:
-        tail += f" {t['frozen_fp8']} FP8 deltas FROZEN (dropped)."
+    if plan["verdict"] == "NO-OP":
+        tail = (f" Adapter as-shipped binds NOTHING in vLLM -- re-key to the "
+                f"'{bi['rekey']}' layout first (scripts/rekey_lora_for_vllm.py).")
+    elif bi["needs_rekey"]:
+        tail = f" Requires the '{bi['rekey']}' re-key (else a naive load no-ops)."
     if t["blocked_routed"]:
         tail += f" {t['blocked_routed']} routed-expert deltas BLOCKED (merge-for-serve or skip)."
-    if bi["naive_resolve"] < bi["resolved"]:
-        tail += f" Requires the '{bi['rekey']}' re-key."
     out.append(f"PLAN    : runtime-LoRA serves {t['live']}/{n} deltas.{tail}  VERDICT: {plan['verdict']}")
     return "\n".join(out)
