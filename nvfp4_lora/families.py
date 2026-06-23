@@ -135,6 +135,20 @@ FAMILIES: dict[str, dict] = {
         "meta_allowed_prefixes": (),
         "moe_experts_class": "Glm4MoeNaiveMoe",
     },
+    # Qwen3 dense (e.g. Qwen3-32B-NVFP4): a plain Qwen3ForCausalLM, no MoE, standard
+    # attention. `model.layers.*` on disk and in memory, so st_to_model=None uses the
+    # loader's dynamic identity translator; no fused experts (moe_experts_class=None).
+    # NVFP4 attention + NVFP4 dense MLP, so q/k/v/o + gate/up/down all train natively.
+    "qwen3": {
+        "auto_class": "causal_lm",
+        "expert_prefix": None,
+        "peft_scope": r"^model\.layers\.",
+        "freeze": (),
+        "skip_st_prefixes": (),
+        "st_to_model": None,
+        "meta_allowed_prefixes": (),
+        "moe_experts_class": None,
+    },
 }
 
 
