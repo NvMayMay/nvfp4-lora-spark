@@ -25,7 +25,7 @@ set -euo pipefail
 
 MODEL_DIR="${MODEL_DIR:-/path/to/Models/Nemotron-3-Super-120B-A12B-NVFP4}"
 PORT="${PORT:-8000}"
-HOST="${HOST:-0.0.0.0}"
+HOST="${HOST:-127.0.0.1}"
 
 # Env vars
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True

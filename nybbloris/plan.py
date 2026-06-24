@@ -8,9 +8,9 @@ Two silent-no-op classes are caught here:
   * KEY mismatch -- adapter module paths don't match the base layout (e.g. a
     multimodal base nests the LM under ``language_model.``); a naive load binds
     ZERO and serves the un-adapted base.
-  * QUANT-type freeze -- a target resolves to an FP8 weight, which the NVFP4-LoRA
-    runtime path serves FROZEN (delta dropped) unless allow_fp8_targets; an
-    adapter trained on a bf16 base can bind by key yet silently lose those deltas.
+  * QUANT-type freeze -- historically a target resolving to an FP8 weight was
+    served FROZEN by the NVFP4-LoRA runtime path; serve no longer freezes dense
+    FP8 (the delta applies in bf16 independently of the base weight's quant).
 """
 from __future__ import annotations
 
@@ -120,7 +120,7 @@ def lm_head_status(base_model_dir):
     }
 
 
-def serve_plan(base_model_dir, adapter_dir, allow_fp8_targets=False):
+def serve_plan(base_model_dir, adapter_dir):
     """Return the inspectable serve-plan object for a base + adapter."""
     base_model_dir, adapter_dir = Path(base_model_dir), Path(adapter_dir)
     cfg = _read_json(base_model_dir / "config.json")
@@ -165,9 +165,7 @@ def serve_plan(base_model_dir, adapter_dir, allow_fp8_targets=False):
     # whether NVFP4, FP8, or bf16. Only ROUTED-expert FusedMoE is gated
     # (supports_lora=False upstream). FP8 is frozen only by the eager TRAIN loader,
     # never by serve -- so dense-FP8 is counted live and reported as info, not a
-    # dropped delta. (`allow_fp8_targets` is retained for back-compat and ignored;
-    # serve no longer freezes dense FP8.)
-    _ = allow_fp8_targets
+    # dropped delta.
     by_quant, by_kind, unresolved = Counter(), Counter(), []
     live = blocked = fp8_dense = 0
     for m in mods:

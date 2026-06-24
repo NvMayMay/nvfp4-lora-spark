@@ -44,14 +44,15 @@ def test_mistral_report_peft_verdict(inspector, fixtures_dir):
     assert r["target_verdict"]["mode"] == "peft"
 
 
-def test_partial_quant_rejection_is_reported_not_raised(inspector, fixtures_dir):
+def test_partial_quant_now_co_trains_native(inspector, fixtures_dir):
     r = inspector.build_report(fixtures_dir / "partial_quant", ["o_proj"], deep=False)
     # no config.json in this fixture: unknown family, still inspectable
     assert r["family_supported"] is False
     tv = r["target_verdict"]
-    assert tv["ok"] is False
-    assert "PARTIALLY quantized" in tv["reason"]
-    # the suffix table flags the mixed suffix
+    # BF16LoRALinear co-trains the bf16 instances, so a partially-quantized suffix is now a
+    # native run, not a rejection (was ok=False / "PARTIALLY quantized" pre-BF16LoRALinear).
+    assert tv["ok"] is True
+    # the suffix table still shows the mixed storage
     assert set(r["suffixes"]["o_proj"]["counts"]) == {"nvfp4_ct", "bf16"}
 
 

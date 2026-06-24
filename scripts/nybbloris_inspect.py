@@ -20,10 +20,9 @@ def main():
     ap = argparse.ArgumentParser(description="pre-flight serve plan for an NVFP4 base + LoRA adapter")
     ap.add_argument("--base-model-dir", required=True, type=Path)
     ap.add_argument("--adapter-dir", required=True, type=Path)
-    ap.add_argument("--allow-fp8-targets", action="store_true")
     ap.add_argument("--json-out", type=Path, default=None)
     args = ap.parse_args()
-    plan = serve_plan(args.base_model_dir, args.adapter_dir, allow_fp8_targets=args.allow_fp8_targets)
+    plan = serve_plan(args.base_model_dir, args.adapter_dir)
     print(render_plan(plan))
     if args.json_out:
         args.json_out.write_text(json.dumps(plan, indent=2))

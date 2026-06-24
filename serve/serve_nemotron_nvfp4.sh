@@ -26,7 +26,8 @@
 #   --moe-backend marlin              - matched FP4 path for routed MoE experts
 #   --dtype bfloat16                  - compute dtype (weights stay FP4; activations bf16)
 #
-# Binds 0.0.0.0:8000 so an eval host on the LAN can reach it.
+# Binds 127.0.0.1:8000 by default; set HOST=0.0.0.0 to let an eval host on the
+# LAN reach it.
 # To reproduce the concurrency numbers, raise MAX_NUM_SEQS and keep
 # MAX_MODEL_LEN / MAX_NUM_BATCHED_TOKENS large enough for the prompt+output cell.
 set -euo pipefail
@@ -81,7 +82,7 @@ VLLM_NVFP4_GEMM_BACKEND=marlin \
 MAX_JOBS=1 \
 nohup vllm serve "$MODEL_DIR" \
     --served-model-name "$SERVED_NAME" \
-    --host 0.0.0.0 --port 8000 \
+    --host "${HOST:-127.0.0.1}" --port "${PORT:-8000}" \
     --tensor-parallel-size 1 \
     --dtype bfloat16 \
     --max-model-len "${MAX_MODEL_LEN:-8192}" \

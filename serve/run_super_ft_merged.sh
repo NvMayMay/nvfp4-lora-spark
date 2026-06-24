@@ -26,7 +26,7 @@ set -euo pipefail
 # Default to the example merged checkpoint; override via env.
 MODEL_DIR="${MODEL_DIR:-/path/to/Models/Nemotron-3-Super-120B-A12B-NVFP4-ich-v1.0}"
 PORT="${PORT:-8000}"
-HOST="${HOST:-0.0.0.0}"
+HOST="${HOST:-127.0.0.1}"
 SERVED_NAME="${SERVED_NAME:-nemotron-3-super-a12b-nvfp4+ich_v1_0}"
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
