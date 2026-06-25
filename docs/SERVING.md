@@ -1,9 +1,10 @@
 # Serving NVFP4 + runtime-LoRA (the blessed recipe)
 
-Runtime-LoRA is the v1 serve path: the NVFP4 base loads once and is **never
-re-quantized**; the LoRA delta is applied live in bf16. (Merge-for-serve
-re-quantizes and erases small deltas - measured - so it is a documented lossy
-option, not the default.)
+Runtime-LoRA is the v1 serve path for dense models and attention / shared-expert
+targets: the NVFP4 base loads once and the LoRA delta is applied live in bf16,
+attaching the adapter at request time. For routed-MoE-on-CUTLASS (where
+request-time LoRA is not available on sm_121) the validated path is
+merge-then-serve - see the README.
 
 On a DGX Spark / GB10 the **blessed serve path is a host venv**, not a
 container (see runtime table below). The commands here are exact and tested.

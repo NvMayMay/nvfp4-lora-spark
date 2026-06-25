@@ -4,17 +4,22 @@
 
 NVIDIA and partners ship the largest open MoE families in NVFP4 (4-bit) form so models well past the 100B class fit on a 128 GB GB10 box. NVFP4 weights are not a format that off-the-shelf LoRA libraries understand: packed E2M1 nibbles with `fp8_e4m3fn` block scales and an `fp32` per-tensor scale, in either NVIDIA ModelOpt or compressed-tensors layout, mixed with FP8 Mamba and shared-expert layers. nybbloris closes that gap with an NVFP4-aware LoRA training stack and validated serving recipes on a single GB10 system.
 
+The productized serve path is **runtime-LoRA**: `train -> inspect` (the binding contract) `-> serve --verify` attaches the trained adapter to the NVFP4 base at request time, for the cases where request-time LoRA is available - dense models, and attention / shared-expert targets. For routed-MoE-on-CUTLASS (the big 122B / Super models, where the kernel reports `CutlassExpertsFp4.supports_lora() = False` on sm_121), the validated path is **merge-then-serve**: bake the adapter into the base and serve the merged checkpoint. The same trainer feeds both; `scripts/inspect_nvfp4_checkpoint.py` tells you which path a given checkpoint takes.
+
+> **Reproducible result (public base + dataset, one GB10).** On `nvidia/Llama-3.1-8B-Instruct-NVFP4` + the Spider text-to-SQL task, one epoch of NVFP4 LoRA - trained *and* served on a single GB10 - improves held-out gold-SQL NLL from **0.977 -> 0.932** and Spider exact-set-match from **34.0% -> 41.5%** (n=200, deterministic, no DB execution). Reproduce with [`scripts/prep_spider.py`](scripts/prep_spider.py) + [`scripts/eval_retention.py`](scripts/eval_retention.py). This is a task/format the base does not natively produce well; at one epoch the *delta* is the signal, and the absolute exact-set-match number is scorer-dependent.
+
 The core dequant kernel (a fused Triton implementation as of v1.2, see [Training throughput](#training-throughput)), the `NVFP4LoRALinear` module, and the fused-3D MoE machinery are all model-family agnostic; a per-family registry ([`nvfp4_lora/families.py`](nvfp4_lora/families.py)) binds them to a specific safetensors layout. As of v1.3 one unified trainer covers every supported family, validated on real checkpoints: Nemotron-3 Nano-30B-A3B and Super-120B-A12B (NVIDIA ModelOpt NVFP4), Mistral-Small-4-119B-2603 (RedHatAI compressed-tensors NVFP4), and Qwen3.5-122B-A10B (both the RedHatAI and NVIDIA NVFP4 releases). Unsupported layouts fail before any weight is read, with the broken assumption named, and [`scripts/inspect_nvfp4_checkpoint.py`](scripts/inspect_nvfp4_checkpoint.py) reports what any checkpoint needs. Porting a new NVFP4 family is one registry entry, not a kernel change.
 
 > **Tip:** see [REPRODUCE.md](REPRODUCE.md) for the exact stack, [serve/README.md](serve/README.md) for the serving recipes, and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for the failure-signature playbook.
 
 ## Quickstart
 
-> **The `nybbloris` CLI (runtime-LoRA).** For the productized end-to-end flow —
-> `train` → `inspect` (the binding contract) → `serve --rekey auto --verify` —
-> which serves the adapter **without re-quantizing the base** (so the fine-tune is
-> preserved), see the **[worked example](docs/WORKED_EXAMPLE.md)**. The
-> script-level walkthrough below stays valid and covers the merge-for-serve path.
+> **The `nybbloris` CLI (runtime-LoRA).** For the productized end-to-end flow -
+> `train` → `inspect` (the binding contract) → `serve --rekey auto --verify` -
+> which attaches the adapter to the NVFP4 base at request time (dense models +
+> attention / shared-expert targets), see the **[worked example](docs/WORKED_EXAMPLE.md)**.
+> The script-level walkthrough below stays valid and covers the merge-then-serve
+> path used for routed-MoE-on-CUTLASS.
 
 Training environment:
 
@@ -29,12 +34,21 @@ pip install flash-linear-attention==0.4.2
 
 `MAX_JOBS=1` is required on Spark: parallel nvcc compilation gets OOM-killed on the 128 GB unified pool. Without `causal-conv1d`, the Mamba2 fast path falls back to a naive Python scan and training is impractical at any useful sequence length. `flash-linear-attention` is required for hybrid linear-attention models (the Qwen3.5 GatedDeltaNet layers) and is pinned to 0.4.2: 0.5.0's backward kernel crashes on GB10 (see Known issues on GB10).
 
-Serving environment (separate venv recommended):
+Serving environment (separate venv recommended). The required vLLM version is set
+by the serve path your checkpoint takes - the runtime-LoRA path (ModelOpt NVFP4,
+dense) wants the **0.22.1 host venv**; the merge-then-serve path (compressed-tensors
+routed-MoE on CUTLASS) was measured on **0.21 (NGC)**:
 
 ```bash
 python -m venv .venv-serve && source .venv-serve/bin/activate
-pip install vllm==0.21.0 flashinfer-python==0.6.8.post1 'torch==2.11.*'
+# runtime-LoRA path (ModelOpt NVFP4 / dense): vLLM 0.22.1 host venv
+pip install vllm==0.22.1 flashinfer-python==0.6.8.post1 'torch==2.11.*'
+# merge-then-serve path (compressed-tensors routed-MoE / CUTLASS): vLLM 0.21 (NGC)
+# pip install vllm==0.21.0 flashinfer-python==0.6.8.post1 'torch==2.11.*'
 ```
+
+See [docs/SERVING.md](docs/SERVING.md) for the blessed runtime-LoRA recipe (host
+venv, UMA gotchas) and the runtime-by-checkpoint table.
 
 Download an NVFP4 base from Hugging Face:
 
@@ -79,8 +93,9 @@ python -u scripts/train_nvfp4_lora.py \
     --output-dir adapters/my_run
 ```
 
-Merge the trained adapter back into the NVFP4 base and re-quantize
-(`merge_lora_into_ct_nvfp4.py` for compressed-tensors checkpoints,
+For routed-MoE-on-CUTLASS checkpoints (request-time LoRA is not available there),
+merge the trained adapter back into the NVFP4 base and re-quantize, then serve the
+merged checkpoint (`merge_lora_into_ct_nvfp4.py` for compressed-tensors checkpoints,
 `merge_lora_into_nvfp4.py` for ModelOpt/Nemotron; both support `--dry-run`):
 
 ```bash

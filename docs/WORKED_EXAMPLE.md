@@ -1,9 +1,10 @@
 # Worked example: train → inspect → serve → verify (`nybbloris` CLI)
 
 The end-to-end **runtime-LoRA** flow on a single GB10 (DGX Spark). Runtime-LoRA
-applies the adapter in bf16 at serve time and never re-quantizes the base, so the
-fine-tune is preserved; merge-for-serve re-quantization noise can erase small
-deltas, so it is a documented lossy fallback, not the default path.
+applies the adapter in bf16 at serve time and attaches it to the NVFP4 base at
+request time. It is the path for dense models and attention / shared-expert
+targets; for routed-MoE-on-CUTLASS (where request-time LoRA is not available on
+sm_121), merge-then-serve is the validated path - see the README.
 
 The three commands form a closed loop:
 

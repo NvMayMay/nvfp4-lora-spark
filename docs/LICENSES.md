@@ -31,12 +31,14 @@ Base models are pulled from their original sources; nybbloris does **not** redis
 base weights.
 
 ## Data
-- **Public example: GSM8K** (`openai/gsm8k`, MIT) -- the reproducible before/after benchmark.
+- **Public example: Spider** (`xlangai/spider`, text-to-SQL) -- the reproducible before/after
+  result, scored deterministically with no DB execution (`scripts/prep_spider.py` +
+  `scripts/eval_retention.py`).
 - **Private clinical (ICH) data: NOT distributable, NOT part of any reproducibility claim.**
   It is internal evidence only; every published/reproducible number uses public data.
 
 ## Published-artifact policy
-- Adapters shipped with the repo (e.g. the GSM8K demo adapter) are released under
+- Adapters shipped with the repo (e.g. the Spider demo adapter) are released under
   **Apache-2.0**, each with a **SHA256** of `adapter_model.safetensors` + `adapter_config.json`
   and the (base model, repo commit, exact command) that produced it.
 - No clinical-data-derived adapter is ever published.

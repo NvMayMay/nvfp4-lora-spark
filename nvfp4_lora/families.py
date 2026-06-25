@@ -149,6 +149,20 @@ FAMILIES: dict[str, dict] = {
         "meta_allowed_prefixes": (),
         "moe_experts_class": None,
     },
+    # Llama dense (e.g. Llama-3.1-8B-Instruct-NVFP4): a plain LlamaForCausalLM, no MoE,
+    # standard attention. Same on-disk/in-memory `model.layers.*` layout as qwen3 dense,
+    # so st_to_model=None uses the identity translator and moe_experts_class=None. NVFP4
+    # attention + NVFP4 dense MLP, so q/k/v/o + gate/up/down all train natively.
+    "llama": {
+        "auto_class": "causal_lm",
+        "expert_prefix": None,
+        "peft_scope": r"^model\.layers\.",
+        "freeze": (),
+        "skip_st_prefixes": (),
+        "st_to_model": None,
+        "meta_allowed_prefixes": (),
+        "moe_experts_class": None,
+    },
 }
 
 
