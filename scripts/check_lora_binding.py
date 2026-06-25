@@ -33,11 +33,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-model-dir", required=True, type=Path)
     ap.add_argument("--adapter-dir", required=True, type=Path)
-    ap.add_argument("--allow-fp8-targets", action="store_true",
-                    help="(deprecated, ignored) serve no longer freezes dense FP8; kept for back-compat")
     args = ap.parse_args()
 
-    plan = serve_plan(args.base_model_dir, args.adapter_dir, allow_fp8_targets=args.allow_fp8_targets)
+    plan = serve_plan(args.base_model_dir, args.adapter_dir)
     b, bi, t = plan["base"], plan["binding"], plan["targets"]
     n = plan["adapter"]["n_targets"]
     fp8 = t["fp8_dense_live"]

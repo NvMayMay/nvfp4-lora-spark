@@ -38,7 +38,7 @@ VENV_PY="${NVFP4_SERVE_VENV}/bin/python"
 
 MODEL_DIR="${MODEL_DIR:-${NVFP4_MODELS_DIR}/RedHatAI-Mistral-Small-4-119B-2603-NVFP4-HF}"
 ADAPTER_DIR="${ADAPTER_DIR:-${NVFP4_ADAPTERS_DIR}/mistral_small_4_119b_rh_nvfp4_lora_ich_v3_5}"
-HOST="${HOST:-0.0.0.0}"
+HOST="${HOST:-127.0.0.1}"
 # 8001 by default so it can coexist with the Qwen vLLM server on 8000
 # (do NOT run both at once on this box; UMA will not fit two 120B models).
 PORT="${PORT:-8001}"

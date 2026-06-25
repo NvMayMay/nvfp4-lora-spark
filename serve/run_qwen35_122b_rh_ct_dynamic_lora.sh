@@ -34,10 +34,11 @@
 # Adapter selection:
 #   ADAPTER_DIR defaults to the trainer's output root (final adapter).
 #   ADAPTER_DIR=$ADAPTER_ROOT/best  -> best-by-val-loss copy.
-# Hot-swap testing: VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 is exported so a
-# second adapter (e.g. a checkpoint_step_* dir) can be loaded at runtime via
-# POST /v1/load_lora_adapter without restarting (validation step e in the
-# plan doc).
+# Hot-swap testing: set ALLOW_RUNTIME_LORA_UPDATES=1 to export
+# VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 so a second adapter (e.g. a
+# checkpoint_step_* dir) can be loaded at runtime via POST
+# /v1/load_lora_adapter without restarting (validation step e in the plan
+# doc). It is OFF by default.
 
 set -euo pipefail
 
@@ -58,7 +59,7 @@ ADAPTER_DIR="${ADAPTER_DIR:-$ADAPTER_ROOT}"
 ADAPTER_NAME="${ADAPTER_NAME:-ich_v3_5}"
 
 SERVED_NAME="${SERVED_NAME:-qwen3.5-122b-a10b-nvfp4}"
-HOST="${HOST:-0.0.0.0}"
+HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"   # 8001 is the Mistral LoRA server; do not collide.
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
 MAX_BATCHED_TOKENS="${MAX_BATCHED_TOKENS:-16384}"
@@ -81,7 +82,10 @@ export MAX_JOBS="${MAX_JOBS:-1}"
 export PYTHONPATH="$PATCH_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export VLLM_PATCH_ATTN_ONLY_LORA_CUTLASS_MOE=1
 # Allow POST /v1/load_lora_adapter for the hot-swap validation step.
-export VLLM_ALLOW_RUNTIME_LORA_UPDATING=1
+# OPT-IN: export only when ALLOW_RUNTIME_LORA_UPDATES=1.
+if [ "${ALLOW_RUNTIME_LORA_UPDATES:-0}" = "1" ]; then
+  export VLLM_ALLOW_RUNTIME_LORA_UPDATING=1
+fi
 
 # --- 0.21 -> 0.22.1 default-drift pins (2nd-pass de-risk, 2026-06-10) ---
 # The base CUTLASS recipe was validated on vLLM 0.21. These flags are pinned

@@ -222,11 +222,11 @@ plain BF16:
   family-scoped `target_modules` regex from `peft_scope`. This is the
   BF16-attention recipe (Mistral-Small-4 MLA targets).
 - **Anything else: hard error with the exact inventory.** Native and PEFT
-  suffixes in one run, a suffix matching nothing, a suffix quantized in some
-  layers but BF16 in others (override: `--allow-partial-targets`), or a
-  suffix landing on FP8 modules (override: `--allow-fp8-targets`) all fail
+  suffixes in one run, a suffix matching nothing, or a suffix quantized in some
+  layers but BF16 in others (override: `--allow-partial-targets`) all fail
   before any weight is read. The full per-suffix inventory is written to
-  `<output_dir>/target_coverage.json` on every run.
+  `<output_dir>/target_coverage.json` on every run. (FP8-landing suffixes are
+  no longer an error: FP8 trains natively via `FP8LoRALinear`.)
 
 This choice changes nothing about the on-disk adapter you ship. Both paths
 write `adapter_model.safetensors` with PEFT-style keys
@@ -238,12 +238,10 @@ path goes through `get_peft_model_state_dict`. Either way the merge step
 same format. The practical consequence of the mode is the load path and memory
 profile, not the artifact.
 
-One related gotcha carried over from Nemotron: at load time the loader demotes
-FP8 (not NVFP4) modules to frozen and counts them separately
-(`lora_demoted_fp8`). In the unified trainer this can no longer happen
-silently: targeting a suffix with FP8 instances is a pre-load hard error
-unless you pass `--allow-fp8-targets`, in which case the `replaced:` line and
-the `lora_demoted_fp8` count show what was frozen.
+One related note carried over from Nemotron: FP8 (not NVFP4) modules used to be
+demoted to frozen BF16 at load time. In the unified trainer FP8 targets now
+train natively via `FP8LoRALinear` (frozen FP8 base + bf16 LoRA), so an
+FP8-landing suffix is a native run with no extra flag.
 
 ## 4. Validation ladder
 

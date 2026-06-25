@@ -105,6 +105,7 @@ def test_shared_workspace_detect_anomaly_backward_cpu():
         mod_a.weight_scale_2_fp32,
         mod_a.group_size,
         mod_a.w_bf16_workspace,
+        mod_a.nvfp4_format,
     )
     y_b = _DequantLinear.apply(
         x_b,
@@ -113,6 +114,7 @@ def test_shared_workspace_detect_anomaly_backward_cpu():
         mod_b.weight_scale_2_fp32,
         mod_b.group_size,
         mod_b.w_bf16_workspace,
+        mod_b.nvfp4_format,
     )
 
     with torch.autograd.set_detect_anomaly(True):

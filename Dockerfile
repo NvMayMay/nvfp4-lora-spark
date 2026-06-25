@@ -36,8 +36,10 @@ RUN (command -v ninja >/dev/null 2>&1) \
         && rm -rf /var/lib/apt/lists/*) \
     || true
 ENV PATH=/usr/local/cuda/bin:${PATH} \
-    CUDA_HOME=/usr/local/cuda \
-    VLLM_ALLOW_RUNTIME_LORA_UPDATING=1
+    CUDA_HOME=/usr/local/cuda
+# Runtime LoRA hot-swap is OPT-IN, not baked in: pass `nybbloris serve
+# --allow-runtime-lora-updates` (or set VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 at
+# `docker run` time) to enable it. Do NOT bake it into the image ENV.
 
 WORKDIR /opt/nybbloris
 COPY . /opt/nybbloris

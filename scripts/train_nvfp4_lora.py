@@ -9,11 +9,10 @@ artifacts of their respective runs.
 What is detected instead of hardcoded:
   * Model family (config.json model_type) -> auto class, expert-tensor key
     translation, PEFT scoping, submodules to freeze.
-  * LoRA mechanism: if every --target-modules suffix is NVFP4-quantized in the
-    checkpoint, LoRA is baked into NVFP4LoRALinear at load (PEFT cannot wrap
-    those). If none are quantized (e.g. BF16 attention in the Mistral-RH
-    recipe), standard PEFT wrapping with a family-scoped regex. Mixed targets
-    are rejected with an explanation.
+  * LoRA mechanism: each target trains through a frozen-base LoRALinear in the
+    NATIVE path -- NVFP4 -> NVFP4LoRALinear, FP8 -> FP8LoRALinear, BF16 ->
+    BF16LoRALinear -- so NVFP4/FP8/BF16 targets co-train in one adapter. Only an
+    all-BF16 target set takes the standard PEFT path (family-scoped regex).
 
 GB10 UMA lessons are applied via nvfp4_lora.gb10_prep:
   * expandable_segments alloc conf set before the first CUDA allocation
@@ -71,12 +70,13 @@ from nvfp4_lora.experts import (  # noqa: E402
 )
 from nvfp4_lora.families import FAMILIES, resolve_family  # noqa: E402, F401
 from nvfp4_lora.gb10_prep import drop_shard_page_cache, memory_snapshot  # noqa: E402
-from nvfp4_lora.linear import FP8LoRALinear, NVFP4LoRALinear  # noqa: E402
+from nvfp4_lora.linear import BF16LoRALinear, FP8LoRALinear, NVFP4LoRALinear  # noqa: E402
 from nvfp4_lora.loader import (  # noqa: E402
     _assign_dequant_workspaces,
     assert_no_meta_tensors,
     decide_lora_mode,
     load_non_nvfp4_weights,
+    replace_bf16_targets,
     replace_nvfp4_modules,
 )
 
@@ -89,7 +89,6 @@ def detect_lora_mode(
     model_dir: Path,
     target_suffixes: list[str],
     allow_partial_targets: bool = False,
-    allow_fp8_targets: bool = False,
 ) -> tuple[str, dict]:
     """'native' if the target modules are NVFP4-quantized in the checkpoint,
     'peft' if they are plain BF16. Returns (mode, coverage_report).
@@ -102,7 +101,6 @@ def detect_lora_mode(
         model_dir,
         target_suffixes,
         allow_partial_targets=allow_partial_targets,
-        allow_fp8_targets=allow_fp8_targets,
     )
 
 
@@ -135,6 +133,10 @@ class ChatJsonlDataset(Dataset):
         )
 
     def _encode(self, messages):
+        # mistral_common (tekken) models tokenize chat token-natively; the HF
+        # text-render path below is wrong for them (broken LlamaTokenizerFast).
+        if getattr(self.tokenizer, "is_mistral_common", False):
+            return self.tokenizer.encode_chat(messages, self.max_length)
         full_text = self._render(messages, add_generation_prompt=False)
         input_ids = self._tokenize(full_text)
         if not input_ids:
@@ -211,23 +213,26 @@ def load_model(
         idx_obj = json.loads((model_dir / "model.safetensors.index.json").read_text())
         moe_storage = detect_moe_expert_storage(model_dir, idx_obj["weight_map"])
         if moe_storage is None:
-            raise SystemExit(
-                f"family {model_type!r} declares fused-3D MoE "
-                f"({family['moe_experts_class']}) but the checkpoint has no "
-                f"per-expert NVFP4 projection keys; run "
-                f"scripts/inspect_nvfp4_checkpoint.py to see its layout."
+            # Dense variant of a family whose model_type also covers MoE members:
+            # mistral3 spans both the dense Mistral-Small-3.2-24B and the MoE
+            # Mistral-Small-4-119B. No per-expert keys -> treat as a dense variant,
+            # skip fused-3D replacement; replace_nvfp4_modules handles the dense MLP
+            # (and the expert-assembly loop below is a no-op with no NVFP4Experts3D).
+            print("[load] moe_experts_class declared but checkpoint has no per-expert "
+                  "keys; treating as a dense variant of this family (skipping MoE "
+                  "replacement)", flush=True)
+        else:
+            print(f"[load] replacing fused-3D MoE blocks with NVFP4Experts3D "
+                  f"(format={moe_storage['quant_format']}, "
+                  f"split_gate_up_scales={moe_storage['split_gate_up_scales']})…", flush=True)
+            # device= is load-bearing on GB10 UMA: the default (None) allocates the
+            # packed expert buffers (~weight-sized) on CPU, permanently starving CUDA.
+            replace_moe_experts_with_nvfp4_3d(
+                model, model_family=model_type, device=device,
+                quant_format=moe_storage["quant_format"],
+                split_gate_up_scales=moe_storage["split_gate_up_scales"],
             )
-        print(f"[load] replacing fused-3D MoE blocks with NVFP4Experts3D "
-              f"(format={moe_storage['quant_format']}, "
-              f"split_gate_up_scales={moe_storage['split_gate_up_scales']})…", flush=True)
-        # device= is load-bearing on GB10 UMA: the default (None) allocates the
-        # packed expert buffers (~weight-sized) on CPU, permanently starving CUDA.
-        replace_moe_experts_with_nvfp4_3d(
-            model, model_family=model_type, device=device,
-            quant_format=moe_storage["quant_format"],
-            split_gate_up_scales=moe_storage["split_gate_up_scales"],
-        )
-        _stage("post-moe-replace")
+            _stage("post-moe-replace")
     else:
         # Family stores routed experts as per-expert nn.Linear modules
         # (Nemotron); replace_nvfp4_modules handles them like any other linear.
@@ -260,6 +265,22 @@ def load_model(
     print("[load] loading non-NVFP4 weights (attention/embeddings/norms/lm_head)…", flush=True)
     load_non_nvfp4_weights(model, model_dir, device=device, dtype=dtype, strict=strict)
     _stage("post-non-nvfp4-load")
+
+    # Co-train genuinely-BF16 targets (e.g. attention a mixed-precision quantizer left in
+    # bf16) alongside the NVFP4/FP8 ones in this single native adapter. Runs AFTER the bf16
+    # weights are loaded; family peft_scope keeps out-of-scope BF16 (MTP heads / vision
+    # towers) frozen. No-op when there are no in-scope BF16 targets (e.g. the 3.6, whose
+    # attention is FP8).
+    if lora_mode == "native":
+        n_bf16 = replace_bf16_targets(
+            model, target_suffixes, family.get("peft_scope"),
+            r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout,
+            device=device, dtype=dtype,
+        )
+        if n_bf16:
+            print(f"[load] wrapped {n_bf16} BF16 target Linears with BF16LoRALinear "
+                  f"(co-trained natively)", flush=True)
+        _stage("post-bf16-targets")
 
     _assign_dequant_workspaces(model, device=device, dtype=dtype)
     _stage("post-workspaces")
@@ -364,7 +385,7 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
         state = {}
         skipped = []
         for name, mod in model.named_modules():
-            if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear)) and mod.r > 0:
+            if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear, BF16LoRALinear)) and mod.r > 0:
                 a, b = mod.lora_A, mod.lora_B
                 if (hasattr(a, "is_meta") and a.is_meta) or (hasattr(b, "is_meta") and b.is_meta):
                     skipped.append(name)
@@ -412,7 +433,7 @@ def _load_adapter_weights(model, adapter_dir: Path, lora_mode: str, log_fn) -> N
     if lora_mode == "native":
         loaded = 0
         for name, mod in model.named_modules():
-            if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear)) and mod.r > 0:
+            if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear, BF16LoRALinear)) and mod.r > 0:
                 k_a = f"base_model.model.{name}.lora_A.weight"
                 k_b = f"base_model.model.{name}.lora_B.weight"
                 if k_a in sd and k_b in sd:
@@ -496,11 +517,6 @@ def main():
                          "layers but BF16 in others; only the quantized instances "
                          "are trained. Without this flag, partial coverage is a "
                          "hard error.")
-    ap.add_argument("--allow-fp8-targets", action="store_true",
-                    help="Proceed when a NATIVE suffix also matches FP8-per-tensor "
-                         "modules; those stay frozen (no native LoRA). Only needed "
-                         "for native (NVFP4) suffixes — under a PEFT suffix the "
-                         "FP8 modules are wrapped as frozen BF16 Linears and train.")
     ap.add_argument("--permissive-load", action="store_true",
                     help="Bring-up escape hatch: downgrade strict-load errors "
                          "(unmapped on-disk tensors, tensors left on the meta "
@@ -558,7 +574,6 @@ def main():
     lora_mode, coverage = detect_lora_mode(
         model_dir, target_suffixes,
         allow_partial_targets=args.allow_partial_targets,
-        allow_fp8_targets=args.allow_fp8_targets,
     )
     log("strategy", model_type=model_type, auto_class=family["auto_class"],
         lora_mode=lora_mode, targets=target_suffixes)
@@ -577,10 +592,18 @@ def main():
     device = torch.device("cuda")
     dtype = torch.bfloat16
 
-    tok = AutoTokenizer.from_pretrained(args.model_dir, use_fast=True, trust_remote_code=True)
-    if tok.pad_token_id is None:
-        tok.pad_token = tok.eos_token
-    log("tokenizer_loaded", vocab_size=tok.vocab_size, pad_id=tok.pad_token_id)
+    from nvfp4_lora.mistral_tok import MistralCommonTokenizer, has_tekken
+    if has_tekken(args.model_dir):
+        # Mistral repacks ship a broken HF tokenizer; use the native tekken one.
+        tok = MistralCommonTokenizer(args.model_dir)
+        log("tokenizer_loaded", backend="mistral_common",
+            vocab_size=tok.vocab_size, pad_id=tok.pad_token_id)
+    else:
+        tok = AutoTokenizer.from_pretrained(args.model_dir, use_fast=True, trust_remote_code=True)
+        if tok.pad_token_id is None:
+            tok.pad_token = tok.eos_token
+        log("tokenizer_loaded", backend="hf",
+            vocab_size=tok.vocab_size, pad_id=tok.pad_token_id)
 
     # In --dry-run we synthesize one batch later, so skip dataset/dataloader
     # construction entirely (no train-file needed, no tokenization cost).
@@ -615,7 +638,7 @@ def main():
 
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_lora_modules = sum(1 for _, m in model.named_modules()
-                         if isinstance(m, NVFP4LoRALinear) and m.r > 0)
+                         if isinstance(m, (NVFP4LoRALinear, FP8LoRALinear, BF16LoRALinear)) and m.r > 0)
     log("lora_attached", mode=lora_mode, targets=target_suffixes,
         native_modules=n_lora_modules, trainable=n_train)
 

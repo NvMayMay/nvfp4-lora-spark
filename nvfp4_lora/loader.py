@@ -28,7 +28,7 @@ import torch
 import torch.nn as nn
 import safetensors
 
-from .linear import FP8LoRALinear, NVFP4LoRALinear
+from .linear import BF16LoRALinear, FP8LoRALinear, NVFP4LoRALinear
 from .dequant import format_for_record
 from . import families
 
@@ -168,7 +168,6 @@ def decide_lora_mode(
     target_suffixes: Sequence[str],
     *,
     allow_partial_targets: bool = False,
-    allow_fp8_targets: bool = False,
 ) -> tuple[str, dict]:
     """Decide native-NVFP4 vs PEFT LoRA from a full module inventory, fail-fast.
 
@@ -210,30 +209,19 @@ def decide_lora_mode(
         if n_bf16:
             bf16_suffixes.append(suffix)
 
-    # Mode is decided across ALL suffixes (not per-suffix): NVFP4 and FP8 train NATIVELY
-    # (NVFP4LoRALinear / FP8LoRALinear); plain BF16 needs PEFT. So the run is native if
-    # there is ANY NVFP4 or FP8 target -- BF16 stragglers (e.g. a single MTP/speculation
-    # head module per suffix on the 3.6) are then a partial-coverage drop, not a mode
-    # conflict. The only PEFT run is no-NVFP4 with BF16 present (pure BF16, or FP8+BF16
-    # with no NVFP4, unified via PEFT's dequant->wrap).
-    mode = "native" if (tot_nvfp4 > 0 or (tot_fp8 > 0 and tot_bf16 == 0)) else "peft"
-
-    # In a native run, BF16 modules under a target suffix cannot train (no native
-    # BF16-LoRA); they are dropped. Require consent unless the user accepts it.
-    if mode == "native" and tot_bf16 > 0 and not allow_partial_targets:
-        problems.append(
-            f"target suffix(es) {sorted(bf16_suffixes)} are PARTIALLY quantized: "
-            f"{tot_bf16} BF16 module(s) (e.g. an MTP/speculation head) cannot train in a "
-            f"native NVFP4/FP8 run and will be dropped. Pass --allow-partial-targets to "
-            f"accept that, or split the target list."
-        )
+    # NVFP4 / FP8 / BF16 targets ALL train natively now (NVFP4LoRALinear / FP8LoRALinear /
+    # BF16LoRALinear), so ANY quantized target makes it a native run and BF16 targets
+    # co-train via BF16LoRALinear -- the loader wraps the in-scope ones (peft_scope) and
+    # leaves out-of-scope BF16 (an MTP/speculation head, a vision tower) frozen. Only an
+    # all-BF16 target set takes the PEFT path. (`bf16_suffixes` retained for coverage.)
+    mode = "native" if (tot_nvfp4 > 0 or tot_fp8 > 0) else "peft"
+    _ = bf16_suffixes
 
     coverage = {
         "targets": list(target_suffixes),
         "inventory": inventory,
         "suffix_modes": {s: mode for s in target_suffixes if inventory[s]["counts"]},
         "allow_partial_targets": allow_partial_targets,
-        "allow_fp8_targets": allow_fp8_targets,
         "totals": {"nvfp4": tot_nvfp4, "fp8": tot_fp8, "bf16": tot_bf16},
     }
     if problems:
@@ -697,6 +685,45 @@ def replace_nvfp4_modules(
     return counts
 
 
+def replace_bf16_targets(
+    model: nn.Module,
+    target_lora_suffixes: Sequence[str],
+    peft_scope: Optional[str],
+    r: int = 8,
+    lora_alpha: int = 16,
+    lora_dropout: float = 0.0,
+    device: torch.device = torch.device("cuda"),
+    dtype: torch.dtype = torch.bfloat16,
+) -> int:
+    """Wrap plain-BF16 TARGET Linears (under the family's peft_scope) in BF16LoRALinear.
+
+    Call this AFTER the NVFP4/FP8 replacement AND after the BF16 weights are loaded: it lets
+    genuinely-BF16 targets (e.g. attention a mixed-precision quantizer left in bf16) co-train
+    natively alongside NVFP4/FP8 targets in one adapter, instead of being dropped (a native
+    run can't host PEFT). `peft_scope` anchors to the text backbone, so out-of-scope BF16
+    (MTP/speculation heads, vision towers) is left frozen. Returns the count wrapped.
+    """
+    import re
+
+    target_set = set(target_lora_suffixes)
+    scope_re = re.compile(peft_scope) if peft_scope else None
+    hits = [(name, mod) for name, mod in model.named_modules()
+            if isinstance(mod, nn.Linear)
+            and name.rsplit(".", 1)[-1] in target_set
+            and (scope_re is None or scope_re.search(name))]
+    count = 0
+    for name, orig in hits:
+        parent, attr = _get_parent(model, name)
+        bias = orig.bias.detach() if orig.bias is not None else None
+        setattr(parent, attr, BF16LoRALinear(
+            in_features=orig.in_features, out_features=orig.out_features,
+            weight=orig.weight.detach(), bias=bias,
+            r=r, lora_alpha=lora_alpha, lora_dropout=lora_dropout, device=device, dtype=dtype,
+        ))
+        count += 1
+    return count
+
+
 def replace_nvfp4_modules_pooled(
     model: nn.Module,
     model_dir: str | Path,
@@ -720,6 +747,24 @@ def replace_nvfp4_modules_pooled(
     nvfp4_records = [rec for rec in records if rec.weight_dtype == torch.uint8]
     fp8_records = [rec for rec in records if rec.weight_dtype == torch.float8_e4m3fn]
     lora_records = [rec for rec in nvfp4_records if rec.is_lora_target and r > 0]
+
+    # Fail loud: the pooled path pools only NVFP4 storage and installs a FROZEN
+    # nn.Linear for every FP8 target below. It has no FP8 LoRA support, so a
+    # requested FP8 LoRA target here would be silently frozen (no adapter, no
+    # training signal). FP8-native LoRA IS supported via FP8LoRALinear on the
+    # non-pooled `replace_nvfp4_modules` path. Refuse rather than mislead.
+    fp8_lora_records = [rec for rec in fp8_records if rec.is_lora_target and r > 0]
+    if fp8_lora_records:
+        names = ", ".join(sorted(rec.name for rec in fp8_lora_records))
+        raise RuntimeError(
+            "Pooled NVFP4 loader (pooled_loader_buffers=True) cannot train FP8 LoRA "
+            f"targets and would silently freeze {len(fp8_lora_records)} of them: {names}. "
+            "FP8-native LoRA training is supported on the non-pooled path "
+            "(replace_nvfp4_modules / pooled_loader_buffers=False), which installs an "
+            "FP8LoRALinear with a trainable adapter over the frozen FP8 base. "
+            "Re-run with pooled_loader_buffers=False, or restrict the LoRA target "
+            "suffixes to NVFP4 (uint8) modules only."
+        )
 
     total_weight_u8 = sum(_numel(rec.weight_shape) for rec in nvfp4_records)
     total_scale_fp8 = sum(_numel(rec.scale_shape) for rec in nvfp4_records)

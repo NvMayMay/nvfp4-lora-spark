@@ -91,12 +91,17 @@ For correct UMA memory readings, prefer `psutil.virtual_memory().available`
 ### LoRA adapter loaded but model output is base-like (no FT signal)
 
 **Cause**: in Super-120B, shared expert MLPs and Mamba projections are
-FP8, not NVFP4. The training loader silently demotes any LoRA target
-on those modules to frozen (with a count printed at load time).
+FP8, not NVFP4. On the non-pooled loader these train natively via
+`FP8LoRALinear`; but the POOLED loader (`pooled_loader_buffers=True`)
+has no FP8 LoRA support, so a no-FT-signal result there usually means a
+target landed on a module the pooled path can't adapt. (As of the
+fail-loud guard, the pooled loader now raises instead of silently
+freezing FP8 targets, so a silent demotion should no longer be possible.)
 
-**Fix**: target only `up_proj` and `down_proj` on the routed (NVFP4)
-MoE experts. If the printed "frozen LoRA modules" count at load time
-is suspiciously high, double-check `target_modules` in adapter config.
+**Fix**: train FP8 targets on the non-pooled path
+(`pooled_loader_buffers=False`), which installs `FP8LoRALinear` (frozen
+FP8 base + trainable bf16 LoRA). Or, on the pooled path, target only
+`up_proj` and `down_proj` on the routed (NVFP4) MoE experts.
 
 ### `causal-conv1d not found` or "naive Python scan" warning during training
 

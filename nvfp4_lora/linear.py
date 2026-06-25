@@ -451,3 +451,83 @@ class FP8LoRALinear(nn.Module):
             device=device,
             dtype=dtype,
         )
+
+
+class BF16LoRALinear(nn.Module):
+    """Frozen BF16 base weight + trainable bf16 LoRA delta.
+
+    Completes the set (NVFP4 / FP8 / BF16 LoRALinear): a frozen base of ANY storage plus a
+    bf16 LoRA, all trainable through the same NATIVE path. For genuinely-BF16 target modules
+    (e.g. attention a mixed-precision quantizer left in bf16) this lets them CO-TRAIN with
+    NVFP4/FP8 targets in one native adapter, instead of being dropped (a native run cannot
+    host PEFT). No dequant -- the base is already bf16 -- so forward is a plain frozen
+    F.linear + the LoRA path. The frozen base is a buffer (never an optimizer Parameter).
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        weight: torch.Tensor,
+        bias: Optional[torch.Tensor] = None,
+        r: int = 0,
+        lora_alpha: int = 0,
+        lora_dropout: float = 0.0,
+        device: Optional[torch.device] = None,
+        dtype: torch.dtype = torch.bfloat16,
+        copy_base_tensors: bool = True,
+        lora_A_tensor: Optional[torch.Tensor] = None,
+        lora_B_tensor: Optional[torch.Tensor] = None,
+    ):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.r = r
+        self.lora_alpha = lora_alpha
+        self.lora_scale = (lora_alpha / r) if r > 0 else 0.0
+        self.dtype = dtype
+        device = device or weight.device
+        w = weight.to(device=device, dtype=dtype)
+        if copy_base_tensors:
+            w = w.contiguous()
+        self.register_buffer("weight", w)  # frozen base: a buffer, never a trained Parameter
+        if bias is not None:
+            self.bias = nn.Parameter(bias.to(device=device, dtype=dtype), requires_grad=False)
+        else:
+            self.bias = None
+        if r > 0:
+            _A = lora_A_tensor is not None
+            _B = lora_B_tensor is not None
+            if lora_A_tensor is None:
+                lora_A_tensor = torch.empty(r, in_features, device=device, dtype=dtype)
+            if lora_B_tensor is None:
+                lora_B_tensor = torch.zeros(out_features, r, device=device, dtype=dtype)
+            self.lora_A = nn.Parameter(lora_A_tensor)
+            self.lora_B = nn.Parameter(lora_B_tensor)
+            if not _A:
+                nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+            if not _B:
+                with torch.no_grad():
+                    self.lora_B.zero_()
+            self.lora_dropout = nn.Dropout(p=lora_dropout) if lora_dropout > 0 else nn.Identity()
+        else:
+            self.lora_A = None
+            self.lora_B = None
+            self.lora_dropout = nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = F.linear(x, self.weight, bias=None)
+        if self.r > 0:
+            lora_out = F.linear(self.lora_dropout(x), self.lora_A)
+            lora_out = F.linear(lora_out, self.lora_B)
+            y = y + self.lora_scale * lora_out
+        if self.bias is not None:
+            y = y + self.bias
+        return y
+
+    def extra_repr(self) -> str:
+        return (
+            f"in_features={self.in_features}, out_features={self.out_features}, "
+            f"r={self.r}, lora_alpha={self.lora_alpha}, bf16_base=True, "
+            f"bias={self.bias is not None}"
+        )

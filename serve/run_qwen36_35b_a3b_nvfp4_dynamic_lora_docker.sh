@@ -29,11 +29,19 @@ ORIG="${ORIG:-qwen3_6_35b_a3b_lora_reh2_ich_v4_1_r128_a256}"
 REKEY="${REKEY:-qwen3_6_35b_a3b_lora_reh2_ich_v4_1_r128_a256_vllm_rekey}"
 
 NAME="${NAME:-qwen36lora}"
+HOST="${HOST:-127.0.0.1}"   # --network host: bind loopback by default, override for LAN
 PORT="${PORT:-8000}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.60}"
 MAX_LORA_RANK="${MAX_LORA_RANK:-128}"   # adapter is r=128 (the 122B recipe was 16)
 MAX_LORAS="${MAX_LORAS:-2}"
+
+# Runtime LoRA hot-swap is OPT-IN: pass it to the container only when
+# ALLOW_RUNTIME_LORA_UPDATES=1.
+RUNTIME_LORA_ENV=()
+if [ "${ALLOW_RUNTIME_LORA_UPDATES:-0}" = "1" ]; then
+  RUNTIME_LORA_ENV=(-e VLLM_ALLOW_RUNTIME_LORA_UPDATING=1)
+fi
 
 sudo docker rm -f "$NAME" >/dev/null 2>&1 || true
 
@@ -46,12 +54,12 @@ exec sudo docker run -d --name "$NAME" \
   -v "$ADAPTERS":/adapters \
   -e PYTHONPATH=/repo/serve/vllm_patches \
   -e VLLM_PATCH_ATTN_ONLY_LORA_CUTLASS_MOE=1 \
-  -e VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 \
+  "${RUNTIME_LORA_ENV[@]}" \
   -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   "$IMAGE" \
   vllm serve "/models/$BASE" \
     --served-model-name qwen36-base \
-    --host 0.0.0.0 --port "$PORT" \
+    --host "$HOST" --port "$PORT" \
     --tensor-parallel-size 1 \
     --dtype bfloat16 \
     --max-model-len "$MAX_MODEL_LEN" \

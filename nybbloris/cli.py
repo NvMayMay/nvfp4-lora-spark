@@ -23,7 +23,7 @@ VERDICT_EXIT = {"PASS": 0, "FAIL": 1, "EMPTY": 1, "NO-OP": 3, "NEEDS-REKEY": 3, 
 
 
 def cmd_inspect(args):
-    plan = serve_plan(args.base_model_dir, args.adapter_dir, allow_fp8_targets=args.allow_fp8_targets)
+    plan = serve_plan(args.base_model_dir, args.adapter_dir)
     if args.json:
         print(json.dumps(plan, indent=2))
     else:
@@ -201,7 +201,12 @@ def cmd_serve(args):
                 "--max-loras", str(max(args.max_loras, len(lora_modules))),
                 "--lora-modules", *(f"{n}={p}" for n, p in lora_modules)]
     env = dict(os.environ)
-    env["VLLM_ALLOW_RUNTIME_LORA_UPDATING"] = "1"
+    if args.allow_runtime_lora_updates:
+        env["VLLM_ALLOW_RUNTIME_LORA_UPDATING"] = "1"
+    else:
+        # Don't let an inherited/baked VLLM_ALLOW_RUNTIME_LORA_UPDATING enable
+        # runtime LoRA updates without the explicit --allow-runtime-lora-updates flag.
+        env.pop("VLLM_ALLOW_RUNTIME_LORA_UPDATING", None)
     env["CUDA_HOME"] = env.get("CUDA_HOME") or "/usr/local/cuda"
     env["PATH"] = "/usr/local/cuda/bin:" + env.get("PATH", "")
     print("[serve] launch:\n  " + " ".join(cmd))
@@ -346,8 +351,6 @@ def build_parser():
     pi = sub.add_parser("inspect", help="pre-flight serve plan for a base + adapter")
     pi.add_argument("--base-model-dir", required=True)
     pi.add_argument("--adapter-dir", required=True)
-    pi.add_argument("--allow-fp8-targets", action="store_true",
-                    help="count FP8 targets as live (only if the serve loader enables FP8 LoRA)")
     pi.add_argument("--json-out", default=None, help="also write the plan object to this file")
     pi.add_argument("--json", action="store_true",
                     help="emit the plan as JSON on stdout (machine-readable; suppresses the human report)")
@@ -368,12 +371,16 @@ def build_parser():
                     help="interpreter to run vllm through (default: the python beside --vllm, "
                          "for a relocated venv with a stale shebang; else exec vllm directly)")
     ps.add_argument("--served-model-name", default=None, help="defaults to the base dir basename")
-    ps.add_argument("--host", default="0.0.0.0")
+    ps.add_argument("--host", default="127.0.0.1",
+                    help="bind address (default: localhost; pass 0.0.0.0 to bind all interfaces)")
     ps.add_argument("--port", type=int, default=8000)
     ps.add_argument("--max-model-len", type=int, default=8192)
     ps.add_argument("--gpu-memory-utilization", type=float, default=0.6)
     ps.add_argument("--max-lora-rank", type=int, default=0, help="0 = auto from the adapters (min 16)")
     ps.add_argument("--max-loras", type=int, default=2)
+    ps.add_argument("--allow-runtime-lora-updates", action="store_true",
+                    help="opt in to vLLM runtime LoRA load/unload via the API "
+                         "(sets VLLM_ALLOW_RUNTIME_LORA_UPDATING=1; off by default)")
     ps.add_argument("--launcher", default=None,
                     help="escape hatch: hand off to a serve/run_*.sh launcher after the pre-flight")
     ps.add_argument("--dry-run", action="store_true", help="print the vLLM command, do not launch")

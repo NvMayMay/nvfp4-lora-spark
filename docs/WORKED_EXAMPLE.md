@@ -68,8 +68,10 @@ Gotchas worth knowing up front:
 - **Long prompts:** `--max-length` must fit your data or every example is dropped
   (`num_samples=0`). Chat datasets with long context need `8192`, not `2048`.
 - `--permissive-load` allows intentionally-absent tensors (e.g. an MTP
-  speculation head); `--allow-partial-targets` allows some suffixes to be
-  demoted/excluded (e.g. FP8 attention, which the trainer can't LoRA yet).
+  speculation head); `--allow-partial-targets` allows a native suffix to be
+  partly BF16 (those BF16 instances would not train natively). FP8 targets
+  do train natively via `FP8LoRALinear` on the non-pooled loader, so they
+  need no flag.
 - **GatedDeltaNet (GDN) models** (Qwen3.5 / 3.6 hybrid attention) require
   `flash-linear-attention==0.4.2` in the training env, or the GDN forward fails.
 - A few-step run is undertrained on purpose for a smoke; expect `verify` to

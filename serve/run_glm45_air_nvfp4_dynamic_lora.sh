@@ -31,12 +31,12 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PATCH_DIR="$REPO_DIR/serve/vllm_patches"
 
 BASE_DIR="${BASE_DIR:-${NVFP4_MODELS_DIR}/GLM-4.5-Air-106B-A12B-NVFP4}"
-ADAPTER_ROOT="${NVFP4_ADAPTERS_DIR}/glm45air_lora_ich_v4_1_8k_r32a64"
+ADAPTER_ROOT="${NVFP4_ADAPTERS_DIR}/glm45air_lora_ich_v4_1_8k_r128a256"
 ADAPTER_DIR="${ADAPTER_DIR:-$ADAPTER_ROOT/best}"
 ADAPTER_NAME="${ADAPTER_NAME:-ich_v4_1}"
 
 SERVED_NAME="${SERVED_NAME:-glm-4.5-air-nvfp4}"
-HOST="${HOST:-0.0.0.0}"
+HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
 # Serve context is independent of the 8192 training seq_len; GLM-4.5-Air's native
 # context is far larger. 32768 because REH-2 needs_input prompts reach ~9.4k tokens
@@ -47,7 +47,7 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
 MAX_BATCHED_TOKENS="${MAX_BATCHED_TOKENS:-16384}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-4}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.80}"
-MAX_LORA_RANK="${MAX_LORA_RANK:-32}"   # adapter is r=32 alpha=64
+MAX_LORA_RANK="${MAX_LORA_RANK:-128}"   # adapter is r=128 alpha=256 (attention + shared_expert + dense MLP)
 MAX_LORAS="${MAX_LORAS:-2}"
 REASONING_PARSER="${REASONING_PARSER:-}"
 
@@ -61,7 +61,10 @@ export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:T
 export MAX_JOBS="${MAX_JOBS:-1}"
 export PYTHONPATH="$PATCH_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export VLLM_PATCH_ATTN_ONLY_LORA_CUTLASS_MOE=1
-export VLLM_ALLOW_RUNTIME_LORA_UPDATING=1
+# Runtime LoRA hot-swap is OPT-IN: export only when ALLOW_RUNTIME_LORA_UPDATES=1.
+if [ "${ALLOW_RUNTIME_LORA_UPDATES:-0}" = "1" ]; then
+  export VLLM_ALLOW_RUNTIME_LORA_UPDATING=1
+fi
 
 ENABLE_PREFIX_CACHING_FLAG="${ENABLE_PREFIX_CACHING_FLAG:---no-enable-prefix-caching}"
 ENABLE_CHUNKED_PREFILL_FLAG="${ENABLE_CHUNKED_PREFILL_FLAG:---enable-chunked-prefill}"

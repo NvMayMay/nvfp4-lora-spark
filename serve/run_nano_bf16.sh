@@ -12,7 +12,7 @@ if [ -f "${SERVE_ENV_DIR}/local_env.sh" ]; then source "${SERVE_ENV_DIR}/local_e
 
 MODEL_DIR="${MODEL_DIR:-${NVFP4_MODELS_DIR}/Nemotron-3-Nano-30B-A3B-BF16}"
 SERVED_NAME="${SERVED_NAME:-nemotron-3-nano-30b-a3b-bf16}"
-HOST="${HOST:-0.0.0.0}"
+HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8000}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
 MAX_BATCHED_TOKENS="${MAX_BATCHED_TOKENS:-16384}"
