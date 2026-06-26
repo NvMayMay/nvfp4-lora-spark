@@ -1,8 +1,8 @@
 {
   "architectures": [
-    "LlamaForCausalLM"
+    "GPT2LMHeadModel"
   ],
-  "model_type": "llama",
+  "model_type": "gpt2",
   "hidden_size": 16,
   "intermediate_size": 32,
   "num_attention_heads": 2,
