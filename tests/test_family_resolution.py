@@ -37,6 +37,7 @@ def test_families_registry_contents(train_mod):
         "nemotron_h",
         "glm4_moe",
         "qwen3",
+        "llama",
     }
     for fam in train_mod.FAMILIES.values():
         assert fam["auto_class"] in ("causal_lm", "image_text_to_text")
@@ -64,12 +65,12 @@ def test_nemotron_resolves(train_mod, fixtures_dir):
 
 
 def test_unsupported_model_type_raises_systemexit(train_mod, fixtures_dir):
-    # `llama` is a model_type transformers recognizes (so AutoConfig.from_pretrained
+    # `gpt2` is a model_type transformers recognizes (so AutoConfig.from_pretrained
     # succeeds) but which is NOT in FAMILIES. This is the path resolve_family is meant
     # to guard: it must raise SystemExit with the helpful "Add a FAMILIES entry" message.
     with pytest.raises(SystemExit) as exc:
         train_mod.resolve_family(fixtures_dir / "unsupported_family")
     msg = str(exc.value)
-    assert "Unsupported model_type='llama'" in msg
+    assert "Unsupported model_type='gpt2'" in msg
     assert "FAMILIES entry" in msg
     assert "make_key_translator" in msg
