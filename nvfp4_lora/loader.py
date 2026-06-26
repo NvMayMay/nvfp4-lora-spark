@@ -737,7 +737,15 @@ def replace_nvfp4_modules_pooled(
     """Pooled-storage variant of `replace_nvfp4_modules`.
 
     This preserves the module/parameter interface but backs the many immutable
-    NVFP4 buffers and LoRA tensors with a small number of flat CUDA allocations.
+    NVFP4 / FP8 buffers and LoRA tensors with a small number of flat CUDA allocations.
+
+    Quantized targets train through the same native LoRALinears as the non-pooled
+    path: NVFP4 -> NVFP4LoRALinear; FP8 LoRA targets -> FP8LoRALinear (frozen FP8 base
+    kept in fp8 + bf16 LoRA). FP8 modules that are NOT LoRA targets are dequantized to
+    a frozen bf16 nn.Linear. Pooling accounts for the different scale layouts: NVFP4
+    carries a per-group `weight_scale` (fp8) + a per-tensor `weight_scale_2` (fp32),
+    while FP8 carries only a per-tensor scalar or per-output-channel `weight_scale`
+    (fp32) and no group structure.
     """
     model_dir = Path(model_dir)
     idx = json.loads((model_dir / "model.safetensors.index.json").read_text())
@@ -748,30 +756,40 @@ def replace_nvfp4_modules_pooled(
     fp8_records = [rec for rec in records if rec.weight_dtype == torch.float8_e4m3fn]
     lora_records = [rec for rec in nvfp4_records if rec.is_lora_target and r > 0]
 
-    # Fail loud: the pooled path pools only NVFP4 storage and installs a FROZEN
-    # nn.Linear for every FP8 target below. It has no FP8 LoRA support, so a
-    # requested FP8 LoRA target here would be silently frozen (no adapter, no
-    # training signal). FP8-native LoRA IS supported via FP8LoRALinear on the
-    # non-pooled `replace_nvfp4_modules` path. Refuse rather than mislead.
+    # FP8 targets split by whether they train:
+    #   * LoRA targets (is_lora_target and r>0) -> FP8LoRALinear: the fp8 base stays
+    #     FROZEN AND FP8 (no bf16 shadow), pooled alongside its fp32 weight_scale; the
+    #     only trainable params are the pooled bf16 LoRA A/B. This mirrors the non-pooled
+    #     FP8 branch in replace_nvfp4_modules and is what makes FP8 LoRA train here too.
+    #   * Non-targets (or r==0) -> dequant to a FROZEN bf16 nn.Linear (current behaviour),
+    #     pooled into `fp8_weight_pool`.
+    # NB: FP8 uses a per-tensor scalar or per-output-channel `weight_scale` and has NO
+    # `weight_scale_2` / group structure, so its scale pooling is just flat-by-numel
+    # (no group_size accounting); scale shape is preserved via the record's scale_shape.
     fp8_lora_records = [rec for rec in fp8_records if rec.is_lora_target and r > 0]
+    fp8_frozen_records = [rec for rec in fp8_records if not (rec.is_lora_target and r > 0)]
+
+    # `_collect_quantized_linear_records` counts every FP8 record as frozen_fp8 (and a
+    # lora-target FP8 as lora_demoted_fp8) because it ran before knowing r / the pooled
+    # path's FP8-LoRA support. Now FP8 LoRA targets DO train here, so re-derive coherent
+    # counts: FP8 LoRA targets join `lora` (+ lora_fp8), only the rest stay frozen_fp8.
+    counts["frozen_fp8"] = len(fp8_frozen_records)
+    counts.pop("lora_demoted_fp8", None)
     if fp8_lora_records:
-        names = ", ".join(sorted(rec.name for rec in fp8_lora_records))
-        raise RuntimeError(
-            "Pooled NVFP4 loader (pooled_loader_buffers=True) cannot train FP8 LoRA "
-            f"targets and would silently freeze {len(fp8_lora_records)} of them: {names}. "
-            "FP8-native LoRA training is supported on the non-pooled path "
-            "(replace_nvfp4_modules / pooled_loader_buffers=False), which installs an "
-            "FP8LoRALinear with a trainable adapter over the frozen FP8 base. "
-            "Re-run with pooled_loader_buffers=False, or restrict the LoRA target "
-            "suffixes to NVFP4 (uint8) modules only."
-        )
+        counts["lora"] += len(fp8_lora_records)
+        counts["lora_fp8"] = len(fp8_lora_records)
 
     total_weight_u8 = sum(_numel(rec.weight_shape) for rec in nvfp4_records)
     total_scale_fp8 = sum(_numel(rec.scale_shape) for rec in nvfp4_records)
     total_scale2 = sum(_numel(rec.scale2_shape or ()) for rec in nvfp4_records)
     total_lora_a = sum(r * rec.in_features for rec in lora_records)
     total_lora_b = sum(rec.out_features * r for rec in lora_records)
-    total_fp8_weight = sum(_numel(rec.weight_shape) for rec in fp8_records)
+    total_fp8_weight = sum(_numel(rec.weight_shape) for rec in fp8_frozen_records)
+    # FP8-LoRA pools: fp8 base weight kept native, fp32 weight_scale, bf16 LoRA A/B.
+    total_fp8l_weight = sum(_numel(rec.weight_shape) for rec in fp8_lora_records)
+    total_fp8l_scale = sum(_numel(rec.scale_shape) for rec in fp8_lora_records)
+    total_fp8l_lora_a = sum(r * rec.in_features for rec in fp8_lora_records)
+    total_fp8l_lora_b = sum(rec.out_features * r for rec in fp8_lora_records)
 
     print(
         "  pooled loader: allocating "
@@ -779,7 +797,9 @@ def replace_nvfp4_modules_pooled(
         f"fp8_scale={total_scale_fp8/1e9:.2f}G elems, "
         f"fp32_scale2={total_scale2/1e6:.2f}M elems, "
         f"lora={((total_lora_a + total_lora_b) * 2)/1e9:.2f}GB, "
-        f"fp8_bf16={total_fp8_weight * 2 / 1e9:.2f}GB"
+        f"fp8_bf16={total_fp8_weight * 2 / 1e9:.2f}GB, "
+        f"fp8_lora_base={total_fp8l_weight / 1e9:.2f}GB, "
+        f"fp8_lora_adapter={((total_fp8l_lora_a + total_fp8l_lora_b) * 2)/1e9:.2f}GB"
     )
     weight_pool = torch.empty(total_weight_u8, device=device, dtype=torch.uint8)
     scale_pool = torch.empty(total_scale_fp8, device=device, dtype=torch.float8_e4m3fn)
@@ -787,21 +807,67 @@ def replace_nvfp4_modules_pooled(
     lora_a_pool = torch.empty(total_lora_a, device=device, dtype=dtype) if total_lora_a else None
     lora_b_pool = torch.empty(total_lora_b, device=device, dtype=dtype) if total_lora_b else None
     fp8_weight_pool = torch.empty(total_fp8_weight, device=device, dtype=dtype) if total_fp8_weight else None
+    # FP8-LoRA: keep the base in fp8 (1 byte/elem, no bf16 shadow) + its fp32 scale,
+    # and pool the bf16 adapter the same way as the NVFP4 LoRA adapter.
+    fp8l_weight_pool = (
+        torch.empty(total_fp8l_weight, device=device, dtype=torch.float8_e4m3fn)
+        if total_fp8l_weight else None
+    )
+    fp8l_scale_pool = (
+        torch.empty(total_fp8l_scale, device=device, dtype=torch.float32)
+        if total_fp8l_scale else None
+    )
+    fp8l_lora_a_pool = (
+        torch.empty(total_fp8l_lora_a, device=device, dtype=dtype) if total_fp8l_lora_a else None
+    )
+    fp8l_lora_b_pool = (
+        torch.empty(total_fp8l_lora_b, device=device, dtype=dtype) if total_fp8l_lora_b else None
+    )
     # NVFP4LoRALinear.__init__ intentionally skips Kaiming/zero init when a tensor is
     # supplied via lora_A_tensor/lora_B_tensor (to preserve checkpoint values during
     # a future pooled-path resume). Our pools are torch.empty here, so we MUST apply
     # the standard PEFT init explicitly or the LoRA invariant B@A == 0 breaks at step 0
     # and the first forward computes a random adapter delta. lora_B can be zeroed at
     # the flat-pool level (shape-independent); lora_A's Kaiming is shape-dependent so
-    # we apply it per-view inside the construction loop below.
+    # we apply it per-view inside the construction loop below. Same applies to the
+    # FP8-LoRA adapter pools (FP8LoRALinear has the identical supplied-tensor contract).
     if lora_b_pool is not None:
         lora_b_pool.zero_()
+    if fp8l_lora_b_pool is not None:
+        fp8l_lora_b_pool.zero_()
 
-    offsets = {"weight": 0, "scale": 0, "scale2": 0, "lora_a": 0, "lora_b": 0, "fp8": 0}
+    offsets = {
+        "weight": 0, "scale": 0, "scale2": 0, "lora_a": 0, "lora_b": 0, "fp8": 0,
+        "fp8l_weight": 0, "fp8l_scale": 0, "fp8l_lora_a": 0, "fp8l_lora_b": 0,
+    }
     views_by_name: dict[str, dict[str, torch.Tensor | None]] = {}
     nvfp4_copy_targets: dict[str, torch.Tensor] = {}
+    fp8_lora_set = {id(rec) for rec in fp8_lora_records}
     for rec in records:
-        if rec.weight_dtype == torch.uint8:
+        if rec.weight_dtype == torch.float8_e4m3fn and id(rec) in fp8_lora_set:
+            # ---- FP8 LoRA target: pool fp8 base + fp32 scale + bf16 adapter ----
+            weight_view = _view_from_pool(fp8l_weight_pool, offsets["fp8l_weight"], rec.weight_shape)
+            offsets["fp8l_weight"] += _numel(rec.weight_shape)
+            scale_view = _view_from_pool(fp8l_scale_pool, offsets["fp8l_scale"], rec.scale_shape)
+            offsets["fp8l_scale"] += _numel(rec.scale_shape)
+            # Copy fp8 base weight + fp32 scale straight from the shards (no dequant).
+            nvfp4_copy_targets[rec.weight_key] = weight_view
+            nvfp4_copy_targets[rec.scale_key] = scale_view
+
+            lora_a_view = _view_from_pool(fp8l_lora_a_pool, offsets["fp8l_lora_a"], (r, rec.in_features))
+            offsets["fp8l_lora_a"] += r * rec.in_features
+            nn.init.kaiming_uniform_(lora_a_view, a=math.sqrt(5))
+            lora_b_view = _view_from_pool(fp8l_lora_b_pool, offsets["fp8l_lora_b"], (rec.out_features, r))
+            offsets["fp8l_lora_b"] += rec.out_features * r
+
+            views_by_name[rec.name] = {
+                "weight": weight_view,
+                "scale": scale_view,
+                "scale2": None,
+                "lora_a": lora_a_view,
+                "lora_b": lora_b_view,
+            }
+        elif rec.weight_dtype == torch.uint8:
             weight_view = _view_from_pool(weight_pool, offsets["weight"], rec.weight_shape)
             offsets["weight"] += _numel(rec.weight_shape)
             scale_view = _view_from_pool(scale_pool, offsets["scale"], rec.scale_shape)
@@ -866,7 +932,30 @@ def replace_nvfp4_modules_pooled(
                 lora_B_tensor=views["lora_b"],
             )
             setattr(parent, attr, new_mod)
+        elif id(rec) in fp8_lora_set:
+            # ---- FP8 LoRA target: frozen FP8 base (pooled, native fp8) + bf16 LoRA ----
+            # Same trainable form as the non-pooled replace_nvfp4_modules FP8 branch:
+            # FP8LoRALinear with copy_base_tensors=False over the pooled fp8 weight +
+            # fp32 scale views, and the pooled bf16 adapter (already Kaiming-A / zero-B).
+            views = views_by_name[rec.name]
+            new_mod = FP8LoRALinear(
+                in_features=rec.in_features,
+                out_features=rec.out_features,
+                weight_fp8=views["weight"],
+                weight_scale=views["scale"],
+                bias=bias,
+                r=r,
+                lora_alpha=lora_alpha,
+                lora_dropout=lora_dropout,
+                device=device,
+                dtype=dtype,
+                copy_base_tensors=False,
+                lora_A_tensor=views["lora_a"],
+                lora_B_tensor=views["lora_b"],
+            )
+            setattr(parent, attr, new_mod)
         else:
+            # ---- Frozen FP8: dequant to a frozen bf16 nn.Linear (pooled bf16) ----
             weight_view = _view_from_pool(fp8_weight_pool, offsets["fp8"], rec.weight_shape)
             offsets["fp8"] += _numel(rec.weight_shape)
             w_tensor = load_tensor(model_dir, rec.weight_key, wm)
