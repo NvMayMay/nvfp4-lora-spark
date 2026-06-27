@@ -197,6 +197,9 @@ def load_model(
     lora_alpha: int,
     lora_dropout: float,
     strict: bool = True,
+    expert_lora_r: int = 0,
+    expert_lora_alpha: int = 0,
+    expert_lora_dropout: float = 0.0,
 ):
     print("[load] building model on meta…", flush=True)
     cfg = AutoConfig.from_pretrained(str(model_dir), trust_remote_code=True)
@@ -222,20 +225,28 @@ def load_model(
                   "keys; treating as a dense variant of this family (skipping MoE "
                   "replacement)", flush=True)
         else:
+            _ex_r = expert_lora_r if lora_mode == "native" else 0
             print(f"[load] replacing fused-3D MoE blocks with NVFP4Experts3D "
                   f"(format={moe_storage['quant_format']}, "
-                  f"split_gate_up_scales={moe_storage['split_gate_up_scales']})…", flush=True)
+                  f"split_gate_up_scales={moe_storage['split_gate_up_scales']}, "
+                  f"expert_lora_r={_ex_r})…", flush=True)
             # device= is load-bearing on GB10 UMA: the default (None) allocates the
             # packed expert buffers (~weight-sized) on CPU, permanently starving CUDA.
             replace_moe_experts_with_nvfp4_3d(
                 model, model_family=model_type, device=device,
                 quant_format=moe_storage["quant_format"],
                 split_gate_up_scales=moe_storage["split_gate_up_scales"],
+                lora_r=_ex_r, lora_alpha=expert_lora_alpha, lora_dropout=expert_lora_dropout,
+                lora_dtype=dtype,
             )
             _stage("post-moe-replace")
     else:
         # Family stores routed experts as per-expert nn.Linear modules
         # (Nemotron); replace_nvfp4_modules handles them like any other linear.
+        if expert_lora_r and lora_mode == "native":
+            print("[load] NOTE: --expert-lora-r set but this family stores experts as per-module "
+                  "linears (not fused-3D); expert adaptation falls under the normal target-module "
+                  "LoRA, not the fused expert path.", flush=True)
         print("[load] no fused-3D MoE for this family; experts are per-module linears", flush=True)
 
     native_targets = tuple(target_suffixes) if lora_mode == "native" else ()
@@ -384,6 +395,9 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
     if lora_mode == "native":
         state = {}
         skipped = []
+        n_expert_blocks = 0
+        expert_lora_r = 0
+        expert_lora_alpha = 0
         for name, mod in model.named_modules():
             if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear, BF16LoRALinear)) and mod.r > 0:
                 a, b = mod.lora_A, mod.lora_B
@@ -392,8 +406,30 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
                     continue
                 state[f"base_model.model.{name}.lora_A.weight"] = a.detach().cpu().contiguous()
                 state[f"base_model.model.{name}.lora_B.weight"] = b.detach().cpu().contiguous()
+            elif isinstance(mod, NVFP4Experts3D) and getattr(mod, "lora_r", 0) > 0:
+                # Per-expert LoRA: native train-side stacked layout, A (E, r, in) and
+                # B (E, out, r) for gate_up and down. Mapping this to a serve engine's
+                # fused-MoE LoRA format is a separate (GPU-gated) rekey step.
+                tensors = {}
+                meta = False
+                for proj in ("gate_up", "down"):
+                    A = getattr(mod, f"lora_A_{proj}"); B = getattr(mod, f"lora_B_{proj}")
+                    if (hasattr(A, "is_meta") and A.is_meta) or (hasattr(B, "is_meta") and B.is_meta):
+                        meta = True
+                        break
+                    tensors[f"base_model.model.{name}.experts.{proj}.lora_A"] = A.detach().cpu().contiguous()
+                    tensors[f"base_model.model.{name}.experts.{proj}.lora_B"] = B.detach().cpu().contiguous()
+                if meta:
+                    skipped.append(name + " (experts)")
+                    continue
+                state.update(tensors)
+                n_expert_blocks += 1
+                expert_lora_r = mod.lora_r
+                expert_lora_alpha = mod.lora_alpha
         if skipped:
             log_fn("save_warn_dropping_meta_modules", count=len(skipped), sample=skipped[:3])
+        if n_expert_blocks:
+            log_fn("save_expert_lora", blocks=n_expert_blocks, r=expert_lora_r)
         safe_save_file(state, str(tmp_dir / "adapter_model.safetensors"))
         cfg = {
             "base_model_name_or_path": base_model_dir,
@@ -402,6 +438,23 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
             "bias": "none", "target_modules": list(target_suffixes),
             "inference_mode": True, "fan_in_fan_out": False,
         }
+        if n_expert_blocks:
+            # Non-PEFT-standard extension: records the per-expert LoRA so resume and
+            # the serve-time rekey can reconstruct it. Keys are stacked per-expert
+            # (gate_up=w13, down=w2). vLLM does not read adapter_config; the rekey does.
+            cfg["expert_lora"] = {
+                "r": expert_lora_r, "lora_alpha": expert_lora_alpha,
+                "lora_dropout": lora_dropout, "blocks": n_expert_blocks,
+                "projections": ["gate_up", "down"],
+                "key_format": "base_model.model.{block}.experts.{proj}.lora_{A|B}",
+                # Actual saved tensor shapes: A is (E, r, in), B is (E, out, r).
+                "tensor_shapes": {
+                    "gate_up": {"lora_A": ["E", "r", "hidden"], "lora_B": ["E", "2*intermediate", "r"]},
+                    "down": {"lora_A": ["E", "r", "intermediate"], "lora_B": ["E", "hidden", "r"]},
+                },
+                "experimental": True,
+                "note": "train-side native stacked layout; runtime serving is GPU-gated (docs/plans/expert_lora_scope.md)",
+            }
         (tmp_dir / "adapter_config.json").write_text(json.dumps(cfg, indent=2))
     else:
         from peft.utils import get_peft_model_state_dict
@@ -432,6 +485,8 @@ def _load_adapter_weights(model, adapter_dir: Path, lora_mode: str, log_fn) -> N
     sd = load_file(str(Path(adapter_dir) / "adapter_model.safetensors"))
     if lora_mode == "native":
         loaded = 0
+        expert_loaded = 0
+        expert_missing = 0
         for name, mod in model.named_modules():
             if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear, BF16LoRALinear)) and mod.r > 0:
                 k_a = f"base_model.model.{name}.lora_A.weight"
@@ -440,7 +495,40 @@ def _load_adapter_weights(model, adapter_dir: Path, lora_mode: str, log_fn) -> N
                     mod.lora_A.data.copy_(sd[k_a].to(mod.lora_A.device, mod.lora_A.dtype))
                     mod.lora_B.data.copy_(sd[k_b].to(mod.lora_B.device, mod.lora_B.dtype))
                     loaded += 1
-        log_fn("resume_adapter_loaded", modules=loaded, path=str(adapter_dir))
+            elif isinstance(mod, NVFP4Experts3D) and getattr(mod, "lora_r", 0) > 0:
+                keys = {proj: (f"base_model.model.{name}.experts.{proj}.lora_A",
+                               f"base_model.model.{name}.experts.{proj}.lora_B")
+                        for proj in ("gate_up", "down")}
+                present = [k for ka_kb in keys.values() for k in ka_kb if k in sd]
+                if len(present) == 0:
+                    expert_missing += 1
+                    continue
+                if len(present) != 4:
+                    # Partial block: copying some-but-not-all tensors leaves the rest
+                    # silently zero-initialized -> a wrong adapter. Fail loud.
+                    raise RuntimeError(
+                        f"resume: expert LoRA block {name!r} has {len(present)}/4 tensors in the "
+                        f"adapter; refusing a partial load. Adapter at {adapter_dir}.")
+                for proj, (k_a, k_b) in keys.items():
+                    pa, pb = getattr(mod, f"lora_A_{proj}"), getattr(mod, f"lora_B_{proj}")
+                    if tuple(sd[k_a].shape) != tuple(pa.shape) or tuple(sd[k_b].shape) != tuple(pb.shape):
+                        raise RuntimeError(
+                            f"resume: expert LoRA shape mismatch at {name}.{proj}: "
+                            f"adapter A{tuple(sd[k_a].shape)}/B{tuple(sd[k_b].shape)} vs "
+                            f"model A{tuple(pa.shape)}/B{tuple(pb.shape)} (did --expert-lora-r change?)")
+                    pa.data.copy_(sd[k_a].to(pa.device, pa.dtype))
+                    pb.data.copy_(sd[k_b].to(pb.device, pb.dtype))
+                expert_loaded += 1
+        # If the adapter carries expert keys but the model has no expert-LoRA modules
+        # (e.g. --expert-lora-r was not re-passed on resume), the saved expert delta
+        # is silently dropped -> fail loud rather than train with frozen experts.
+        has_expert_keys = any(".experts." in k for k in sd)
+        if has_expert_keys and expert_loaded == 0:
+            raise RuntimeError(
+                f"resume: adapter at {adapter_dir} contains per-expert LoRA tensors but the model "
+                f"was built without expert LoRA. Re-pass --expert-lora-r (and matching alpha) to resume.")
+        log_fn("resume_adapter_loaded", modules=loaded, expert_blocks=expert_loaded,
+               expert_missing=expert_missing, path=str(adapter_dir))
     else:
         from peft.utils import set_peft_model_state_dict
         set_peft_model_state_dict(model, sd)
@@ -508,6 +596,17 @@ def main():
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--lora-alpha", type=int, default=32)
     ap.add_argument("--lora-dropout", type=float, default=0.05)
+    # Per-expert LoRA on fused-3D routed MoE experts (gate_up + down). 0 = off
+    # (experts stay frozen, current default). Only applies to native-mode fused-3D
+    # MoE families (GLM-4.5-Air, Qwen3.5); a no-op on dense / per-module-expert
+    # families. NOTE: runtime serving of an expert delta is GPU-gated on the marlin
+    # NVFP4-MoE-LoRA path (see docs/plans/expert_lora_scope.md) -- training works
+    # without it, but the adapter is not yet runtime-servable on this hardware.
+    ap.add_argument("--expert-lora-r", type=int, default=0,
+                    help="LoRA rank for fused-3D routed MoE experts (0=frozen experts)")
+    ap.add_argument("--expert-lora-alpha", type=int, default=0,
+                    help="LoRA alpha for expert LoRA; default 2*expert_lora_r when 0")
+    ap.add_argument("--expert-lora-dropout", type=float, default=0.0)
     ap.add_argument("--target-modules", required=True,
                     help="Comma-separated projection suffixes. The LoRA mechanism "
                          "(native NVFP4 vs PEFT) is detected from whether these are "
@@ -578,6 +677,27 @@ def main():
     log("strategy", model_type=model_type, auto_class=family["auto_class"],
         lora_mode=lora_mode, targets=target_suffixes)
 
+    # Resume: if the adapter being resumed carries per-expert LoRA, the model MUST be
+    # rebuilt with matching expert LoRA or the saved expert delta is silently dropped.
+    # Read it from the resume adapter's config and override the CLI (warn on mismatch).
+    if args.resume_from:
+        _rc = Path(args.resume_from) / "adapter_config.json"
+        if _rc.exists():
+            _el = json.loads(_rc.read_text()).get("expert_lora")
+            if _el:
+                if args.expert_lora_r and args.expert_lora_r != _el["r"]:
+                    log("resume_expert_lora_override_warn",
+                        cli_r=args.expert_lora_r, adapter_r=_el["r"])
+                args.expert_lora_r = _el["r"]
+                args.expert_lora_alpha = _el.get("lora_alpha", args.expert_lora_alpha)
+                log("resume_expert_lora_from_config", r=args.expert_lora_r, alpha=args.expert_lora_alpha)
+
+    if args.expert_lora_r and lora_mode != "native":
+        # Expert LoRA only exists on the native fused-3D NVFP4 path; in peft mode it is
+        # silently dropped. Make the opt-in failure loud rather than silent.
+        log("expert_lora_ignored_warn", reason=f"lora_mode={lora_mode!r} (expert LoRA needs native)",
+            expert_lora_r=args.expert_lora_r)
+
     # Persist the exact target coverage next to the adapter so every run is
     # auditable: which modules were trained natively, which via PEFT, which
     # were FP8-demoted or skipped.
@@ -624,11 +744,17 @@ def main():
 
     log("model_loading_start")
     t0 = time.time()
+    # Default expert LoRA alpha to 2*r (so scale=2.0) when unset, matching the common
+    # MoE-LoRA convention; only meaningful when --expert-lora-r > 0.
+    expert_lora_alpha = args.expert_lora_alpha or (2 * args.expert_lora_r)
     model = load_model(
         model_dir, family, device, dtype,
         lora_mode=lora_mode, target_suffixes=target_suffixes,
         lora_r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout,
         strict=not args.permissive_load,
+        expert_lora_r=args.expert_lora_r,
+        expert_lora_alpha=expert_lora_alpha,
+        expert_lora_dropout=args.expert_lora_dropout,
     )
     log("model_loaded", seconds=round(time.time() - t0, 1))
 
@@ -641,6 +767,18 @@ def main():
                          if isinstance(m, (NVFP4LoRALinear, FP8LoRALinear, BF16LoRALinear)) and m.r > 0)
     log("lora_attached", mode=lora_mode, targets=target_suffixes,
         native_modules=n_lora_modules, trainable=n_train)
+
+    # Expert LoRA can dominate the trainable param count (256 experts x 2 projections);
+    # surface its size + estimated AdamW optimizer-state footprint (param+grad+2 moments
+    # ~ 14 bytes/param) so a large --expert-lora-r is an informed choice, not a silent OOM.
+    expert_blocks = [m for _, m in model.named_modules()
+                     if isinstance(m, NVFP4Experts3D) and getattr(m, "lora_r", 0) > 0]
+    if expert_blocks:
+        n_expert_params = sum(p.numel() for m in expert_blocks
+                              for p in (m.lora_A_gate_up, m.lora_B_gate_up, m.lora_A_down, m.lora_B_down))
+        log("expert_lora_active", blocks=len(expert_blocks), r=expert_blocks[0].lora_r,
+            params=n_expert_params, est_optimizer_state_gb=round(n_expert_params * 14 / 1e9, 2),
+            experimental=True, serving="GPU-gated, unproven on this arch (docs/plans/expert_lora_scope.md)")
 
     if args.fused_linear_ce:
         # Replace lm_head+CE with Liger's chunked fused linear cross-entropy. The
