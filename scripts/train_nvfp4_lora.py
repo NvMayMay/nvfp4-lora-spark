@@ -513,10 +513,10 @@ def main():
                          "(native NVFP4 vs PEFT) is detected from whether these are "
                          "quantized in the checkpoint.")
     ap.add_argument("--allow-partial-targets", action="store_true",
-                    help="Proceed when a target suffix is NVFP4-quantized in some "
-                         "layers but BF16 in others; only the quantized instances "
-                         "are trained. Without this flag, partial coverage is a "
-                         "hard error.")
+                    help="DEPRECATED / no-op: a target suffix that is NVFP4 in some "
+                         "layers and BF16 in others now co-trains both natively "
+                         "(quantized via NVFP4LoRALinear, BF16 via BF16LoRALinear), so "
+                         "no flag is needed. Accepted for backward compatibility.")
     ap.add_argument("--permissive-load", action="store_true",
                     help="Bring-up escape hatch: downgrade strict-load errors "
                          "(unmapped on-disk tensors, tensors left on the meta "

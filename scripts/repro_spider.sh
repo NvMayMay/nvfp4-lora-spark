@@ -6,15 +6,18 @@
 # Run from the repo root. prep/train need the training venv; serve needs the vLLM 0.22.1
 # host venv (point $VLLM at it); eval is stdlib-only. Paths are env-overridable.
 #
+# Defaults reproduce the README headline (full 1034-row dev, 2 epochs, ~3.6h train).
 #   bash scripts/repro_spider.sh
-#   VLLM=/path/to/qwen-serve/bin/vllm N=1034 EPOCHS=2 bash scripts/repro_spider.sh
+# Faster smoke (does NOT reproduce the headline numbers; ~1.8h, 200-row eval):
+#   N=200 EPOCHS=1 bash scripts/repro_spider.sh
+#   VLLM=/path/to/qwen-serve/bin/vllm bash scripts/repro_spider.sh   # point at the serve venv
 set -euo pipefail
 
 MODEL_DIR=${MODEL_DIR:-models/Llama-3.1-8B-Instruct-NVFP4}
 DATA_DIR=${DATA_DIR:-data/spider}
 ADAPTER_DIR=${ADAPTER_DIR:-adapters/spider_llama8b_r32}
-EPOCHS=${EPOCHS:-1}
-N=${N:-200}
+EPOCHS=${EPOCHS:-2}      # headline = 2 epochs; set EPOCHS=1 for a faster smoke
+N=${N:-1034}            # headline = full 1034-row dev; set N=200 for a faster smoke
 PORT=${PORT:-8000}
 OUT=${OUT:-spider_retention.json}
 VLLM=${VLLM:-vllm}          # the vLLM 0.22.1 host-venv binary
@@ -33,7 +36,7 @@ if [ -f "$DATA_DIR/spider.dev.chat.jsonl" ]; then echo "present: $DATA_DIR"; els
   "$PYTHON" scripts/prep_spider.py --out-dir "$DATA_DIR"
 fi
 
-step "3/5 train (epochs=$EPOCHS, ~1.8h for 1 epoch)"
+step "3/5 train (epochs=$EPOCHS, ~1.8h per epoch on one GB10)"
 if [ -d "$ADAPTER_DIR/best" ]; then echo "adapter present: $ADAPTER_DIR/best"; else
   "$PYTHON" -u scripts/train_nvfp4_lora.py \
     --model-dir "$MODEL_DIR" \

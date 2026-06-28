@@ -121,14 +121,58 @@ def gold_nll(base_url, model, prompt, gold, timeout=600):
     return {"nll": nll, "n_tokens": len(sel)}, None
 
 
-def gen_sql(base_url, model, prompt, max_tokens=256, timeout=600):
-    """Greedy completion of the SQL. Returns (text, err)."""
-    body = {"model": model, "prompt": prompt, "max_tokens": max_tokens,
-            "temperature": 0.0, "seed": 0, "stop": ["\n\n", ";", "```"]}
+def gen_sql(base_url, model, prompt, max_tokens=256, timeout=600, thinking=False, chat=False):
+    r"""Greedy completion of the SQL. Returns (text, err).
+
+    chat=True hits /v1/chat/completions so the SERVER applies the model's chat
+    template (system/assistant headers, reasoning scaffold) -- this is required for
+    instruct/reasoning models, which are trained with the template and emit nothing
+    usable from a raw /v1/completions continuation (symptom: EM 0.0, every pred "").
+
+    Reasoning models (e.g. GLM-4.5, Qwen3-thinking) open the turn with a <think>
+    block that contains blank lines, so the default "\n\n" stop truncates the output
+    to empty before any SQL is emitted. In --thinking mode we drop the early stops and
+    give the model room to finish reasoning; the SQL is recovered by _extract_sql.
+    """
+    mt = max(max_tokens, 1024) if thinking else max_tokens
+    if chat:
+        body = {"model": model, "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": mt, "temperature": 0.0, "seed": 0}
+        if not thinking:
+            body["stop"] = ["\n\n", ";", "```"]
+        resp, err = _post(base_url, "/v1/chat/completions", body, timeout)
+        if err:
+            return None, err
+        return (resp["choices"][0]["message"].get("content") or ""), None
+    stop = ["```"] if thinking else ["\n\n", ";", "```"]
+    body = {"model": model, "prompt": prompt, "max_tokens": mt,
+            "temperature": 0.0, "seed": 0, "stop": stop}
     resp, err = _post(base_url, "/v1/completions", body, timeout)
     if err:
         return None, err
     return resp["choices"][0]["text"], None
+
+
+def _extract_sql(text):
+    r"""Recover the SQL from a (possibly reasoning-model) completion.
+
+    Strips a <think>...</think> preamble (takes whatever follows the last </think>;
+    an unclosed <think> means the model never reached an answer -> empty), strips
+    ```sql fences, and returns the first statement (up to ';' or a blank line),
+    anchored at the first SELECT/WITH if the model prefixed prose. Returns "" when
+    nothing SQL-like was emitted -- which the caller counts as an empty generation.
+    """
+    s = text or ""
+    if "</think>" in s:
+        s = s.rsplit("</think>", 1)[1]
+    elif "<think>" in s:
+        s = s.split("<think>", 1)[0]   # unclosed reasoning -> no answer yet
+    s = _strip_md(s).strip()
+    s = re.split(r";|\n\s*\n", s, 1)[0].strip()
+    m = re.search(r"\b(select|with)\b", s, re.IGNORECASE)
+    if m:
+        s = s[m.start():]
+    return s
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +288,13 @@ def main():
     ap.add_argument("--max-new-tokens", type=int, default=256)
     ap.add_argument("--no-nll", action="store_true", help="skip teacher-forced NLL")
     ap.add_argument("--no-em", action="store_true", help="skip exact-set-match generation")
+    ap.add_argument("--thinking", action="store_true",
+                    help="reasoning model: let the <think> block finish, then extract the SQL "
+                         "(reasoning models emit blank lines that an early stop would truncate)")
+    ap.add_argument("--chat", action="store_true",
+                    help="generate via /v1/chat/completions so the server applies the model's "
+                         "chat template (required for instruct/reasoning models; raw /v1/completions "
+                         "continuation yields empty output for templated models)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -259,6 +310,7 @@ def main():
 
     nll_skips = {m: 0 for m in args.models}
     em_skips = {m: 0 for m in args.models}
+    em_empty = {m: 0 for m in args.models}  # generations that returned no SQL at all
     for row in rows:
         msgs = row["messages"]
         prompt, gold = msgs[0]["content"], msgs[-1]["content"]
@@ -280,15 +332,23 @@ def main():
                     if nll_skips[m] == 1:
                         print(f"  note: NLL unavailable for {m}: {e}", flush=True)
             if not args.no_em:
-                text, e = gen_sql(args.base_url, m, gen_prompt, args.max_new_tokens)
+                # chat mode templates server-side, so pass the raw user content (no "\n" lead-in)
+                em_prompt = prompt if args.chat else gen_prompt
+                text, e = gen_sql(args.base_url, m, em_prompt, args.max_new_tokens,
+                                  thinking=args.thinking, chat=args.chat)
                 if e:
                     row_em[m] = None
                     em_skips[m] += 1
                     if em_skips[m] == 1:
                         print(f"  note: generation failed for {m}: {e}", flush=True)
                 else:
-                    row_em[m] = exact_set_match(text, gold)
-                    rec["pred"][m] = _strip_md(text).strip()[:300]
+                    sql = _extract_sql(text) if (args.thinking or args.chat) else text
+                    if not sql.strip():
+                        em_empty[m] += 1
+                        if em_empty[m] == 1:
+                            print(f"  note: empty generation for {m} (no SQL emitted)", flush=True)
+                    row_em[m] = exact_set_match(sql, gold)
+                    rec["pred"][m] = _strip_md(sql).strip()[:300]
 
         # Accumulate NLL only on rows where EVERY model produced it (paired before/after).
         if not args.no_nll and all(row_nll.get(m) is not None for m in args.models):
@@ -338,15 +398,30 @@ def main():
                     f"tokenizer is likely wrong for this model (tekken/mistral_common models "
                     f"must be served with --tokenizer-mode mistral). This is NOT a 0/None result.")
     if not args.no_em:
-        acc = {m: (em_correct[m] / em_n[m] if em_n[m] else 0.0) for m in args.models}
-        summary["exact_set_match"] = {m: round(acc[m], 5) for m in args.models}
-        summary["em_delta_vs_base"] = {m: round(acc[m] - acc[base], 5)
-                                       for m in args.models[1:]}  # positive = adapter better
+        # em_n==0 means every generation errored: report null (mirrors NLL), never a fake 0.0
+        acc = {m: (em_correct[m] / em_n[m] if em_n[m] else None) for m in args.models}
+        summary["exact_set_match"] = {m: (round(acc[m], 5) if acc[m] is not None else None)
+                                      for m in args.models}
+        summary["em_delta_vs_base"] = {
+            m: (round(acc[m] - acc[base], 5)
+                if acc[m] is not None and acc[base] is not None else None)
+            for m in args.models[1:]}  # positive = adapter better
+        summary["empty_generations"] = em_empty  # greedy calls that returned no SQL
         for m in args.models:
             if em_n[m] == 0:
                 warnings_out.append(
                     f"exact-set-match is 0/0 for '{m}': all {em_skips[m]} generations failed "
                     f"(reported 0.0 is a FAILURE, not a real score).")
+            elif em_empty[m] == em_n[m]:
+                warnings_out.append(
+                    f"exact-set-match for '{m}': ALL {em_n[m]} greedy generations were EMPTY "
+                    f"(no SQL emitted). The reported {acc[m]:.3f} is a measurement FAILURE, not a "
+                    f"real score -- typically a reasoning model whose <think> block was cut by an "
+                    f"early stop. Re-run with --thinking.")
+            elif em_empty[m] > em_n[m] // 2:
+                warnings_out.append(
+                    f"exact-set-match for '{m}': {em_empty[m]}/{em_n[m]} greedy generations were "
+                    f"EMPTY; the {acc[m]:.3f} score is unreliable (use --thinking for reasoning models).")
     # Detect a likely silent adapter no-op: an adapter whose NLL and EM are identical to base.
     if len(args.models) > 1 and used > 0:
         for m in args.models[1:]:

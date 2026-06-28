@@ -178,11 +178,13 @@ def decide_lora_mode(
     it natively); a suffix with no NVFP4 is "peft" if it also has BF16, else
     native (FP8-only).
 
-    Hard errors (SystemExit) unless explicitly allowed:
+    Hard error (SystemExit):
       * a suffix matches no module at all (typo / wrong family)
-      * a NATIVE suffix (has NVFP4) also matches BF16 modules -> a native run
-        trains only the quantized ones (--allow-partial-targets to proceed)
-      * suffixes split across native and PEFT mechanisms
+
+    NOT an error (changed since the early releases): a suffix that is NVFP4 in some
+    layers and plain BF16 in others co-trains both -- quantized via NVFP4LoRALinear,
+    in-scope BF16 via BF16LoRALinear -- so `allow_partial_targets` no longer gates
+    anything. It is accepted for backward compatibility and recorded in `coverage`.
 
     Returns (mode, coverage) where mode is "native" or "peft" and coverage is
     a JSON-able report worth persisting next to the adapter.

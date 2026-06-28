@@ -1,7 +1,7 @@
 # Reproduce the Spider text-to-SQL before/after
 
 This reproduces the public result on the README front page, end to end, on a single
-GB10 box: a one-epoch NVFP4 LoRA on `nvidia/Llama-3.1-8B-Instruct-NVFP4` improves
+GB10 box: a two-epoch NVFP4 LoRA on `nvidia/Llama-3.1-8B-Instruct-NVFP4` improves
 held-out gold-SQL NLL and Spider exact-set-match, served via runtime-LoRA (the adapter
 is attached to the 4-bit base at request time, never merged or re-quantized).
 
@@ -16,18 +16,21 @@ Everything here uses a **public base + public dataset** and a **deterministic** 
 | exact-set-match | 36.8% | 52.0% | +15.3 pp |
 
 The *delta* is the signal; the absolute exact-set-match is scorer-dependent (strict
-component set-match, value-insensitive, no DB execution).
+component set-match, value-insensitive, no DB execution). The exact eval JSON for every
+row below is committed under [results/spider/](results/spider/).
 
 **Generalizes across families** (same recipe, swap `--model-dir`):
 
-| Base (NVFP4) | exact-set-match | NLL |
-|---|---|---|
-| Llama-3.1-8B   | 36.8% -> 52.0% (+15.3 pp) | 0.889 -> 0.850 |
-| Mistral-Small-3.2-24B | 24.5% -> 61.0% (+36.5 pp) | 1.37 -> 0.57 |
-| Qwen3-32B      | 46.1% -> 43.4% (saturated) | 1.29 -> 0.26 (large) |
+| Base (NVFP4) | eval n / epochs | exact-set-match | NLL | artifact |
+|---|---|---|---|---|
+| Llama-3.1-8B   | 1034 / 2 | 36.8% -> 52.0% (+15.3 pp) | 0.889 -> 0.850 | `results/spider/spider_retention_llama8b_e2.json` |
+| Mistral-Small-3.2-24B | 200 / 2 | 24.5% -> 61.0% (+36.5 pp) | 1.37 -> 0.57 | `results/spider/spider_retention_mistral24b_e2.json` |
+| Qwen3-32B      | 1034 / 1 | 46.1% -> 43.4% (saturated) | 1.29 -> 0.26 (large) | `results/spider/spider_retention_qwen32b_e1.json` |
 
 The capability lift scales with base headroom: a base that already near-saturates the strict
 set-match (Qwen3-32B) shows its gain as a large NLL/calibration improvement rather than +EM.
+(The cross-family rows use the n/epochs shown; only the Llama row is the full 1034-row,
+2-epoch headline. Reproduce a row with the matching `--model-dir`, `N=` and `EPOCHS=`.)
 
 **Runtime hot-load variant.** `DYNAMIC=1 bash scripts/repro_spider.sh` serves the bare base
 with runtime LoRA updates enabled and loads the adapter via `POST /v1/load_lora_adapter`
@@ -60,10 +63,12 @@ python scripts/prep_spider.py --out-dir data/spider
 # -> data/spider/spider.dev.chat.jsonl    (1034)
 ```
 
-## 3. Train the LoRA (~1.8 h, 1 epoch)
+## 3. Train the LoRA (~3.6 h, 2 epochs)
 
-The `llama` family resolves to native NVFP4 LoRA automatically; `--dry-run` first if you
-want to confirm target coverage and memory before committing.
+The headline is two epochs (~1.8 h/epoch on one GB10). For a faster smoke that does **not**
+reproduce the headline numbers, use `--epochs 1`. The `llama` family resolves to native
+NVFP4 LoRA automatically; `--dry-run` first if you want to confirm target coverage and
+memory before committing.
 
 ```bash
 python -u scripts/train_nvfp4_lora.py \
@@ -71,7 +76,7 @@ python -u scripts/train_nvfp4_lora.py \
     --train-file data/spider/spider.train.chat.jsonl \
     --val-file   data/spider/spider.dev.chat.jsonl \
     --output-dir adapters/spider_llama8b_r32 \
-    --max-length 2048 --epochs 1 --batch-size 1 --grad-accum 16 \
+    --max-length 2048 --epochs 2 --batch-size 1 --grad-accum 16 \
     --lora-r 32 --lora-alpha 64 --lora-dropout 0.05 \
     --target-modules q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj \
     --learning-rate 1e-4 --warmup-ratio 0.03 \
@@ -105,7 +110,7 @@ In another shell, against the running server:
 ```bash
 python scripts/eval_retention.py \
     --dev-file data/spider/spider.dev.chat.jsonl \
-    --models base myft --n 200 --out spider_retention.json
+    --models base myft --n 1034 --out spider_retention.json
 ```
 
 `eval_retention.py` reports two deterministic metrics, base vs adapter:
@@ -124,8 +129,9 @@ You should see the deltas in the table above (`myft` lower NLL, higher exact-set
   exits; on GB10 its comm is truncated, so kill it by name: `pkill -9 EngineCor`.
 - **Determinism.** The NLL metric is teacher-forced (single forward pass) and fully
   deterministic; exact-set-match uses greedy decode (`temperature=0`).
-- **n.** `--n 200` is a stable headline; pass `--n 1034` for the full dev set, or train
-  more epochs for a larger exact-set-match lift.
+- **n.** The headline uses `--n 1034` (the full dev set). `--n 200` is a faster,
+  still-stable smoke; the *delta* is consistent across both. More epochs grow the
+  exact-set-match lift.
 - **Tekken / mistral_common models (e.g. Mistral-Small).** These repacks ship an HF
   tokenizer that mis-tokenizes versus the native tekken tokenizer the model trained on,
   which also makes the NLL eval's echo offsets unusable (symptom: every row prints
