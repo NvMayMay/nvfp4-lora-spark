@@ -30,12 +30,18 @@ Backend -> experts class -> LoRA support:
 | **marlin** | **MarlinExperts(LoRAExpertsMixin, MarlinExpertsBase)** -- apply() actually CALLS apply_w13_lora L823 / apply_w2_lora L848 | **YES, genuinely applies** |
 | ~~emulation~~ | Nvfp4QuantizationEmulationTritonExperts(TritonExperts) -- inherits supports_lora()==True BUT overrides apply() (L83), and that apply() has ZERO lora refs | **NO -- silent no-op trap** |
 
-KEY RESULT (corrected after gpt-5.5's 2nd pass flagged the risk): **MARLIN is the only
-genuine stock path.** The emulation backend is a TRAP: it inherits `supports_lora()==True`
+>>> SUPERSEDED (see "## Verdict" and the 2026-06-28 parity update below): the claim that
+>>> emulation is a silent no-op is WRONG. nvfp4_emulation_moe.py:apply() ends in
+>>> `super().apply()` = TritonExperts.apply (fully LoRA-wired) and DOES receive the
+>>> MoELoRAContext via the supports_internal_mk reuse branch. The "0 lora refs" was a grep
+>>> artifact (wiring is inherited). EMULATION IS THE VALIDATED ONE-BOX PATH. The text below
+>>> is kept for the investigation record only.
+
+KEY RESULT (LATER PROVEN WRONG -- see banner above): "MARLIN is the only
+genuine stock path; the emulation backend is a TRAP: it inherits `supports_lora()==True`
 from TritonExperts so it PASSES the `FusedMoEWithLoRA` assert, but its OVERRIDING `apply()`
 never calls apply_w13_lora/apply_w2_lora (grep: 0 lora refs in nvfp4_emulation_moe.py) -- so
-the adapter is SILENTLY IGNORED (serve "works" but logits == no-LoRA). TritonExperts' OWN
-apply() is fully wired (L295/332/409) but emulation overrides it.
+the adapter is SILENTLY IGNORED." (Refuted: the grep missed the inherited super().apply().)
 
 => Feasibility hinges ENTIRELY on **marlin running on sm_121** (unverified; oracle/nvfp4.py
 L171-173 already disables FLASHINFER_B12X on SM121 pending an upstream CUTLASS guard, so sm_121
@@ -149,3 +155,16 @@ applied to the experts, not a silent no-op.
 - Marlin one-box validation for the faster serving path.
 - Process lesson: never trust supports_lora()==True alone; confirm apply() applies AND that
   logits actually move; and always set expandable_segments on GB10.
+
+## Update 2026-06-28: real-adapter train<->serve parity CONFIRMED
+Beyond the synthetic-delta logits-move proof, a REAL GLM-4.5-Air expert-LoRA was trained on
+GPU (100 steps on Spider, expert_lora_r=4 + attn r=8, loss 13.1 -> ~0.1; 45 MoE blocks
+adapted), rekeyed (34,928 vLLM tensors), and served on ONE box (emulation). Same Spider prompt:
+  gold: SELECT count(*) FROM singer
+  base: triple-backtick sql / SELECT COUNT(*) FROM singer; (markdown-fenced, uppercase)
+  myft: SELECT count(*) FROM singer;                       (clean lowercase -- the trained Spider format)
+The trained expert-LoRA reproduces its learned behavior at serve time (strips markdown,
+lowercases) -- coherent, distinct from base, training-consistent. Full pipeline validated:
+train (real fused-MoE GPU) -> rekey -> serve (emulation, one box) -> learned behavior applied.
+Not measured: a Spider EM lift (GLM-Air likely saturates the strict set-match like Qwen3-32B;
+parity + coherence was the objective). Faster marlin serving remains 2-box only.
