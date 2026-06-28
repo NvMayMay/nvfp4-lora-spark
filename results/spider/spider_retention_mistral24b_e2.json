@@ -1,0 +1,3025 @@
+{
+  "summary": {
+    "n": 200,
+    "models": [
+      "base",
+      "myft"
+    ],
+    "mean_gold_nll": {
+      "base": 1.36706,
+      "myft": 0.57343
+    },
+    "nll_delta_vs_base": {
+      "myft": -0.79364
+    },
+    "exact_set_match": {
+      "base": 0.245,
+      "myft": 0.61
+    },
+    "em_delta_vs_base": {
+      "myft": 0.365
+    }
+  },
+  "per_example": [
+    {
+      "gold": "SELECT count(*) FROM singer",
+      "nll": {
+        "base": 1.50972,
+        "myft": 0.31988
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM singer",
+        "myft": "SELECT count(*) FROM singer"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM singer",
+      "nll": {
+        "base": 1.41811,
+        "myft": 0.35295
+      },
+      "pred": {
+        "base": "`SELECT COUNT(*) FROM singer",
+        "myft": "SELECT count(*) FROM singer"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  country ,  age FROM singer ORDER BY age DESC",
+      "nll": {
+        "base": 1.47443,
+        "myft": 0.21611
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT name ,  country ,  age FROM singer ORDER BY age DESC"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  country ,  age FROM singer ORDER BY age DESC",
+      "nll": {
+        "base": 1.7106,
+        "myft": 0.26396
+      },
+      "pred": {
+        "base": "SELECT Name, Country, Age FROM singer ORDER BY Age DESC",
+        "myft": "SELECT Name ,  Country ,  Age FROM singer ORDER BY Age DESC"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  'France'",
+      "nll": {
+        "base": 1.45346,
+        "myft": 0.23856
+      },
+      "pred": {
+        "base": "SELECT AVG(Age) AS average_age, MIN(Age) AS minimum_age, MAX(Age) AS maximum_age FROM singer WHERE Country = 'France'",
+        "myft": "SELECT avg(Age) ,  min(Age) ,  max(Age) FROM singer WHERE Country  =  'France'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  'France'",
+      "nll": {
+        "base": 1.45011,
+        "myft": 0.24782
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT avg(Age) ,  min(Age) ,  max(Age) FROM singer WHERE Country  =  'France'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT song_name ,  song_release_year FROM singer ORDER BY age LIMIT 1",
+      "nll": {
+        "base": 1.85552,
+        "myft": 0.44242
+      },
+      "pred": {
+        "base": "SELECT Name, Song_release_year FROM singer WHERE Age = (SELECT MIN(Age) FROM singer)",
+        "myft": "SELECT Name ,  Song_release_year FROM singer ORDER BY Age DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT song_name ,  song_release_year FROM singer ORDER BY age LIMIT 1",
+      "nll": {
+        "base": 1.79432,
+        "myft": 0.41729
+      },
+      "pred": {
+        "base": "SELECT Name, Song_Name, Song_release_year FROM singer WHERE Age = (SELECT MIN(Age) FROM singer)",
+        "myft": "SELECT Song_Name ,  Song_release_year FROM singer ORDER BY Age DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT country FROM singer WHERE age  >  20",
+      "nll": {
+        "base": 1.68106,
+        "myft": 0.22662
+      },
+      "pred": {
+        "base": "SELECT DISTINCT Country FROM singer WHERE Age > 20",
+        "myft": "SELECT DISTINCT Country FROM singer WHERE Age  >  20"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT country FROM singer WHERE age  >  20",
+      "nll": {
+        "base": 1.5379,
+        "myft": 0.22514
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT DISTINCT Country FROM singer WHERE Age  >  20"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT country ,  count(*) FROM singer GROUP BY country",
+      "nll": {
+        "base": 2.24092,
+        "myft": 0.52334
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Country ,  COUNT(*) FROM singer GROUP BY Country"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT country ,  count(*) FROM singer GROUP BY country",
+      "nll": {
+        "base": 2.17448,
+        "myft": 0.4879
+      },
+      "pred": {
+        "base": "`SELECT Country, COUNT(*) AS Singer_Count FROM singer GROUP BY Country",
+        "myft": "SELECT count(*) ,  Country FROM singer GROUP BY Country"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT song_name FROM singer WHERE age  >  (SELECT avg(age) FROM singer)",
+      "nll": {
+        "base": 1.30116,
+        "myft": 0.2724
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Song_Name FROM singer WHERE Age  >  (SELECT avg(Age) FROM singer)"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT song_name FROM singer WHERE age  >  (SELECT avg(age) FROM singer)",
+      "nll": {
+        "base": 1.39975,
+        "myft": 0.26711
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Song_Name FROM singer WHERE Age  >  (SELECT avg(Age) FROM singer)"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT LOCATION ,  name FROM stadium WHERE capacity BETWEEN 5000 AND 10000",
+      "nll": {
+        "base": 1.21181,
+        "myft": 0.15063
+      },
+      "pred": {
+        "base": "SELECT Location, Name FROM stadium WHERE Capacity BETWEEN 5000 AND 10000",
+        "myft": "SELECT LOCATION ,  NAME FROM stadium WHERE capacity BETWEEN 5000 AND 10000"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT LOCATION ,  name FROM stadium WHERE capacity BETWEEN 5000 AND 10000",
+      "nll": {
+        "base": 1.1827,
+        "myft": 0.16518
+      },
+      "pred": {
+        "base": "`SELECT Location, Name FROM stadium WHERE Capacity BETWEEN 5000 AND 10000",
+        "myft": "SELECT LOCATION ,  Name FROM stadium WHERE capacity BETWEEN 5000 AND 10000"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select max(capacity), average from stadium",
+      "nll": {
+        "base": 1.75472,
+        "myft": 2.16924
+      },
+      "pred": {
+        "base": "SELECT MAX(Capacity) AS max_capacity, AVG(Capacity) AS avg_capacity FROM stadium",
+        "myft": "SELECT max(Capacity) ,  avg(Capacity) FROM stadium"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select avg(capacity) ,  max(capacity) from stadium",
+      "nll": {
+        "base": 1.73982,
+        "myft": 0.78292
+      },
+      "pred": {
+        "base": "SELECT AVG(Capacity) AS average_capacity, MAX(Capacity) AS maximum_capacity FROM stadium",
+        "myft": "SELECT avg(Capacity) ,  max(Capacity) FROM stadium"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1",
+      "nll": {
+        "base": 1.7538,
+        "myft": 0.21191
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1",
+      "nll": {
+        "base": 1.65493,
+        "myft": 0.21745
+      },
+      "pred": {
+        "base": "SELECT Name, Capacity FROM stadium WHERE Average = (SELECT MAX(Average) FROM stadium)",
+        "myft": "SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015",
+      "nll": {
+        "base": 1.13924,
+        "myft": 0.06014
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM concert WHERE Year = '2014' OR Year = '2015'",
+        "myft": "SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015",
+      "nll": {
+        "base": 1.26123,
+        "myft": 0.07163
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM concert WHERE Year = '2014' OR Year = '2015'",
+        "myft": "SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  count(*) FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id GROUP BY T1.stadium_id",
+      "nll": {
+        "base": 1.20601,
+        "myft": 0.14137
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T2.Name ,  COUNT(*) FROM concert AS T1 JOIN stadium AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID GROUP BY T1.Stadium_ID"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  count(*) FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id GROUP BY T1.stadium_id",
+      "nll": {
+        "base": 1.25638,
+        "myft": 0.22121
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) ,  Stadium_ID FROM concert GROUP BY Stadium_ID"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  T2.capacity FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.year  >=  2014 GROUP BY T2.stadium_id ORDER BY count(*) DESC LIMIT 1",
+      "nll": {
+        "base": 0.88756,
+        "myft": 0.11302
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Name ,  T1.capacity FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.Year  >=  2014 GROUP BY T1.Stadium_ID ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select t2.name ,  t2.capacity from concert as t1 join stadium as t2 on t1.stadium_id  =  t2.stadium_id where t1.year  >  2013 group by t2.stadium_id order by count(*) desc limit 1",
+      "nll": {
+        "base": 0.87477,
+        "myft": 0.34224
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Name ,  T1.capacity FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.Year  >  2013 GROUP BY T1.Stadium_ID ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1",
+      "nll": {
+        "base": 1.06344,
+        "myft": 0.14878
+      },
+      "pred": {
+        "base": "SELECT Year, COUNT(*) as concert_count FROM concert GROUP BY Year ORDER BY concert_count DESC LIMIT 1",
+        "myft": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1",
+      "nll": {
+        "base": 1.07675,
+        "myft": 0.12026
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert)",
+      "nll": {
+        "base": 0.5644,
+        "myft": 0.18007
+      },
+      "pred": {
+        "base": "SELECT s.Name FROM stadium s WHERE NOT EXISTS (SELECT 1 FROM concert c WHERE c.Stadium_ID = s.Stadium_ID)",
+        "myft": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert)"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert)",
+      "nll": {
+        "base": 0.69714,
+        "myft": 0.19242
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert)"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT country FROM singer WHERE age  >  40 INTERSECT SELECT country FROM singer WHERE age  <  30",
+      "nll": {
+        "base": 0.93195,
+        "myft": 0.1627
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Country FROM singer WHERE Age  >  40 INTERSECT SELECT Country FROM singer WHERE Age  <  30"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name FROM stadium EXCEPT SELECT T2.name FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.year  =  2014",
+      "nll": {
+        "base": 1.05699,
+        "myft": 0.11456
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT name FROM stadium EXCEPT SELECT T1.name FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  =  2014"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name FROM stadium EXCEPT SELECT T2.name FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.year  =  2014",
+      "nll": {
+        "base": 1.12125,
+        "myft": 0.10487
+      },
+      "pred": {
+        "base": "SELECT Name FROM stadium WHERE Stadium_ID NOT IN (SELECT Stadium_ID FROM concert WHERE Year = '2014')",
+        "myft": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert WHERE YEAR  =  2014)"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T2.concert_name ,  T2.theme ,  count(*) FROM singer_in_concert AS T1 JOIN concert AS T2 ON T1.concert_id  =  T2.concert_id GROUP BY T2.concert_id",
+      "nll": {
+        "base": 1.05584,
+        "myft": 0.16024
+      },
+      "pred": {
+        "base": "SELECT concert.concert_Name, concert.Theme, COUNT(singer_in_concert.Singer_ID) AS Number_of_Singers FROM concert LEFT JOIN singer_in_concert ON concert.concert_ID = singer_in_concert.concert_ID GROUP BY concert.concert_ID, concert.concert_Name, concert.Theme",
+        "myft": "SELECT T1.concert_name ,  T1.theme ,  count(*) FROM concert AS T1 JOIN singer_in_concert AS T2 ON T1.concert_id  =  T2.concert_id GROUP BY T1.concert_name"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select t2.concert_name ,  t2.theme ,  count(*) from singer_in_concert as t1 join concert as t2 on t1.concert_id  =  t2.concert_id group by t2.concert_id",
+      "nll": {
+        "base": 0.98846,
+        "myft": 0.40518
+      },
+      "pred": {
+        "base": "SELECT c.concert_Name, c.Theme, COUNT(s.Singer_ID) AS number_of_singers FROM concert c JOIN singer_in_concert sic ON c.concert_ID = sic.concert_ID JOIN singer s ON sic.Singer_ID = s.Singer_ID GROUP BY c.concert_ID, c.concert_Name, c.Theme",
+        "myft": "SELECT T1.concert_Name ,  T1.Theme ,  COUNT(*) FROM concert AS T1 JOIN singer_in_concert AS T2 ON T1.concert_ID  =  T2.concert_ID GROUP BY T1.concert_ID"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  count(*) FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id GROUP BY T2.singer_id",
+      "nll": {
+        "base": 1.24885,
+        "myft": 0.21578
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Name ,  COUNT(*) FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.Singer_ID  =  T2.Singer_ID GROUP BY T1.Singer_ID"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  count(*) FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id GROUP BY T2.singer_id",
+      "nll": {
+        "base": 1.24541,
+        "myft": 0.23776
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Name ,  COUNT(*) FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.Singer_ID  =  T2.Singer_ID GROUP BY T1.Singer_ID"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id JOIN concert AS T3 ON T1.concert_id  =  T3.concert_id WHERE T3.year  =  2014",
+      "nll": {
+        "base": 0.75363,
+        "myft": 0.14227
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Name FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.Singer_ID  =  T2.Singer_ID JOIN concert AS T3 ON T2.concert_ID  =  T3.concert_ID WHERE T3.Year  =  2014"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id JOIN concert AS T3 ON T1.concert_id  =  T3.concert_id WHERE T3.year  =  2014",
+      "nll": {
+        "base": 0.74858,
+        "myft": 0.11625
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T2.Name FROM concert AS T1 JOIN singer_in_concert AS T2 ON T1.concert_id  =  T2.concert_id JOIN singer AS T3 ON T2.Singer_ID  =  T3.Singer_ID WHERE T1.Year  =  2014"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  country FROM singer WHERE song_name LIKE '%Hey%'",
+      "nll": {
+        "base": 1.75406,
+        "myft": 0.41087
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Name ,  Country FROM singer WHERE Song_Name LIKE \"%Hey%\""
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  country FROM singer WHERE song_name LIKE '%Hey%'",
+      "nll": {
+        "base": 1.67404,
+        "myft": 0.43498
+      },
+      "pred": {
+        "base": "SELECT Name, Country FROM singer WHERE Song_Name LIKE '%Hey%'",
+        "myft": "SELECT Name ,  Country FROM singer WHERE Song_Name LIKE \"%Hey%\""
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2014 INTERSECT SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2015",
+      "nll": {
+        "base": 0.66155,
+        "myft": 0.10675
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.name ,  T1.location FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  =  2014 INTERSECT SELECT T1.name ,  T1.location FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  =  2015"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2014 INTERSECT SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2015",
+      "nll": {
+        "base": 0.67962,
+        "myft": 0.1082
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Name ,  T1.Location FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.Year  =  2014 INTERSECT SELECT T1.Name ,  T1.Location FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.Year  =  2015"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select count(*) from concert where stadium_id = (select stadium_id from stadium order by capacity desc limit 1)",
+      "nll": {
+        "base": 0.59111,
+        "myft": 0.60757
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM concert AS T1 JOIN stadium AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID ORDER BY T2.Capacity DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select count(*) from concert where stadium_id = (select stadium_id from stadium order by capacity desc limit 1)",
+      "nll": {
+        "base": 0.46748,
+        "myft": 0.59972
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id ORDER BY T2.capacity DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM pets WHERE weight  >  10",
+      "nll": {
+        "base": 2.02309,
+        "myft": 0.1853
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM pets WHERE weight  >  10"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM pets WHERE weight  >  10",
+      "nll": {
+        "base": 1.89494,
+        "myft": 0.15465
+      },
+      "pred": {
+        "base": "`SELECT COUNT(*) FROM Pets WHERE weight > 10",
+        "myft": "SELECT count(*) FROM pets WHERE weight  >  10"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT weight FROM pets ORDER BY pet_age LIMIT 1",
+      "nll": {
+        "base": 1.36171,
+        "myft": 0.75274
+      },
+      "pred": {
+        "base": "SELECT weight FROM Pets WHERE PetType = 'dog' AND pet_age = (SELECT MIN(pet_age) FROM Pets WHERE PetType = 'dog')",
+        "myft": "SELECT weight FROM pets WHERE pettype  =  'Dog' ORDER BY pet_age LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT weight FROM pets ORDER BY pet_age LIMIT 1",
+      "nll": {
+        "base": 1.4101,
+        "myft": 0.85109
+      },
+      "pred": {
+        "base": "SELECT weight FROM Pets WHERE PetType = 'dog' AND pet_age = (SELECT MIN(pet_age) FROM Pets WHERE PetType = 'dog')",
+        "myft": "SELECT weight FROM pets WHERE pettype  =  'Dog' ORDER BY pet_age DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT max(weight) ,  petType FROM pets GROUP BY petType",
+      "nll": {
+        "base": 2.06964,
+        "myft": 0.55748
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT max(weight) ,  PetType FROM pets GROUP BY PetType"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT max(weight) ,  petType FROM pets GROUP BY petType",
+      "nll": {
+        "base": 2.15608,
+        "myft": 0.39079
+      },
+      "pred": {
+        "base": "SELECT PetType, MAX(weight) as max_weight FROM Pets GROUP BY PetType",
+        "myft": "SELECT pettype ,  max(weight) FROM pets GROUP BY pettype"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.age  >  20",
+      "nll": {
+        "base": 1.41385,
+        "myft": 0.16483
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM has_pet AS T1 JOIN student AS T2 ON T1.StuID  =  T2.StuID WHERE T2.age  >  20"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.age  >  20",
+      "nll": {
+        "base": 1.48684,
+        "myft": 0.15352
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM Pets WHERE PetID IN (SELECT PetID FROM Has_Pet WHERE StuID IN (SELECT StuID FROM Student WHERE Age > 20))",
+        "myft": "SELECT count(*) FROM has_pet AS T1 JOIN student AS T2 ON T1.StuID  =  T2.StuID WHERE T2.age  >  20"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T1.sex  =  'F' AND T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.77415,
+        "myft": 0.10966
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM has_pet AS T1 JOIN student AS T2 ON T1.StuID  =  T2.StuID JOIN pets AS T3 ON T1.PetID  =  T3.PetID WHERE T2.sex  =  'F' AND T3.pettype  =  'Dog'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T1.sex  =  'F' AND T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.81028,
+        "myft": 0.10507
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM HAS_PET AS T1 JOIN PETS AS T2 ON T1.petid  =  T2.petid JOIN STUDENT AS T3 ON T1.stuid  =  T3.stuid WHERE T2.pettype  =  'dog' AND T3.sex  =  'F'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(DISTINCT pettype) FROM pets",
+      "nll": {
+        "base": 1.93032,
+        "myft": 0.71414
+      },
+      "pred": {
+        "base": "`SELECT COUNT(DISTINCT PetType) FROM Pets`",
+        "myft": "SELECT count(DISTINCT pettype) FROM pets"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(DISTINCT pettype) FROM pets",
+      "nll": {
+        "base": 1.66669,
+        "myft": 0.65064
+      },
+      "pred": {
+        "base": "SELECT COUNT(DISTINCT PetType) FROM Pets",
+        "myft": "SELECT count(DISTINCT pettype) FROM pets"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat' OR T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.66567,
+        "myft": 0.15511
+      },
+      "pred": {
+        "base": "SELECT Fname FROM Student WHERE StuID IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE PetType IN ('cat', 'dog')))",
+        "myft": "SELECT DISTINCT T1.fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'Cat' OR T3.pettype  =  'Dog'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat' OR T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.67703,
+        "myft": 0.14162
+      },
+      "pred": {
+        "base": "SELECT Fname FROM Student WHERE StuID IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE PetType IN ('cat', 'dog')))",
+        "myft": "SELECT DISTINCT T1.fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T3.pettype  =  'Cat' OR T3.pettype  =  'Dog'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select t1.fname from student as t1 join has_pet as t2 on t1.stuid  =  t2.stuid join pets as t3 on t3.petid  =  t2.petid where t3.pettype  =  'cat' intersect select t1.fname from student as t1 join has_pet as t2 on t1.stuid  =  t2.stuid join pets as t3 on t3.petid  =  t2.petid where t3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.36705,
+        "myft": 0.1658
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T3.pettype  =  'Cat' INTERSECT SELECT T1.fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T3.pettype  =  'D"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat' INTERSECT SELECT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.38957,
+        "myft": 0.10272
+      },
+      "pred": {
+        "base": "SELECT Fname FROM Student WHERE StuID IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE PetType = 'cat')) AND StuID IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE PetType = 'dog'))",
+        "myft": "SELECT T1.fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T3.pettype  =  'Cat' INTERSECT SELECT T1.fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T3.pettype  =  'D"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT major ,  age FROM student WHERE stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",
+      "nll": {
+        "base": 0.79328,
+        "myft": 0.19918
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT major ,  age FROM student EXCEPT SELECT T1.major ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T3.pettype  =  'cat'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT major ,  age FROM student WHERE stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",
+      "nll": {
+        "base": 0.80544,
+        "myft": 0.21398
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT major ,  age FROM student WHERE StuID NOT IN (SELECT StuID FROM has_pet WHERE petID IN (SELECT petID FROM pets WHERE pettype  =  'cat'))"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT stuid FROM student EXCEPT SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat'",
+      "nll": {
+        "base": 0.87876,
+        "myft": 0.25438
+      },
+      "pred": {
+        "base": "SELECT StuID FROM Student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet JOIN Pets ON Has_Pet.PetID = Pets.PetID WHERE PetType = 'cat')",
+        "myft": "SELECT StuID FROM Student EXCEPT SELECT StuID FROM Has_pet AS T1 JOIN Pets AS T2 ON T1.PetID  =  T2.PetID WHERE T2.PetType  =  'cat'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT stuid FROM student EXCEPT SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat'",
+      "nll": {
+        "base": 0.87015,
+        "myft": 0.27777
+      },
+      "pred": {
+        "base": "SELECT StuID FROM Student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE PetType = 'cat'))",
+        "myft": "SELECT StuID FROM Student EXCEPT SELECT StuID FROM Has_pet AS T1 JOIN Pets AS T2 ON T1.PetID  =  T2.PetID WHERE T2.PetType  =  'cat'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'dog' AND T1.stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",
+      "nll": {
+        "base": 0.43299,
+        "myft": 0.09193
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T3.pettype  =  'dog' EXCEPT SELECT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE "
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'dog' AND T1.stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",
+      "nll": {
+        "base": 0.48403,
+        "myft": 0.18072
+      },
+      "pred": {
+        "base": "`SELECT Fname FROM Student WHERE StuID IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE PetType = 'dog')) AND StuID NOT IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE PetType = 'cat'))`",
+        "myft": "SELECT DISTINCT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.StuID  =  T2.StuID JOIN pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.pettype  =  'dog' EXCEPT SELECT DISTINCT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.StuID  =  T2.StuID JOIN pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT pettype ,  weight FROM pets ORDER BY pet_age LIMIT 1",
+      "nll": {
+        "base": 2.0264,
+        "myft": 0.45129
+      },
+      "pred": {
+        "base": "SELECT PetType, weight FROM Pets WHERE pet_age = (SELECT MIN(pet_age) FROM Pets)",
+        "myft": "SELECT pettype ,  weight FROM pets ORDER BY pet_age DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT pettype ,  weight FROM pets ORDER BY pet_age LIMIT 1",
+      "nll": {
+        "base": 2.17928,
+        "myft": 0.3566
+      },
+      "pred": {
+        "base": "SELECT PetType, pet_age, weight FROM Pets WHERE pet_age = (SELECT MIN(pet_age) FROM Pets) LIMIT 1",
+        "myft": "SELECT pettype ,  weight FROM pets ORDER BY pet_age LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT petid ,  weight FROM pets WHERE pet_age  >  1",
+      "nll": {
+        "base": 1.94484,
+        "myft": 0.17386
+      },
+      "pred": {
+        "base": "SELECT PetID, weight FROM Pets WHERE pet_age > 1",
+        "myft": "SELECT petid ,  weight FROM pets WHERE pet_age  >  1"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT petid ,  weight FROM pets WHERE pet_age  >  1",
+      "nll": {
+        "base": 2.04022,
+        "myft": 0.20906
+      },
+      "pred": {
+        "base": "`SELECT PetID, weight FROM Pets WHERE pet_age > 1`",
+        "myft": "SELECT petid ,  weight FROM pets WHERE pet_age  >  1"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(pet_age) ,  max(pet_age) ,  pettype FROM pets GROUP BY pettype",
+      "nll": {
+        "base": 1.55422,
+        "myft": 0.28533
+      },
+      "pred": {
+        "base": "SELECT PetType, AVG(pet_age) AS average_age, MAX(pet_age) AS maximum_age FROM Pets GROUP BY PetType",
+        "myft": "SELECT avg(pet_age) ,  max(pet_age) ,  pettype FROM pets GROUP BY pettype"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(pet_age) ,  max(pet_age) ,  pettype FROM pets GROUP BY pettype",
+      "nll": {
+        "base": 1.61262,
+        "myft": 0.3119
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT avg(pet_age) ,  max(pet_age) ,  PetType FROM Pets GROUP BY PetType"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(weight) ,  pettype FROM pets GROUP BY pettype",
+      "nll": {
+        "base": 1.91738,
+        "myft": 0.48539
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT avg(weight) ,  PetType FROM Pets GROUP BY PetType"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(weight) ,  pettype FROM pets GROUP BY pettype",
+      "nll": {
+        "base": 1.89138,
+        "myft": 0.48906
+      },
+      "pred": {
+        "base": "SELECT PetType, AVG(weight) FROM Pets GROUP BY PetType",
+        "myft": "SELECT avg(weight) ,  PetType FROM Pets GROUP BY PetType"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid",
+      "nll": {
+        "base": 1.39041,
+        "myft": 0.14747
+      },
+      "pred": {
+        "base": "SELECT Student.Fname, Student.Age FROM Student JOIN Has_Pet ON Student.StuID = Has_Pet.StuID JOIN Pets ON Has_Pet.PetID = Pets.PetID",
+        "myft": "SELECT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid",
+      "nll": {
+        "base": 1.23466,
+        "myft": 0.13382
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT DISTINCT DISTINCT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.petid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.Lname  =  'Smith'",
+      "nll": {
+        "base": 1.20946,
+        "myft": 0.21925
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T2.PetID FROM Student AS T1 JOIN Has_pet AS T2 ON T1.StuID  =  T2.StuID WHERE T1.LName  =  'Smith'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.petid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.Lname  =  'Smith'",
+      "nll": {
+        "base": 1.19359,
+        "myft": 0.20446
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T2.PetID FROM student AS T1 JOIN has_pet AS T2 ON T1.StuID  =  T2.StuID WHERE T1.LName  =  'Smith'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) ,  T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid",
+      "nll": {
+        "base": 1.30381,
+        "myft": 0.24407
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) ,  StuID FROM Has_pet GROUP BY StuID"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select count(*) ,  t1.stuid from student as t1 join has_pet as t2 on t1.stuid  =  t2.stuid group by t1.stuid",
+      "nll": {
+        "base": 1.20061,
+        "myft": 0.61725
+      },
+      "pred": {
+        "base": "SELECT StuID, COUNT(*) as num_pets FROM Has_Pet GROUP BY StuID",
+        "myft": "SELECT count(*) ,  StuID FROM has_pet GROUP BY StuID"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.fname ,  T1.sex FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid HAVING count(*)  >  1",
+      "nll": {
+        "base": 1.07719,
+        "myft": 0.09951
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.fname ,  T1.sex FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid HAVING count(*)  >  1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.fname ,  T1.sex FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid HAVING count(*)  >  1",
+      "nll": {
+        "base": 1.14342,
+        "myft": 0.11337
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.fname ,  T1.sex FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T2.stuid HAVING count(*)  >  1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.lname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pet_age  =  3 AND T3.pettype  =  'cat'",
+      "nll": {
+        "base": 0.65202,
+        "myft": 0.14911
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.lname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T3.pettype  =  'cat' AND T3.pet_age  =  3"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.lname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pet_age  =  3 AND T3.pettype  =  'cat'",
+      "nll": {
+        "base": 0.67039,
+        "myft": 0.14315
+      },
+      "pred": {
+        "base": "SELECT LName FROM Student WHERE StuID IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE PetType = 'cat' AND pet_age = 3))",
+        "myft": "SELECT T1.lname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pet_type  =  'cat' AND T3.pet_age  =  3"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select avg(age) from student where stuid not in (select stuid from has_pet)",
+      "nll": {
+        "base": 0.59533,
+        "myft": 0.67519
+      },
+      "pred": {
+        "base": "SELECT AVG(Student.Age) FROM Student WHERE NOT EXISTS (SELECT * FROM Has_Pet WHERE Student.StuID = Has_Pet.StuID)",
+        "myft": "SELECT avg(age) FROM student WHERE StuID NOT IN (SELECT StuID FROM has_pet)"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select avg(age) from student where stuid not in (select stuid from has_pet)",
+      "nll": {
+        "base": 0.54673,
+        "myft": 0.61646
+      },
+      "pred": {
+        "base": "SELECT AVG(Age) FROM Student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet)",
+        "myft": "SELECT avg(age) FROM student WHERE StuID NOT IN (SELECT StuID FROM has_pet)"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CONTINENTS;",
+      "nll": {
+        "base": 1.9329,
+        "myft": 1.7693
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM continents",
+        "myft": "SELECT count(DISTINCT Continent) FROM continents"
+      },
+      "em": {
+        "base": true,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CONTINENTS;",
+      "nll": {
+        "base": 2.09282,
+        "myft": 1.84973
+      },
+      "pred": {
+        "base": "`SELECT COUNT(*) FROM continents",
+        "myft": "SELECT count(*) FROM continents"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.ContId ,  T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId;",
+      "nll": {
+        "base": 1.03244,
+        "myft": 0.49628
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) ,  T1.Continent ,  T2.Continent FROM countries AS T1 JOIN continents AS T2 ON T1.Continent  =  T2.ContId GROUP BY T1.Continent"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.ContId ,  T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId;",
+      "nll": {
+        "base": 1.04041,
+        "myft": 0.4776
+      },
+      "pred": {
+        "base": "SELECT c.ContId, c.Continent, COUNT(c2.CountryId) AS CountryCount FROM continents c LEFT JOIN countries c2 ON c.ContId = c2.Continent GROUP BY c.ContId, c.Continent",
+        "myft": "SELECT T1.ContId ,  T1.Continent ,  count(*) FROM continents AS T1 JOIN countries AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM COUNTRIES;",
+      "nll": {
+        "base": 2.00919,
+        "myft": 1.89401
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM countries",
+        "myft": "SELECT count(*) FROM countries"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM COUNTRIES;",
+      "nll": {
+        "base": 2.01745,
+        "myft": 1.69474
+      },
+      "pred": {
+        "base": "`SELECT COUNT(*) FROM countries",
+        "myft": "SELECT count(*) FROM countries"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.FullName ,  T1.Id ,  count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id;",
+      "nll": {
+        "base": 1.30249,
+        "myft": 0.46454
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.FullName ,  T1.Id ,  COUNT(*) FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.FullName ,  T1.Id ,  count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id;",
+      "nll": {
+        "base": 1.3273,
+        "myft": 0.46047
+      },
+      "pred": {
+        "base": "SELECT cm.Id, cm.FullName, COUNT(ml.ModelId) AS ModelCount FROM car_makers cm LEFT JOIN model_list ml ON cm.Id = ml.Maker GROUP BY cm.Id, cm.FullName",
+        "myft": "SELECT T1.FullName ,  T1.Id ,  COUNT(*) FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.horsepower ASC LIMIT 1;",
+      "nll": {
+        "base": 1.21118,
+        "myft": 0.64164
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.ModelId  =  T2.Id ORDER BY T2.Horsepower LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.horsepower ASC LIMIT 1;",
+      "nll": {
+        "base": 1.1483,
+        "myft": 0.63104
+      },
+      "pred": {
+        "base": "SELECT Model FROM car_names JOIN cars_data ON car_names.MakeId = cars_data.Id ORDER BY Horsepower ASC LIMIT 1",
+        "myft": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.Id  =  T2.Id ORDER BY T2.Horsepower LIMIT 1"
+      },
+      "em": {
+        "base": true,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM CARS_DATA)",
+      "nll": {
+        "base": 1.09174,
+        "myft": 0.38489
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.Id  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM cars_data)"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM CARS_DATA)",
+      "nll": {
+        "base": 1.08108,
+        "myft": 0.42978
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.ModelId  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM cars_data)"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.Maker FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker JOIN CAR_NAMES AS T3 ON T2.model  =  T3.model JOIN CARS_DATA AS T4 ON T3.MakeId  =  T4.id WHERE T4.year  =  '1970';",
+      "nll": {
+        "base": 0.75718,
+        "myft": 0.57966
+      },
+      "pred": {
+        "base": "SELECT Maker FROM car_makers WHERE Id IN (SELECT MakeId FROM car_names WHERE MakeId IN (SELECT Id FROM cars_data WHERE Year = 1970))",
+        "myft": "SELECT T1.Maker FROM car_makers AS T1 JOIN cars_data AS T2 ON T1.Id  =  T2.Id WHERE T2.Year  =  1970"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.Maker FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker JOIN CAR_NAMES AS T3 ON T2.model  =  T3.model JOIN CARS_DATA AS T4 ON T3.MakeId  =  T4.id WHERE T4.year  =  '1970';",
+      "nll": {
+        "base": 0.75922,
+        "myft": 0.57646
+      },
+      "pred": {
+        "base": "SELECT DISTINCT c.Maker FROM car_makers c JOIN model_list m ON c.Id = m.Maker JOIN car_names n ON m.ModelId = n.Model JOIN cars_data d ON n.MakeId = d.Id WHERE d.Year = 1970",
+        "myft": "SELECT DISTINCT Make FROM cars_data WHERE YEAR  =  1970"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T2.Make ,  T1.Year FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Year  =  (SELECT min(YEAR) FROM CARS_DATA);",
+      "nll": {
+        "base": 1.24245,
+        "myft": 0.48687
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Make ,  YEAR FROM cars_data ORDER BY YEAR LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T2.Make ,  T1.Year FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Year  =  (SELECT min(YEAR) FROM CARS_DATA);",
+      "nll": {
+        "base": 1.27451,
+        "myft": 0.54829
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Make ,  YEAR FROM cars_data ORDER BY YEAR LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.model FROM MODEL_LIST AS T1 JOIN CAR_NAMES AS T2 ON T1.model  =  T2.model JOIN CARS_DATA AS T3 ON T2.MakeId  =  T3.id WHERE T3.year  >  1980;",
+      "nll": {
+        "base": 1.00469,
+        "myft": 0.67585
+      },
+      "pred": {
+        "base": "`SELECT DISTINCT Model FROM model_list JOIN car_names ON model_list.ModelId = car_names.Model JOIN cars_data ON car_names.MakeId = cars_data.Id WHERE Year > 1980",
+        "myft": "SELECT DISTINCT Model FROM cars_data WHERE YEAR  >  1980"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.model FROM MODEL_LIST AS T1 JOIN CAR_NAMES AS T2 ON T1.model  =  T2.model JOIN CARS_DATA AS T3 ON T2.MakeId  =  T3.id WHERE T3.year  >  1980;",
+      "nll": {
+        "base": 0.99491,
+        "myft": 0.64998
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT DISTINCT Model FROM cars_data WHERE YEAR  >  1980"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.continent JOIN car_makers AS T3 ON T2.CountryId  =  T3.Country GROUP BY T1.Continent;",
+      "nll": {
+        "base": 1.04537,
+        "myft": 0.52167
+      },
+      "pred": {
+        "base": "SELECT c.Continent, COUNT(DISTINCT cm.Id) AS MakerCount FROM continents c JOIN countries co ON c.ContId = co.Continent JOIN car_makers cm ON co.CountryId = cm.Country GROUP BY c.Continent",
+        "myft": "SELECT T1.Continent ,  COUNT(*) FROM continents AS T1 JOIN countries AS T2 ON T1.ContId  =  T2.Continent JOIN car_makers AS T3 ON T2.CountryId  =  T3.Country GROUP BY T1.Continent"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.continent JOIN car_makers AS T3 ON T2.CountryId  =  T3.Country GROUP BY T1.Continent;",
+      "nll": {
+        "base": 1.01802,
+        "myft": 0.52253
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Continent ,  COUNT(*) FROM continents AS T1 JOIN countries AS T2 ON T1.ContId  =  T2.Continent JOIN car_makers AS T3 ON T2.CountryId  =  T3.Country GROUP BY T1.Continent"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T2.CountryName FROM CAR_MAKERS AS T1 JOIN COUNTRIES AS T2 ON T1.Country  =  T2.CountryId GROUP BY T1.Country ORDER BY Count(*) DESC LIMIT 1;",
+      "nll": {
+        "base": 1.08868,
+        "myft": 0.57132
+      },
+      "pred": {
+        "base": "SELECT c.CountryName, COUNT(cm.Id) as maker_count FROM countries c JOIN car_makers cm ON c.CountryId = cm.Country GROUP BY c.CountryName ORDER BY maker_count DESC LIMIT 1",
+        "myft": "SELECT Country FROM car_makers GROUP BY Country ORDER BY COUNT(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T2.CountryName FROM CAR_MAKERS AS T1 JOIN COUNTRIES AS T2 ON T1.Country  =  T2.CountryId GROUP BY T1.Country ORDER BY Count(*) DESC LIMIT 1;",
+      "nll": {
+        "base": 1.06844,
+        "myft": 0.52723
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.CountryName ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select count(*) ,  t2.fullname from model_list as t1 join car_makers as t2 on t1.maker  =  t2.id group by t2.id;",
+      "nll": {
+        "base": 1.39121,
+        "myft": 0.67523
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) ,  T2.FullName FROM model_list AS T1 JOIN car_makers AS T2 ON T1.Maker  =  T2.Id GROUP BY T2.FullName"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT Count(*) ,  T2.FullName ,  T2.id FROM MODEL_LIST AS T1 JOIN CAR_MAKERS AS T2 ON T1.Maker  =  T2.Id GROUP BY T2.id;",
+      "nll": {
+        "base": 1.59455,
+        "myft": 0.713
+      },
+      "pred": {
+        "base": "SELECT cm.Id, cm.FullName, COUNT(DISTINCT ml.ModelId) AS ModelCount FROM car_makers cm LEFT JOIN model_list ml ON cm.Id = ml.Maker GROUP BY cm.Id, cm.FullName",
+        "myft": "SELECT count(*) ,  T1.Id ,  T1.FullName FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.Accelerate FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T2.Make  =  'amc hornet sportabout (sw)';",
+      "nll": {
+        "base": 0.93482,
+        "myft": 0.50744
+      },
+      "pred": {
+        "base": "SELECT cars_data.Accelerate FROM cars_data JOIN car_names ON cars_data.Id = car_names.MakeId JOIN model_list ON car_names.Model = model_list.ModelId JOIN car_makers ON model_list.Maker = car_makers.Id WHERE car_makers.Maker = 'amc hornet sportabout (sw)'",
+        "myft": "SELECT Accelerate FROM cars_data WHERE Make  =  \"amc hornet sportabout (sw)\""
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Accelerate FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T2.Make  =  'amc hornet sportabout (sw)';",
+      "nll": {
+        "base": 0.9499,
+        "myft": 0.64796
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Accelerate FROM cars_data WHERE Model  =  'amc hornet sportabout (sw)'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CAR_MAKERS AS T1 JOIN COUNTRIES AS T2 ON T1.Country  =  T2.CountryId WHERE T2.CountryName  =  'france';",
+      "nll": {
+        "base": 1.16448,
+        "myft": 0.68156
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM car_makers WHERE Country = (SELECT CountryId FROM countries WHERE CountryName = 'France')",
+        "myft": "SELECT count(*) FROM car_makers WHERE country  =  'France'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CAR_MAKERS AS T1 JOIN COUNTRIES AS T2 ON T1.Country  =  T2.CountryId WHERE T2.CountryName  =  'france';",
+      "nll": {
+        "base": 1.2343,
+        "myft": 0.73281
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM car_makers WHERE country  =  'France'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM MODEL_LIST AS T1 JOIN CAR_MAKERS AS T2 ON T1.Maker  =  T2.Id JOIN COUNTRIES AS T3 ON T2.Country  =  T3.CountryId WHERE T3.CountryName  =  'usa';",
+      "nll": {
+        "base": 0.84474,
+        "myft": 0.58091
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM model_list JOIN car_makers ON model_list.Maker = car_makers.Id JOIN countries ON car_makers.Country = countries.CountryId WHERE countries.CountryName = 'USA'",
+        "myft": "SELECT count(*) FROM car_makers WHERE country  =  'USA'"
+      },
+      "em": {
+        "base": true,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM MODEL_LIST AS T1 JOIN CAR_MAKERS AS T2 ON T1.Maker  =  T2.Id JOIN COUNTRIES AS T3 ON T2.Country  =  T3.CountryId WHERE T3.CountryName  =  'usa';",
+      "nll": {
+        "base": 0.99689,
+        "myft": 0.61086
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM car_makers WHERE country  =  'USA'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT avg(mpg) FROM CARS_DATA WHERE Cylinders  =  4;",
+      "nll": {
+        "base": 1.87594,
+        "myft": 1.10845
+      },
+      "pred": {
+        "base": "SELECT AVG(MPG) FROM cars_data WHERE Cylinders = 4",
+        "myft": "SELECT avg(MPG) FROM cars_data WHERE Cylinders  =  4"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(mpg) FROM CARS_DATA WHERE Cylinders  =  4;",
+      "nll": {
+        "base": 2.02403,
+        "myft": 1.17029
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT avg(MPG) FROM cars_data WHERE Cylinders  =  4"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select min(weight) from cars_data where cylinders  =  8 and year  =  1974",
+      "nll": {
+        "base": 1.1977,
+        "myft": 0.64209
+      },
+      "pred": {
+        "base": "SELECT MIN(Weight) FROM cars_data JOIN car_names ON cars_data.Id = car_names.MakeId JOIN model_list ON car_names.Model = model_list.ModelId JOIN car_makers ON model_list.Maker = car_makers.Id WHERE cars_data.Cylinders = 8 AND cars_data.Year = 1974",
+        "myft": "SELECT min(Weight) FROM cars_data WHERE Cylinders  =  8 AND YEAR  =  1974"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select min(weight) from cars_data where cylinders  =  8 and year  =  1974",
+      "nll": {
+        "base": 1.16569,
+        "myft": 0.589
+      },
+      "pred": {
+        "base": "SELECT MIN(Weight) FROM cars_data JOIN car_names ON cars_data.Id = car_names.MakeId JOIN model_list ON car_names.Model = model_list.ModelId JOIN car_makers ON model_list.Maker = car_makers.Id JOIN countries ON car_makers.Country = countries.CountryId WHERE Cylinders = 8 AND Year = 1974",
+        "myft": "SELECT min(Weight) FROM cars_data WHERE Cylinders  =  8 AND YEAR  =  1974"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT Maker ,  Model FROM MODEL_LIST;",
+      "nll": {
+        "base": 3.33016,
+        "myft": 1.41955
+      },
+      "pred": {
+        "base": "SELECT Maker, Model FROM car_makers JOIN model_list ON car_makers.Id = model_list.Maker",
+        "myft": "SELECT DISTINCT maker ,  model FROM model_list"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT Maker ,  Model FROM MODEL_LIST;",
+      "nll": {
+        "base": 3.701,
+        "myft": 1.47357
+      },
+      "pred": {
+        "base": "SELECT Maker, Model FROM car_makers JOIN model_list ON car_makers.Id = model_list.Maker",
+        "myft": "SELECT Make ,  Model FROM car_names"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.CountryName ,  T1.CountryId FROM COUNTRIES AS T1 JOIN CAR_MAKERS AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.CountryId HAVING count(*)  >=  1;",
+      "nll": {
+        "base": 1.06346,
+        "myft": 0.53504
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT DISTINCT Country ,  CountryId FROM car_makers"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.CountryName ,  T1.CountryId FROM COUNTRIES AS T1 JOIN CAR_MAKERS AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.CountryId HAVING count(*)  >=  1;",
+      "nll": {
+        "base": 1.17054,
+        "myft": 0.54412
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT DISTINCT T1.CountryName ,  T1.CountryId FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE horsepower  >  150;",
+      "nll": {
+        "base": 2.15485,
+        "myft": 1.15266
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM cars_data WHERE Horsepower  >  150"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE horsepower  >  150;",
+      "nll": {
+        "base": 2.32082,
+        "myft": 1.18125
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Horsepower > 150",
+        "myft": "SELECT count(*) FROM cars_data WHERE Horsepower  >  150"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(Weight) ,  YEAR FROM CARS_DATA GROUP BY YEAR;",
+      "nll": {
+        "base": 2.47061,
+        "myft": 1.00916
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT avg(Weight) ,  YEAR FROM cars_data GROUP BY YEAR"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(Weight) ,  YEAR FROM CARS_DATA GROUP BY YEAR;",
+      "nll": {
+        "base": 2.28478,
+        "myft": 1.02747
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT avg(Weight) ,  YEAR FROM cars_data GROUP BY YEAR"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.CountryName FROM COUNTRIES AS T1 JOIN CONTINENTS AS T2 ON T1.Continent  =  T2.ContId JOIN CAR_MAKERS AS T3 ON T1.CountryId  =  T3.Country WHERE T2.Continent  =  'europe' GROUP BY T1.CountryName HAVING count(*)  >=  3;",
+      "nll": {
+        "base": 0.63527,
+        "myft": 0.47721
+      },
+      "pred": {
+        "base": "SELECT c.CountryName FROM countries c JOIN continents co ON c.Continent = co.ContId WHERE co.Continent = 'europe' GROUP BY c.CountryName HAVING COUNT(DISTINCT cm.Id) >= 3",
+        "myft": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country WHERE T1.Continent  =  1 GROUP BY T1.CountryId HAVING count(*)  >=  3"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.CountryName FROM COUNTRIES AS T1 JOIN CONTINENTS AS T2 ON T1.Continent  =  T2.ContId JOIN CAR_MAKERS AS T3 ON T1.CountryId  =  T3.Country WHERE T2.Continent  =  'europe' GROUP BY T1.CountryName HAVING count(*)  >=  3;",
+      "nll": {
+        "base": 0.6504,
+        "myft": 0.51198
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country WHERE T1.Continent  =  1 GROUP BY T1.CountryName HAVING count(*)  >=  3"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T2.horsepower ,  T1.Make FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.cylinders  =  3 ORDER BY T2.horsepower DESC LIMIT 1;",
+      "nll": {
+        "base": 1.06774,
+        "myft": 0.4898
+      },
+      "pred": {
+        "base": "SELECT MAX(Horsepower) AS max_horsepower, Make FROM cars_data JOIN car_names ON cars_data.Id = car_names.MakeId JOIN model_list ON car_names.Model = model_list.ModelId JOIN car_makers ON model_list.Maker = car_makers.Id WHERE Cylinders = 3 GROUP BY Make",
+        "myft": "SELECT max(Horsepower) ,  Make FROM cars_data WHERE Cylinders  =  3 GROUP BY Make"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T2.horsepower ,  T1.Make FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.cylinders  =  3 ORDER BY T2.horsepower DESC LIMIT 1;",
+      "nll": {
+        "base": 1.03625,
+        "myft": 0.48278
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Make ,  max(Horsepower) FROM cars_data WHERE Cylinders  =  3"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.mpg DESC LIMIT 1;",
+      "nll": {
+        "base": 1.23289,
+        "myft": 0.63493
+      },
+      "pred": {
+        "base": "SELECT Model, MPG FROM cars_data JOIN car_names ON cars_data.Id = car_names.MakeId ORDER BY MPG DESC LIMIT 1",
+        "myft": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.Id  =  T2.Id ORDER BY T2.MPG DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select t1.model from car_names as t1 join cars_data as t2 on t1.makeid  =  t2.id order by t2.mpg desc limit 1;",
+      "nll": {
+        "base": 1.05876,
+        "myft": 0.66066
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.MPG DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(horsepower) FROM CARS_DATA WHERE YEAR  <  1980;",
+      "nll": {
+        "base": 2.0162,
+        "myft": 1.05733
+      },
+      "pred": {
+        "base": "SELECT AVG(Horsepower) FROM cars_data WHERE Year < 1980",
+        "myft": "SELECT avg(Horsepower) FROM cars_data WHERE YEAR  <  1980"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select avg(horsepower) from cars_data where year  <  1980;",
+      "nll": {
+        "base": 1.30767,
+        "myft": 1.21181
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT avg(Horsepower) FROM cars_data WHERE YEAR  <  1980"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT avg(T2.edispl) FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T1.Model  =  'volvo';",
+      "nll": {
+        "base": 1.35915,
+        "myft": 0.82094
+      },
+      "pred": {
+        "base": "SELECT AVG(Edispl) FROM cars_data JOIN car_names ON cars_data.Id = car_names.MakeId JOIN model_list ON car_names.Model = model_list.ModelId JOIN car_makers ON model_list.Maker = car_makers.Id WHERE car_makers.Maker = 'volvo'",
+        "myft": "SELECT avg(Edispl) FROM cars_data WHERE Make  =  \"volvo\""
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT avg(T2.edispl) FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T1.Model  =  'volvo';",
+      "nll": {
+        "base": 1.50314,
+        "myft": 0.82594
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT avg(Edispl) FROM cars_data WHERE Make  =  'Volvo'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT max(Accelerate) ,  Cylinders FROM CARS_DATA GROUP BY Cylinders;",
+      "nll": {
+        "base": 1.73702,
+        "myft": 0.85498
+      },
+      "pred": {
+        "base": "SELECT Cylinders, MAX(Accelerate) as MaxAccelerate FROM cars_data GROUP BY Cylinders",
+        "myft": "SELECT max(Accelerate) ,  Cylinders FROM cars_data GROUP BY Cylinders"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT max(Accelerate) ,  Cylinders FROM CARS_DATA GROUP BY Cylinders;",
+      "nll": {
+        "base": 1.74902,
+        "myft": 0.84794
+      },
+      "pred": {
+        "base": "SELECT cylinders, MAX(accelerate) FROM cars_data GROUP BY cylinders",
+        "myft": "SELECT max(Accelerate) ,  Cylinders FROM cars_data GROUP BY Cylinders"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT Model FROM CAR_NAMES GROUP BY Model ORDER BY count(*) DESC LIMIT 1;",
+      "nll": {
+        "base": 1.89355,
+        "myft": 0.88598
+      },
+      "pred": {
+        "base": "SELECT Model, COUNT(*) as version_count FROM model_list GROUP BY Model ORDER BY version_count DESC LIMIT 1",
+        "myft": "SELECT Model FROM car_names GROUP BY Model ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT Model FROM CAR_NAMES GROUP BY Model ORDER BY count(*) DESC LIMIT 1;",
+      "nll": {
+        "base": 1.77671,
+        "myft": 0.82626
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Model FROM model_list GROUP BY Model ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE Cylinders  >  4;",
+      "nll": {
+        "base": 2.46166,
+        "myft": 1.11131
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM cars_data WHERE Cylinders  >  4"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE Cylinders  >  4;",
+      "nll": {
+        "base": 2.4315,
+        "myft": 1.09267
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM cars_data WHERE cylinders  >  4"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE YEAR  =  1980;",
+      "nll": {
+        "base": 1.90112,
+        "myft": 0.91763
+      },
+      "pred": {
+        "base": "`SELECT COUNT(*) FROM cars_data WHERE Year = 1980",
+        "myft": "SELECT count(*) FROM cars_data WHERE YEAR  =  1980"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE YEAR  =  1980;",
+      "nll": {
+        "base": 1.91286,
+        "myft": 0.91459
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM cars_data WHERE YEAR  =  1980"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker WHERE T1.FullName  =  'American Motor Company';",
+      "nll": {
+        "base": 1.21732,
+        "myft": 0.48277
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM model_list AS T1 JOIN car_makers AS T2 ON T1.Maker  =  T2.Id WHERE T2.FullName  =  \"American Motor Company\""
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker WHERE T1.FullName  =  'American Motor Company';",
+      "nll": {
+        "base": 1.27994,
+        "myft": 0.56342
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM model_list WHERE MAKER  =  (SELECT id FROM car_makers WHERE maker  =  'American Motor Co.')"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.FullName ,  T1.Id FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >  3;",
+      "nll": {
+        "base": 1.13162,
+        "myft": 0.43068
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.FullName ,  T1.Id FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >  3"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.FullName ,  T1.Id FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >  3;",
+      "nll": {
+        "base": 1.27165,
+        "myft": 0.44923
+      },
+      "pred": {
+        "base": "SELECT Maker, Id FROM car_makers WHERE Id IN (SELECT Maker FROM model_list GROUP BY Maker HAVING COUNT(Model) > 3)",
+        "myft": "SELECT T1.Maker ,  T1.Id FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >  3"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T2.Model FROM CAR_NAMES AS T1 JOIN MODEL_LIST AS T2 ON T1.Model  =  T2.Model JOIN CAR_MAKERS AS T3 ON T2.Maker  =  T3.Id JOIN CARS_DATA AS T4 ON T1.MakeId  =  T4.Id WHERE T3.FullName  =  'General Motors' OR T4.weight  >  3500;",
+      "nll": {
+        "base": 0.71143,
+        "myft": 0.45545
+      },
+      "pred": {
+        "base": "SELECT DISTINCT Model FROM car_names JOIN car_makers ON car_names.MakeId = car_makers.Id JOIN cars_data ON car_names.MakeId = cars_data.Id WHERE car_makers.FullName = 'General Motors' OR cars_data.Weight > 3500",
+        "myft": "SELECT DISTINCT model FROM cars_data WHERE weight  >  3500 UNION SELECT DISTINCT model FROM model_list WHERE maker IN (SELECT id FROM car_makers WHERE fullname  =  'General Motors')"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T2.Model FROM CAR_NAMES AS T1 JOIN MODEL_LIST AS T2 ON T1.Model  =  T2.Model JOIN CAR_MAKERS AS T3 ON T2.Maker  =  T3.Id JOIN CARS_DATA AS T4 ON T1.MakeId  =  T4.Id WHERE T3.FullName  =  'General Motors' OR T4.weight  >  3500;",
+      "nll": {
+        "base": 0.69043,
+        "myft": 0.4593
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT DISTINCT Model FROM car_names WHERE Make  =  'General Motors' UNION SELECT DISTINCT Model FROM cars_data WHERE Weight  >  3500"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select distinct year from cars_data where weight between 3000 and 4000;",
+      "nll": {
+        "base": 0.66207,
+        "myft": 1.36361
+      },
+      "pred": {
+        "base": "SELECT DISTINCT Year FROM cars_data WHERE Weight BETWEEN 3000 AND 4000",
+        "myft": "SELECT DISTINCT YEAR FROM cars_data WHERE Weight  >=  3000 AND Weight  <=  4000"
+      },
+      "em": {
+        "base": true,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select distinct year from cars_data where weight between 3000 and 4000;",
+      "nll": {
+        "base": 0.78019,
+        "myft": 1.68389
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT DISTINCT YEAR FROM cars_data WHERE Weight  <  4000 INTERSECT SELECT DISTINCT YEAR FROM cars_data WHERE Weight  >  3000"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.horsepower FROM CARS_DATA AS T1 ORDER BY T1.accelerate DESC LIMIT 1;",
+      "nll": {
+        "base": 1.25419,
+        "myft": 1.17205
+      },
+      "pred": {
+        "base": "SELECT Horsepower FROM cars_data WHERE Accelerate = (SELECT MAX(Accelerate) FROM cars_data)",
+        "myft": "SELECT Horsepower FROM cars_data ORDER BY Accelerate DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.horsepower FROM CARS_DATA AS T1 ORDER BY T1.accelerate DESC LIMIT 1;",
+      "nll": {
+        "base": 1.27876,
+        "myft": 1.17374
+      },
+      "pred": {
+        "base": "SELECT Horsepower FROM cars_data WHERE Id IN (SELECT MakeId FROM car_names WHERE MakeId = (SELECT Id FROM car_makers WHERE Id = (SELECT Maker FROM model_list WHERE ModelId = (SELECT Model FROM car_names WHERE MakeId = (SELECT MakeId FROM car_names WHERE MakeId = (SELECT Id FROM car_makers WHERE Coun",
+        "myft": "SELECT Horsepower FROM cars_data ORDER BY Accelerate DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.cylinders FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T2.Model  =  'volvo' ORDER BY T1.accelerate ASC LIMIT 1;",
+      "nll": {
+        "base": 0.93658,
+        "myft": 0.70853
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Cylinders FROM cars_data WHERE Model  =  \"volvo\" ORDER BY Accelerate LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.cylinders FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T2.Model  =  'volvo' ORDER BY T1.accelerate ASC LIMIT 1;",
+      "nll": {
+        "base": 0.9908,
+        "myft": 0.80158
+      },
+      "pred": {
+        "base": "SELECT c.Cylinders FROM cars_data cd JOIN car_names cn ON cd.Id = cn.MakeId JOIN model_list ml ON cn.Model = ml.Model JOIN car_makers cm ON ml.Maker = cm.Id WHERE cm.Maker = 'Volvo' AND cd.Accelerate = (SELECT MIN(Accelerate) FROM cars_data cd2 JOIN car_names cn2 ON cd2.Id = cn2.MakeId JOIN model_li",
+        "myft": "SELECT Cylinders FROM cars_data WHERE Make  =  \"Volvo\" ORDER BY Accelerate LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT COUNT(*) FROM CARS_DATA WHERE Accelerate  >  ( SELECT Accelerate FROM CARS_DATA ORDER BY Horsepower DESC LIMIT 1 );",
+      "nll": {
+        "base": 1.62856,
+        "myft": 0.77993
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Accelerate > (SELECT MAX(Accelerate) FROM cars_data WHERE Id IN (SELECT MakeId FROM car_names WHERE Make IN (SELECT Maker FROM car_makers WHERE Id IN (SELECT Id FROM car_makers WHERE Horsepower = (SELECT MAX(Horsepower) FROM cars_data)))))",
+        "myft": "SELECT count(*) FROM cars_data WHERE Accelerate  >  (SELECT Accelerate FROM cars_data ORDER BY Horsepower DESC LIMIT 1)"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT COUNT(*) FROM CARS_DATA WHERE Accelerate  >  ( SELECT Accelerate FROM CARS_DATA ORDER BY Horsepower DESC LIMIT 1 );",
+      "nll": {
+        "base": 1.59336,
+        "myft": 0.79647
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Accelerate > (SELECT MAX(Accelerate) FROM cars_data WHERE Id IN (SELECT MakeId FROM car_names WHERE Make IN (SELECT Maker FROM car_makers WHERE Id IN (SELECT Id FROM car_makers WHERE Horsepower = (SELECT MAX(Horsepower) FROM cars_data)))))",
+        "myft": "SELECT count(*) FROM cars_data WHERE accelerate  >  (SELECT accelerate FROM cars_data ORDER BY horsepower DESC LIMIT 1)"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select count(*) from countries as t1 join car_makers as t2 on t1.countryid  =  t2.country group by t1.countryid having count(*)  >  2",
+      "nll": {
+        "base": 1.26399,
+        "myft": 0.6019
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM countries WHERE CountryId IN (SELECT Country FROM car_makers GROUP BY Country HAVING COUNT(*) > 2)",
+        "myft": "SELECT count(*) FROM (SELECT Country FROM car_makers GROUP BY Country HAVING count(*)  >  2)"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select count(*) from countries as t1 join car_makers as t2 on t1.countryid  =  t2.country group by t1.countryid having count(*)  >  2",
+      "nll": {
+        "base": 1.36092,
+        "myft": 0.58599
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM (SELECT Country FROM car_makers GROUP BY Country HAVING count(*)  >  2)"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT COUNT(*) FROM CARS_DATA WHERE Cylinders  >  6;",
+      "nll": {
+        "base": 2.32911,
+        "myft": 1.29726
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM cars_data WHERE Cylinders  >  6"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT COUNT(*) FROM CARS_DATA WHERE Cylinders  >  6;",
+      "nll": {
+        "base": 2.07071,
+        "myft": 1.30878
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM cars_data WHERE Cylinders  >  6"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Cylinders  =  4 ORDER BY T2.horsepower DESC LIMIT 1;",
+      "nll": {
+        "base": 1.06568,
+        "myft": 0.46964
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.Id  =  T2.Id WHERE T2.Cylinders  =  4 ORDER BY T2.Horsepower DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Cylinders  =  4 ORDER BY T2.horsepower DESC LIMIT 1;",
+      "nll": {
+        "base": 1.08131,
+        "myft": 0.49081
+      },
+      "pred": {
+        "base": "SELECT car_names.Model, MAX(cars_data.Horsepower) as MaxHorsepower FROM car_names JOIN cars_data ON car_names.MakeId = cars_data.Id JOIN model_list ON car_names.Model = model_list.ModelId WHERE cars_data.Cylinders = 4 GROUP BY car_names.Model ORDER BY MaxHorsepower DESC LIMIT 1",
+        "myft": "SELECT T1.Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.ModelId  =  T2.Id WHERE T2.Cylinders  =  4 GROUP BY T1.Model ORDER BY T2.Horsepower DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T2.MakeId ,  T2.Make FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Horsepower  >  (SELECT min(Horsepower) FROM CARS_DATA) AND T1.Cylinders  <=  3;",
+      "nll": {
+        "base": 0.94357,
+        "myft": 0.44456
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.MakeId ,  T2.Make FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Horsepower  >  (SELECT min(Horsepower) FROM cars_data) EXCEPT SELECT T1.MakeId ,  T2.Make FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Cylinders  >  3"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select t2.makeid ,  t2.make from cars_data as t1 join car_names as t2 on t1.id  =  t2.makeid where t1.horsepower  >  (select min(horsepower) from cars_data) and t1.cylinders  <  4;",
+      "nll": {
+        "base": 0.93516,
+        "myft": 0.45896
+      },
+      "pred": {
+        "base": "SELECT c.MakeId, c.Make FROM car_names c JOIN cars_data d ON c.MakeId = d.Id WHERE d.Horsepower != (SELECT MIN(d2.Horsepower) FROM cars_data d2) AND d.Cylinders < 4",
+        "myft": "SELECT MakeId ,  Make FROM car_names WHERE Cylinders  <  4 EXCEPT SELECT MakeId ,  Make FROM car_names WHERE Horsepower  =  (SELECT min(Horsepower) FROM car_names)"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select max(mpg) from cars_data where cylinders  =  8 or year  <  1980",
+      "nll": {
+        "base": 1.09135,
+        "myft": 0.56502
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT max(MPG) FROM cars_data WHERE Cylinders  =  8 OR YEAR  <  1980"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "select max(mpg) from cars_data where cylinders  =  8 or year  <  1980",
+      "nll": {
+        "base": 1.0947,
+        "myft": 0.47885
+      },
+      "pred": {
+        "base": "SELECT MAX(MPG) FROM cars_data WHERE Cylinders = 8 OR Year < 1980",
+        "myft": "SELECT max(MPG) FROM cars_data WHERE cylinders  =  8 OR YEAR  <  1980"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.model FROM MODEL_LIST AS T1 JOIN CAR_NAMES AS T2 ON T1.Model  =  T2.Model JOIN CARS_DATA AS T3 ON T2.MakeId  =  T3.Id JOIN CAR_MAKERS AS T4 ON T1.Maker  =  T4.Id WHERE T3.weight  <  3500 AND T4.FullName != 'Ford Motor Company';",
+      "nll": {
+        "base": 0.76868,
+        "myft": 0.53448
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT DISTINCT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  3500 EXCEPT SELECT DISTINCT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id JOIN car_makers AS T3 ON T1.Make  =  T3.Id WHERE T3.FullName  =  'Ford Motor Company'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.model FROM MODEL_LIST AS T1 JOIN CAR_NAMES AS T2 ON T1.Model  =  T2.Model JOIN CARS_DATA AS T3 ON T2.MakeId  =  T3.Id JOIN CAR_MAKERS AS T4 ON T1.Maker  =  T4.Id WHERE T3.weight  <  3500 AND T4.FullName != 'Ford Motor Company';",
+      "nll": {
+        "base": 0.76015,
+        "myft": 0.51262
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT DISTINCT model FROM cars_data WHERE weight  <  3500 EXCEPT SELECT DISTINCT model FROM cars_data WHERE make  =  'Ford'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT CountryName FROM countries EXCEPT SELECT T1.CountryName FROM countries AS T1 JOIN CAR_MAKERS AS T2 ON T1.countryId  =  T2.Country;",
+      "nll": {
+        "base": 1.52154,
+        "myft": 0.84545
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT CountryName FROM countries WHERE CountryId NOT IN (SELECT Country FROM car_makers)"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT CountryName FROM countries EXCEPT SELECT T1.CountryName FROM countries AS T1 JOIN CAR_MAKERS AS T2 ON T1.countryId  =  T2.Country;",
+      "nll": {
+        "base": 1.51336,
+        "myft": 0.87085
+      },
+      "pred": {
+        "base": "SELECT CountryName FROM countries WHERE CountryId NOT IN (SELECT Country FROM car_makers)",
+        "myft": "SELECT CountryName FROM countries WHERE CountryId NOT IN (SELECT Country FROM car_makers)"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select t1.id ,  t1.maker from car_makers as t1 join model_list as t2 on t1.id  =  t2.maker group by t1.id having count(*)  >=  2 intersect select t1.id ,  t1.maker from car_makers as t1 join model_list as t2 on t1.id  =  t2.maker join car_names as t3 on t2.model  =  t3.model group by t1.id having count(*)  >  3;",
+      "nll": {
+        "base": 0.70454,
+        "myft": 0.38528
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT maker FROM model_list GROUP BY maker HAVING count(*)  >=  2 INTERSECT SELECT id FROM car_makers GROUP BY id HAVING count(*)  >  3"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Id ,  T1.Maker FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >=  2 INTERSECT SELECT T1.Id ,  T1.Maker FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker JOIN CAR_NAMES AS T3 ON T2.model  =  T3.model GROUP BY T1.Id HAVING count(*)  >  3;",
+      "nll": {
+        "base": 0.66895,
+        "myft": 0.36899
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Id ,  T1.Maker FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >=  2 INTERSECT SELECT T1.Id FROM cars_data AS T1 GROUP BY T1.Id HAVING count(*)  >=  3"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT T1.countryId ,  T1.CountryName FROM Countries AS T1 JOIN CAR_MAKERS AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.countryId HAVING count(*)  >  3 UNION SELECT T1.countryId ,  T1.CountryName FROM Countries AS T1 JOIN CAR_MAKERS AS T2 ON T1.CountryId  =  T2.Country JOIN MODEL_LIST AS T3 ON T2.Id  =  T3.Maker WHERE T3.Model  =  'fiat';",
+      "nll": {
+        "base": 0.66728,
+        "myft": 0.38174
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Id ,  T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.Id  =  T2.Country GROUP BY T1.Id HAVING count(*)  >  3 UNION SELECT T1.Id ,  T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.Id  =  T2.Country WHERE T2.Maker  =  'fiat'"
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "select t1.countryid ,  t1.countryname from countries as t1 join car_makers as t2 on t1.countryid  =  t2.country group by t1.countryid having count(*)  >  3 union select t1.countryid ,  t1.countryname from countries as t1 join car_makers as t2 on t1.countryid  =  t2.country join model_list as t3 on t2.id  =  t3.maker where t3.model  =  'fiat';",
+      "nll": {
+        "base": 0.54156,
+        "myft": 0.31467
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT T1.Id ,  T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.Id  =  T2.Country GROUP BY T1.Id HAVING count(*)  >  3 UNION SELECT T1.Id ,  T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.Id  =  T2.Country WHERE T2.Maker  =  \"Fiat\""
+      },
+      "em": {
+        "base": false,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT Country FROM AIRLINES WHERE Airline  =  \"JetBlue Airways\"",
+      "nll": {
+        "base": 1.63613,
+        "myft": 0.7228
+      },
+      "pred": {
+        "base": "SELECT Country FROM airlines WHERE Airline = 'JetBlue Airways'",
+        "myft": "SELECT Country FROM airlines WHERE Airline  =  \"JetBlue Airways\""
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT Country FROM AIRLINES WHERE Airline  =  \"JetBlue Airways\"",
+      "nll": {
+        "base": 1.71425,
+        "myft": 0.77781
+      },
+      "pred": {
+        "base": "SELECT Country FROM airlines WHERE Airline = 'Jetblue Airways'",
+        "myft": "SELECT Country FROM airlines WHERE Airline  =  'Jetblue Airways'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT Abbreviation FROM AIRLINES WHERE Airline  =  \"JetBlue Airways\"",
+      "nll": {
+        "base": 1.52886,
+        "myft": 0.67916
+      },
+      "pred": {
+        "base": "`SELECT Abbreviation FROM airlines WHERE Airline = \"JetBlue Airways\"`",
+        "myft": "SELECT Abbreviation FROM airlines WHERE Airline  =  \"JetBlue Airways\""
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT Abbreviation FROM AIRLINES WHERE Airline  =  \"JetBlue Airways\"",
+      "nll": {
+        "base": 1.57025,
+        "myft": 0.77367
+      },
+      "pred": {
+        "base": "SELECT Abbreviation FROM airlines WHERE Airline = 'Jetblue Airways'",
+        "myft": "SELECT Abbreviation FROM airlines WHERE Airline  =  'Jetblue Airways'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT Airline ,  Abbreviation FROM AIRLINES WHERE Country  =  \"USA\"",
+      "nll": {
+        "base": 1.7778,
+        "myft": 0.63427
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT Airline ,  Abbreviation FROM airlines WHERE Country  =  'USA'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT Airline ,  Abbreviation FROM AIRLINES WHERE Country  =  \"USA\"",
+      "nll": {
+        "base": 1.74603,
+        "myft": 0.68462
+      },
+      "pred": {
+        "base": "SELECT Airline, Abbreviation FROM airlines WHERE Country = 'USA'",
+        "myft": "SELECT Airline ,  Abbreviation FROM airlines WHERE Country  =  'USA'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT AirportCode ,  AirportName FROM AIRPORTS WHERE city  =  \"Anthony\"",
+      "nll": {
+        "base": 1.89938,
+        "myft": 0.67823
+      },
+      "pred": {
+        "base": "`SELECT AirportCode, AirportName FROM airports WHERE City = 'Anthony'`",
+        "myft": "SELECT AirportCode ,  AirportName FROM airports WHERE City  =  'Anthony'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT AirportCode ,  AirportName FROM AIRPORTS WHERE city  =  \"Anthony\"",
+      "nll": {
+        "base": 1.85494,
+        "myft": 0.58577
+      },
+      "pred": {
+        "base": "`SELECT AirportCode, AirportName FROM airports WHERE City = 'Anthony'`",
+        "myft": "SELECT AirportCode ,  AirportName FROM airports WHERE City  =  'Anthony'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRLINES",
+      "nll": {
+        "base": 1.9054,
+        "myft": 1.4136
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM airlines",
+        "myft": "SELECT count(DISTINCT Airline) FROM flights"
+      },
+      "em": {
+        "base": true,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRLINES",
+      "nll": {
+        "base": 2.05352,
+        "myft": 1.39752
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM airlines"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRPORTS",
+      "nll": {
+        "base": 1.73572,
+        "myft": 1.13851
+      },
+      "pred": {
+        "base": "`SELECT COUNT(*) FROM airports`",
+        "myft": "SELECT count(*) FROM airports"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRPORTS",
+      "nll": {
+        "base": 1.58317,
+        "myft": 0.92499
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM airports"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM FLIGHTS",
+      "nll": {
+        "base": 2.4441,
+        "myft": 0.88647
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM flights",
+        "myft": "SELECT count(*) FROM flights"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM FLIGHTS",
+      "nll": {
+        "base": 2.19984,
+        "myft": 0.91943
+      },
+      "pred": {
+        "base": "`SELECT COUNT(*) FROM flights`",
+        "myft": "SELECT count(*) FROM flights"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT Airline FROM AIRLINES WHERE Abbreviation  =  \"UAL\"",
+      "nll": {
+        "base": 1.8403,
+        "myft": 0.85052
+      },
+      "pred": {
+        "base": "`SELECT Airline FROM airlines WHERE Abbreviation = 'UAL'",
+        "myft": "SELECT * FROM airlines WHERE Abbreviation  =  'UAL'"
+      },
+      "em": {
+        "base": true,
+        "myft": false
+      }
+    },
+    {
+      "gold": "SELECT Airline FROM AIRLINES WHERE Abbreviation  =  \"UAL\"",
+      "nll": {
+        "base": 1.81242,
+        "myft": 0.8433
+      },
+      "pred": {
+        "base": "SELECT Airline FROM airlines WHERE Abbreviation = 'UAL'",
+        "myft": "SELECT Airline FROM airlines WHERE Abbreviation  =  'UAL'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRLINES WHERE Country  =  \"USA\"",
+      "nll": {
+        "base": 1.90903,
+        "myft": 0.87371
+      },
+      "pred": {
+        "base": "`SELECT COUNT(*) FROM airlines WHERE Country = 'USA'",
+        "myft": "SELECT count(*) FROM airlines WHERE Country  =  'USA'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRLINES WHERE Country  =  \"USA\"",
+      "nll": {
+        "base": 2.02686,
+        "myft": 0.94446
+      },
+      "pred": {
+        "base": "",
+        "myft": "SELECT count(*) FROM airlines WHERE country  =  'USA'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT City ,  Country FROM AIRPORTS WHERE AirportName  =  \"Alton\"",
+      "nll": {
+        "base": 1.84113,
+        "myft": 0.5734
+      },
+      "pred": {
+        "base": "SELECT City, Country FROM airports WHERE AirportCode = 'Alton'",
+        "myft": "SELECT City ,  Country FROM airports WHERE AirportName  =  'Alton'"
+      },
+      "em": {
+        "base": false,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT City ,  Country FROM AIRPORTS WHERE AirportName  =  \"Alton\"",
+      "nll": {
+        "base": 1.71992,
+        "myft": 0.5728
+      },
+      "pred": {
+        "base": "`SELECT City, Country FROM airports WHERE AirportName = 'Alton'`",
+        "myft": "SELECT City ,  Country FROM airports WHERE AirportName  =  'Alton'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    },
+    {
+      "gold": "SELECT AirportName FROM AIRPORTS WHERE AirportCode  =  \"AKO\"",
+      "nll": {
+        "base": 1.61134,
+        "myft": 0.67613
+      },
+      "pred": {
+        "base": "`SELECT AirportName FROM airports WHERE AirportCode = 'AKO'`",
+        "myft": "SELECT AirportName FROM airports WHERE AirportCode  =  'AKO'"
+      },
+      "em": {
+        "base": true,
+        "myft": true
+      }
+    }
+  ]
+}
