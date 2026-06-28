@@ -108,19 +108,44 @@ MUST build a tiny deterministic MoE parity test (train-forward == serve-kernel) 
 - Marlin is NOT a contract-preserving workaround if it implies requantizing away NVFP4 (here it
   serves the NVFP4 weights directly, so it IS contract-preserving IF it runs on sm_121).
 
-## Verdict
-gpt-5.5 (2 passes): YELLOW. Pass 1 said "needs an upstream patch." Pass 2, given the
-marlin/emulation evidence, softened to "no patch needed to PROVE feasibility (use a stock
-LoRA-capable backend); patch only for the fast production path" -- BUT flagged the exact risk
-that a backend can pass supports_lora() yet not apply LoRA. The follow-up static check CONFIRMED
-that risk: emulation is a silent no-op, so **MARLIN is the only genuine stock path**, gated on
-marlin running on sm_121.
+## Verdict: PROVEN feasible on ONE box (2026-06-28)
 
-Net: feasibility = "does marlin-NVFP4-MoE run on sm_121?" If yes -> stock no-patch proof path.
-If no -> a SMALL well-scoped vLLM patch (wire mixin hooks into emulation.apply()). Either way the
-fast flashinfer/cutlass backends need the mixin for production throughput. The deeper long-pole
-remains train<->serve numerical PARITY (the backend you train against must match the one you serve).
+Expert-LoRA serving works on a single GB10/sm_121, end to end, with stock vLLM 0.22.1
+and NO vLLM source patch. Validated on GLM-4.5-Air-NVFP4:
 
-Biggest single risk: marlin unavailable/non-parity on sm_121. Cheapest next step: Phase 0b marlin
-serve + logits-move test. Process lesson: never trust supports_lora()==True; verify apply() calls
-the hooks AND that logits actually move.
+  train (--expert-lora-r, native stacked save) -> rekey (scripts/rekey_expert_lora_for_vllm.py)
+  -> serve (serve/run_glm45_air_nvfp4_expert_lora.sh: --moe-backend emulation --enable-lora,
+     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True) -> the expert delta IS applied.
+
+Logits-move proof (same prompt, temperature 0):
+  base: " Paris. It is one of the most beautiful and famous cities in the world"
+  myft (large synthetic per-expert delta): ".weixin track不完smith追entr asymmetric ... 红辣椒"
+The adapter loaded ("Loaded new LoRA adapter: name 'myft'", "Using fused MoE LoRA
+implementation") and visibly scrambled the output -> the per-expert LoRA is genuinely
+applied to the experts, not a silent no-op.
+
+### Corrections to the earlier (wrong) verdict, from the 4-agent panel + source reads:
+1. EMULATION is NOT a silent no-op. Its apply() ends in `super().apply()` =
+   TritonExperts.apply, which is fully LoRA-wired (calls apply_w13_lora/apply_w2_lora) and
+   receives the MoELoRAContext via the supports_internal_mk reuse branch. My earlier
+   "0 lora refs -> no-op" was a grep artifact (the wiring is inherited). NO PATCH NEEDED.
+2. MARLIN's load repack is PER-LAYER (~1 GB transient, 4-bit->4-bit), not a whole-model 2x.
+3. The GLM marlin OOMs were compounded by a MISSING flag: PYTORCH_CUDA_ALLOC_CONF=
+   expandable_segments:True (the load-bearing GB10 UMA flag; the working cutlass launcher
+   uses it at util 0.80). With it, GLM-Air serves fine on one box.
+
+### Backend choice for expert-LoRA serving on one box
+- EMULATION: loads cheap (no repack), applies expert LoRA, JITs on sm_121. Correct but
+  slow (dequantizes experts per forward) -> serving-for-iteration. This is the validated path.
+- MARLIN: faster native expert-LoRA GEMM; one-box-viable with expandable_segments + sane
+  util + low rank (repack is only ~1 GB/layer). Not yet validated end-to-end here; emulation
+  was sufficient to prove feasibility.
+- cutlass/flashinfer: experts NOT LoRA-capable -> attention-only LoRA only (the existing
+  run_glm45_air_nvfp4_dynamic_lora.sh path).
+
+### Remaining (not blocking the feasibility claim)
+- Train<->serve numerical parity (a real trained adapter, not the synthetic large delta used
+  for the logits-move proof) -> validate a GLM expert-LoRA actually IMPROVES a task.
+- Marlin one-box validation for the faster serving path.
+- Process lesson: never trust supports_lora()==True alone; confirm apply() applies AND that
+  logits actually move; and always set expandable_segments on GB10.
