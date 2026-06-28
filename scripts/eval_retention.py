@@ -63,6 +63,21 @@ def _post(base_url, path, body, timeout=600):
     return None, "unreachable"
 
 
+def _token_count(base_url, model, text, timeout=120):
+    """Number of tokens `text` encodes to under the SERVER's tokenizer, via /tokenize.
+
+    Tokenizer-agnostic: works for HF and mistral_common/tekken serves alike, since it
+    asks the running server rather than re-tokenizing locally. Returns int or None.
+    """
+    resp, err = _post(base_url, "/tokenize", {"model": model, "prompt": text}, timeout)
+    if err or not resp:
+        return None
+    if isinstance(resp.get("count"), int):
+        return resp["count"]
+    toks = resp.get("tokens")
+    return len(toks) if isinstance(toks, list) else None
+
+
 def gold_nll(base_url, model, prompt, gold, timeout=600):
     """Mean per-token NLL of `gold` given `prompt`, via echo completions.
 
@@ -78,16 +93,28 @@ def gold_nll(base_url, model, prompt, gold, timeout=600):
     toks = lp.get("tokens") or []
     tlp = lp.get("token_logprobs") or []
     offs = lp.get("text_offset") or []
-    if not toks or len(tlp) != len(toks) or len(offs) != len(toks):
+    if not toks or len(tlp) != len(toks):
         return None, "malformed logprobs (echo not honored?)"
     cut = len(prompt)
-    # gold tokens = those whose char offset starts at/after the prompt boundary.
-    sel = [tlp[i] for i in range(len(toks))
-           if offs[i] >= cut and tlp[i] is not None]
+    # Primary: gold tokens = those whose char offset starts at/after the prompt boundary.
+    # Requires reliable text_offset (correct for HF tokenizers).
+    sel = []
+    if len(offs) == len(toks):
+        sel = [tlp[i] for i in range(len(toks)) if offs[i] >= cut and tlp[i] is not None]
+        if not sel:
+            sel = [tlp[i] for i in range(len(toks)) if offs[i] > cut and tlp[i] is not None]
     if not sel:
-        # boundary may split a token straddling prompt/gold; fall back to strictly-after.
-        sel = [tlp[i] for i in range(len(toks))
-               if offs[i] > cut and tlp[i] is not None]
+        # Fallback (tokenizer-agnostic): some serves (mistral_common/tekken) return
+        # unreliable text_offset, so the char-offset select finds nothing. Ask the
+        # server how many tokens the prompt vs the full string encode to, and take the
+        # trailing (n_full - n_prompt) echoed tokens as the gold span.
+        n_prompt = _token_count(base_url, model, prompt, timeout)
+        n_full = _token_count(base_url, model, full, timeout)
+        if n_prompt is not None and n_full is not None and n_full > n_prompt:
+            k = n_full - n_prompt
+            tail = [t for t in tlp[-k:] if t is not None]
+            if tail:
+                sel = tail
     if not sel:
         return None, "no gold tokens selected"
     nll = -sum(sel) / len(sel)
@@ -230,38 +257,55 @@ def main():
     em_n = {m: 0 for m in args.models}
     per, used = [], 0
 
+    nll_skips = {m: 0 for m in args.models}
+    em_skips = {m: 0 for m in args.models}
     for row in rows:
         msgs = row["messages"]
         prompt, gold = msgs[0]["content"], msgs[-1]["content"]
         # completions endpoint: append the assistant lead-in so generation continues as SQL.
         gen_prompt = prompt + "\n"
         rec = {"gold": gold, "nll": {}, "pred": {}, "em": {}}
-        err = None
 
+        # Compute BOTH metrics for ALL models without aborting the row on one failure:
+        # a model whose NLL is unmeasurable (e.g. a tokenizer whose echo logprobs the
+        # harness cannot span-align) still contributes its EM, and one model failing
+        # never silently drops the row for the others.
+        row_nll, row_em = {}, {}
         for m in args.models:
             if not args.no_nll:
                 r, e = gold_nll(args.base_url, m, gen_prompt, gold)
+                row_nll[m] = None if e else r
                 if e:
-                    err = f"{m} nll: {e}"
-                    break
-                rec["nll"][m] = round(r["nll"], 5)
-                nll_sum[m] += r["nll"]
-                nll_tok[m] += r["n_tokens"]
-                nll_n[m] += 1
+                    nll_skips[m] += 1
+                    if nll_skips[m] == 1:
+                        print(f"  note: NLL unavailable for {m}: {e}", flush=True)
             if not args.no_em:
                 text, e = gen_sql(args.base_url, m, gen_prompt, args.max_new_tokens)
                 if e:
-                    err = f"{m} gen: {e}"
-                    break
-                ok = exact_set_match(text, gold)
-                rec["pred"][m] = _strip_md(text).strip()[:300]
-                rec["em"][m] = ok
-                em_correct[m] += int(ok)
+                    row_em[m] = None
+                    em_skips[m] += 1
+                    if em_skips[m] == 1:
+                        print(f"  note: generation failed for {m}: {e}", flush=True)
+                else:
+                    row_em[m] = exact_set_match(text, gold)
+                    rec["pred"][m] = _strip_md(text).strip()[:300]
+
+        # Accumulate NLL only on rows where EVERY model produced it (paired before/after).
+        if not args.no_nll and all(row_nll.get(m) is not None for m in args.models):
+            for m in args.models:
+                rec["nll"][m] = round(row_nll[m]["nll"], 5)
+                nll_sum[m] += row_nll[m]["nll"]
+                nll_tok[m] += row_nll[m]["n_tokens"]
+                nll_n[m] += 1
+        # Accumulate EM only on rows where EVERY model produced it (paired).
+        if not args.no_em and all(row_em.get(m) is not None for m in args.models):
+            for m in args.models:
+                rec["em"][m] = row_em[m]
+                em_correct[m] += int(row_em[m])
                 em_n[m] += 1
 
-        if err:
-            print(f"  skip: {err}", flush=True)
-            continue
+        if not rec["nll"] and not rec["em"]:
+            continue  # nothing usable from this row for any model
         used += 1
         per.append(rec)
         if used % 20 == 0:
@@ -276,6 +320,9 @@ def main():
 
     base = args.models[0]
     summary = {"n": used, "models": args.models}
+    # Skip accounting so a fully-failed metric is never mistaken for a real result.
+    summary["skipped"] = {"nll": nll_skips, "em": em_skips}
+    warnings_out = []
     if not args.no_nll:
         mean_nll = {m: (nll_sum[m] / nll_n[m] if nll_n[m] else None) for m in args.models}
         summary["mean_gold_nll"] = {m: (round(v, 5) if v is not None else None)
@@ -284,15 +331,40 @@ def main():
             m: (round(mean_nll[m] - mean_nll[base], 5)
                 if mean_nll[m] is not None and mean_nll[base] is not None else None)
             for m in args.models[1:]}  # negative = adapter improved (lower NLL)
+        for m in args.models:
+            if nll_n[m] == 0:
+                warnings_out.append(
+                    f"NLL is NULL for '{m}': all {nll_skips[m]} attempts failed. The served "
+                    f"tokenizer is likely wrong for this model (tekken/mistral_common models "
+                    f"must be served with --tokenizer-mode mistral). This is NOT a 0/None result.")
     if not args.no_em:
         acc = {m: (em_correct[m] / em_n[m] if em_n[m] else 0.0) for m in args.models}
         summary["exact_set_match"] = {m: round(acc[m], 5) for m in args.models}
         summary["em_delta_vs_base"] = {m: round(acc[m] - acc[base], 5)
                                        for m in args.models[1:]}  # positive = adapter better
+        for m in args.models:
+            if em_n[m] == 0:
+                warnings_out.append(
+                    f"exact-set-match is 0/0 for '{m}': all {em_skips[m]} generations failed "
+                    f"(reported 0.0 is a FAILURE, not a real score).")
+    # Detect a likely silent adapter no-op: an adapter whose NLL and EM are identical to base.
+    if len(args.models) > 1 and used > 0:
+        for m in args.models[1:]:
+            same_nll = (not args.no_nll and nll_n[m] and nll_n[base]
+                        and summary["mean_gold_nll"].get(m) == summary["mean_gold_nll"].get(base))
+            same_em = (not args.no_em and em_n[m] and summary["exact_set_match"].get(m) == summary["exact_set_match"].get(base))
+            if same_nll and same_em:
+                warnings_out.append(
+                    f"adapter '{m}' produced IDENTICAL NLL and EM to base -- likely a silent "
+                    f"no-op (adapter not bound at serve). Check vLLM LoRA load / use serve --verify.")
+    if warnings_out:
+        summary["warnings"] = warnings_out
 
     Path(args.out).write_text(json.dumps({"summary": summary, "per_example": per}, indent=2))
     print("\n=== Spider text-to-SQL retention (base vs adapter) ===")
     print(json.dumps(summary, indent=2))
+    for w in warnings_out:
+        print(f"WARNING: {w}", flush=True)
     print(f"\n[write] {args.out}")
 
 
