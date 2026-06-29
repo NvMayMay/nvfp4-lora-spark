@@ -44,9 +44,12 @@ from nvfp4_lora.gb10_prep import set_alloc_conf  # noqa: E402
 set_alloc_conf()
 
 import argparse  # noqa: E402
+import hashlib  # noqa: E402
+import importlib.metadata  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
 import random  # noqa: E402
+import subprocess  # noqa: E402
 import time  # noqa: E402
 from pathlib import Path  # noqa: E402
 
@@ -70,6 +73,7 @@ from nvfp4_lora.experts import (  # noqa: E402
 )
 from nvfp4_lora.families import FAMILIES, resolve_family  # noqa: E402, F401
 from nvfp4_lora.gb10_prep import drop_shard_page_cache, memory_snapshot  # noqa: E402
+from nvfp4_lora.chat_encode import encode_chat_example  # noqa: E402
 from nvfp4_lora.linear import BF16LoRALinear, FP8LoRALinear, NVFP4LoRALinear  # noqa: E402
 from nvfp4_lora.loader import (  # noqa: E402
     _assign_dequant_workspaces,
@@ -102,6 +106,124 @@ def detect_lora_mode(
         target_suffixes,
         allow_partial_targets=allow_partial_targets,
     )
+
+
+def _sha256_file(path):
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        return None
+    h = hashlib.sha256()
+    with open(p, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _git_sha():
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent.parent,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        ).strip()
+    except Exception:
+        return None
+
+
+def _package_version(name):
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def build_run_meta(args, coverage) -> dict:
+    """Pure-ish run metadata bundle; no torch/transformers/peft imports."""
+    arg_snapshot = dict(sorted(vars(args).items()))
+    files = {
+        "train_file": {
+            "path": arg_snapshot.get("train_file"),
+            "sha256": _sha256_file(arg_snapshot.get("train_file")),
+        },
+        "val_file": {
+            "path": arg_snapshot.get("val_file"),
+            "sha256": _sha256_file(arg_snapshot.get("val_file")),
+        },
+    }
+    return {
+        "args": arg_snapshot,
+        "coverage": coverage,
+        "files": files,
+        "git_sha": _git_sha(),
+        "versions": {
+            "peft": _package_version("peft"),
+            "torch": _package_version("torch"),
+            "transformers": _package_version("transformers"),
+        },
+    }
+
+
+def _cuda_metrics():
+    out = {
+        "cuda_allocated_gb": None,
+        "cuda_free_gb": None,
+        "cuda_reserved_gb": None,
+    }
+    try:
+        if not torch.cuda.is_available():
+            return out
+        out["cuda_allocated_gb"] = round(torch.cuda.memory_allocated() / 1e9, 4)
+        out["cuda_reserved_gb"] = round(torch.cuda.memory_reserved() / 1e9, 4)
+        free, _total = torch.cuda.mem_get_info()
+        out["cuda_free_gb"] = round(free / 1e9, 4)
+    except Exception:
+        return {
+            "cuda_allocated_gb": None,
+            "cuda_free_gb": None,
+            "cuda_reserved_gb": None,
+        }
+    return out
+
+
+def _host_mem_available_gb():
+    try:
+        import psutil
+        return round(psutil.virtual_memory().available / 1e9, 4)
+    except Exception:
+        return None
+
+
+def build_metrics_row(
+    step,
+    total_updates,
+    window_supervised_tokens,
+    wall_elapsed,
+    recent_upd_s,
+    loss_window_mean,
+):
+    updates_s = None
+    if recent_upd_s is not None and math.isfinite(recent_upd_s) and recent_upd_s > 0:
+        updates_s = 1.0 / recent_upd_s
+    supervised_tokens_s = None
+    if recent_upd_s is not None and math.isfinite(recent_upd_s) and recent_upd_s > 0:
+        supervised_tokens_s = window_supervised_tokens / recent_upd_s
+    eta_s = None
+    if step > 0 and wall_elapsed is not None and math.isfinite(wall_elapsed):
+        eta_s = max(0.0, (total_updates - step) * (wall_elapsed / step))
+    row = {
+        "eta_s": (round(eta_s, 1) if eta_s is not None else None),
+        "loss_window_mean": (round(loss_window_mean, 4) if loss_window_mean is not None else None),
+        "supervised_tokens_s": (round(supervised_tokens_s, 2) if supervised_tokens_s is not None else None),
+        "updates_s": (round(updates_s, 4) if updates_s is not None else None),
+        "window_supervised_tokens": int(window_supervised_tokens),
+    }
+    row.update(_cuda_metrics())
+    row["host_mem_available_gb"] = _host_mem_available_gb()
+    return row
 
 
 # =========================================================================
@@ -137,31 +259,13 @@ class ChatJsonlDataset(Dataset):
         # text-render path below is wrong for them (broken LlamaTokenizerFast).
         if getattr(self.tokenizer, "is_mistral_common", False):
             return self.tokenizer.encode_chat(messages, self.max_length)
-        full_text = self._render(messages, add_generation_prompt=False)
-        input_ids = self._tokenize(full_text)
-        if not input_ids:
+        encoded = encode_chat_example(messages, self.tokenizer, self.max_length)
+        if encoded["dropped_reason"] is not None:
             return None
-        labels = [-100] * len(input_ids)
-        for index, message in enumerate(messages):
-            if message["role"] != "assistant":
-                continue
-            prefix_ids = self._tokenize(self._render(messages[:index], add_generation_prompt=True))
-            through_ids = self._tokenize(self._render(messages[: index + 1], add_generation_prompt=False))
-            start = len(prefix_ids)
-            end = min(len(through_ids), len(input_ids))
-            for pos in range(start, end):
-                labels[pos] = input_ids[pos]
-        input_ids = input_ids[: self.max_length]
-        labels = labels[: self.max_length]
-        if all(l == -100 for l in labels):
-            # Assistant turn fell entirely beyond max_length: zero supervised
-            # tokens -> HF returns NaN loss, which would poison the adapter.
-            return None
-        attention_mask = [1] * len(input_ids)
         return {
-            "input_ids": torch.tensor(input_ids, dtype=torch.long),
-            "labels": torch.tensor(labels, dtype=torch.long),
-            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+            "input_ids": torch.tensor(encoded["input_ids"], dtype=torch.long),
+            "labels": torch.tensor(encoded["labels"], dtype=torch.long),
+            "attention_mask": torch.tensor(encoded["attention_mask"], dtype=torch.long),
         }
 
     def __len__(self):
@@ -562,9 +666,9 @@ def main():
 
     def log(event: str, **kw):
         rec = {"ts": time.strftime("%H:%M:%S"), "event": event, **kw}
-        print(f"[{rec['ts']}] {event}: {json.dumps(kw)}", flush=True)
+        print(f"[{rec['ts']}] {event}: {json.dumps(kw, sort_keys=True)}", flush=True)
         with open(metrics_path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec) + "\n")
+            fh.write(json.dumps(rec, sort_keys=True) + "\n")
 
     log("config", **vars(args))
 
@@ -584,8 +688,24 @@ def main():
     coverage["model_type"] = model_type
     coverage["model_dir"] = str(model_dir)
     (Path(args.output_dir) / "target_coverage.json").write_text(
-        json.dumps(coverage, indent=2)
+        json.dumps(coverage, indent=2, sort_keys=True)
     )
+    run_meta = build_run_meta(args, coverage)
+    meta_name = "resume_meta.json" if args.resume_from else "run_meta.json"
+    (Path(args.output_dir) / meta_name).write_text(json.dumps(run_meta, indent=2, sort_keys=True))
+    if args.resume_from:
+        original_meta_path = Path(args.output_dir) / "run_meta.json"
+        if original_meta_path.exists():
+            try:
+                original_args = json.loads(original_meta_path.read_text()).get("args", {})
+                changed = sorted(
+                    k for k, v in run_meta["args"].items()
+                    if k != "resume_from" and original_args.get(k) != v
+                )
+            except Exception:
+                changed = ["<unreadable run_meta.json>"]
+            if changed:
+                log("resume_args_differ", changed=changed)
     for suffix, info in coverage["inventory"].items():
         log("target_coverage", suffix=suffix, counts=info["counts"])
 
@@ -724,6 +844,10 @@ def main():
     update_step = 0
     micro_step = 0
     run_start = time.time()
+    last_update_time = run_start
+    window_supervised_tokens = 0
+    window_loss_sum = 0.0
+    window_loss_n = 0
     best_val_loss = float("inf")
     best_dir = Path(args.output_dir) / "best"
 
@@ -802,7 +926,13 @@ def main():
                 log("nonfinite_loss_skipped", step=update_step, micro_step=micro_step,
                     loss=str(out.loss.detach().float().item()))
                 optim.zero_grad(set_to_none=True)
+                window_supervised_tokens = 0
+                window_loss_sum = 0.0
+                window_loss_n = 0
                 continue
+            window_supervised_tokens += int((batch["labels"] != -100).sum().item())
+            window_loss_sum += float(out.loss.detach().float().item())
+            window_loss_n += 1
             loss = out.loss / args.grad_accum
             loss.backward()
             if micro_step % args.grad_accum == 0:
@@ -815,14 +945,31 @@ def main():
                     log("nonfinite_grad_skipped", step=update_step, micro_step=micro_step,
                         grad_norm=str(total_norm.detach().float().item()))
                     optim.zero_grad(set_to_none=True)
+                    window_supervised_tokens = 0
+                    window_loss_sum = 0.0
+                    window_loss_n = 0
                     continue
                 optim.step()
                 sched.step()
                 optim.zero_grad(set_to_none=True)
                 update_step += 1
+                now = time.time()
+                metrics_extra = build_metrics_row(
+                    update_step,
+                    total_updates,
+                    window_supervised_tokens,
+                    now - run_start,
+                    now - last_update_time,
+                    window_loss_sum / window_loss_n if window_loss_n else None,
+                )
+                last_update_time = now
                 log("train_step", step=update_step, epoch=epoch, loss=round(out.loss.item(), 4),
                     lr=round(sched.get_last_lr()[0], 7),
-                    elapsed=round(time.time() - run_start, 1))
+                    elapsed=round(now - run_start, 1),
+                    **metrics_extra)
+                window_supervised_tokens = 0
+                window_loss_sum = 0.0
+                window_loss_n = 0
 
                 if args.eval_every > 0 and update_step % args.eval_every == 0 and len(val_ds) > 0:
                     run_inflight_eval(update_step)
