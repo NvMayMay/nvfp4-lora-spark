@@ -591,6 +591,42 @@ def _rotate_checkpoints(output_dir: Path, keep: int = 2) -> None:
         shutil.rmtree(p)
 
 
+def _save_with_timeout(save_fn, dest, log_fn, *, timeout_s: float, label: str) -> bool:
+    """Run save_fn(dest) in a worker thread, bounded by timeout_s.
+
+    The final root save of a large MoE adapter has been observed to hang
+    (process spinning at ~100% CPU) AFTER best/ was already written
+    successfully -- on every GLM-4.5-Air expert-LoRA run -- costing hours of
+    manual babysitting and a kill-after-best/. best/ (and the last rotated
+    checkpoint) are the canonical artifacts, so the convenience root save must
+    never be allowed to block the process forever. We time-box it: returns True
+    if it completed, False if it overran (the daemon worker is then abandoned
+    and the process hard-exits in main()). A real save of a ~1GB adapter is
+    seconds; the default timeout is generous so the normal path never trips it.
+    """
+    import threading
+
+    err: dict = {}
+
+    def _run():
+        try:
+            save_fn(dest)
+        except BaseException as e:  # noqa: BLE001 -- re-raised in the parent thread
+            err["exc"] = e
+
+    t = threading.Thread(target=_run, name=f"final-save-{label}", daemon=True)
+    t.start()
+    t.join(timeout_s)
+    if t.is_alive():
+        log_fn("final_save_timeout", dest=str(dest), timeout_s=timeout_s,
+               note="root save overran; best/ and the last checkpoint are the "
+                    "canonical artifacts. Exiting without blocking on it.")
+        return False
+    if "exc" in err:
+        raise err["exc"]
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model-dir", required=True)
@@ -632,6 +668,11 @@ def main():
                          "best triggers a confirming FULL eval; only the full value "
                          "updates best tracking. 0 means every eval is full.")
     ap.add_argument("--checkpoint-every", type=int, default=50)
+    ap.add_argument("--final-save-timeout", type=float, default=900.0,
+                    help="Seconds to allow the final root-dir adapter save before "
+                         "abandoning it and hard-exiting (best/ and the last checkpoint "
+                         "remain the canonical artifacts). Guards the observed "
+                         "large-MoE final-save hang. A real save is seconds.")
     ap.add_argument("--max-train-examples", type=int, default=None)
     ap.add_argument("--max-val-examples", type=int, default=None)
     ap.add_argument("--seed", type=int, default=42)
@@ -999,11 +1040,21 @@ def main():
             save_to(best_dir)
 
     log("saving_adapter", path=args.output_dir)
-    save_to(Path(args.output_dir))
+    _save_with_timeout(save_to, Path(args.output_dir), log,
+                       timeout_s=args.final_save_timeout, label="root")
     log("done",
         total_seconds=round(time.time() - run_start, 1),
         total_updates=update_step,
         best_val_loss=(round(best_val_loss, 4) if best_val_loss != float("inf") else None))
+    # Hard-exit after the final log. On GB10/UMA with a large resident MoE model,
+    # interpreter + CUDA teardown can spin at ~100% CPU indefinitely (observed on
+    # every GLM-4.5-Air expert-LoRA run: best/ saved, "done" never reached or the
+    # process never returns). All artifacts are already flushed -- log() closes
+    # metrics.jsonl per call and prints with flush=True -- so a hard exit loses
+    # nothing and guarantees the process actually terminates.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":
