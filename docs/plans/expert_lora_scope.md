@@ -168,3 +168,33 @@ lowercases) -- coherent, distinct from base, training-consistent. Full pipeline 
 train (real fused-MoE GPU) -> rekey -> serve (emulation, one box) -> learned behavior applied.
 Not measured: a Spider EM lift (GLM-Air likely saturates the strict set-match like Qwen3-32B;
 parity + coherence was the objective). Faster marlin serving remains 2-box only.
+
+## STATUS UPDATE 2026-06-30 -- value verdict (NO-GO on EM), capability reframe, save-hang fixed
+
+VALUE EXPERIMENT (3 arms, GLM-4.5-Air-NVFP4, Spider, --no-think vs 41% base, 2000 ex / 1 partial epoch):
+  A attention-only (q/k/v/o r8/a16): NLL -1.38 [-1.58,-1.21], EM +8pp [0.0,+0.18]
+  B expert-only   (gate_up+down r4/a8): NLL -1.21,             EM +3pp [-0.05,+0.10]
+  C both:                               NLL -1.22 [-1.35,-1.08], EM +6pp [-0.01,+0.13]
+  All three are STATISTICALLY TIED on EM (every CI touches/crosses 0). VERDICT = NO-GO: expert-LoRA buys
+  CALIBRATION (NLL) but no detectable EM benefit over attention-only, at far higher cost (~1-2GB adapter,
+  emulation-only slow serve). MECHANISM: per-expert adapters ARE distinct (not shared) but MoE routing
+  starves each one (a token hits only top-k of 128 experts -> ~r/128 the gradient of a dense target);
+  attention is higher-leverage for a format task; format signal saturates so all arms hit the same NLL
+  floor. A larger expert budget + a task needing genuine per-expert specialization could change it.
+
+CAPABILITY REFRAME (user-directed): ship expert-LoRA as a TESTED CAPABILITY, not a quality claim. We
+provide the mechanism (train per-expert fused-3D LoRA -> rekey -> emulation-serve -> learned behavior
+applies, end-to-end proven on GLM-4.5-Air); users bring the data and decide if the experts are worth
+adapting for their task. Compatible models EXPAND AS WE GO (see docs/plans/cross_arch_expert_lora_testing.md:
+per-module Nemotron + fused-3D Qwen3.5-122B / Mistral-4-119B, all on disk).
+
+FUNCTIONAL STATUS (honest): proven END-TO-END on GLM-4.5-Air ONLY (fused-3D glm4_moe). Train side is
+family-agnostic (one registry entry per family); fused-3D expert LoRA is wired for glm4_moe / qwen3_5_moe
+/ mistral4, per-module for nemotron_h, but only glm4_moe has run the full loop. Do not claim cross-arch
+until the plan's T1-T3 pass with the expert-attributed bar (zeroed-expert control + grad/weight-delta +
+routing coverage).
+
+SAVE-HANG FIXED (was blocking unattended runs): the final root save hung at ~100% CPU on every GLM
+expert-LoRA arm after best/ was written. Fixed on the main line (PR #19): time-boxed final root save
+(--final-save-timeout) + os._exit(0) after "done". This branch needs the same fix carried over before any
+cross-arch run; applied locally in the worktree trainer, commit pending with the rest of this branch.
