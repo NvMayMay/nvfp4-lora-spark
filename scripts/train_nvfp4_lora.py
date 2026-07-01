@@ -491,6 +491,19 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
     from safetensors.torch import save_file as safe_save_file
 
     dest_dir = Path(dest_dir)
+
+    def _raise_if_meta_trainable_tensors(names, context: str) -> None:
+        if not names:
+            return
+        sample = ", ".join(names[:8])
+        if len(names) > 8:
+            sample += f", ... (+{len(names) - 8} more)"
+        raise RuntimeError(
+            f"refusing to save {context} adapter to {dest_dir}: {len(names)} trainable "
+            f"LoRA tensor(s) are still on meta ({sample}). Saving would publish a "
+            "partial adapter."
+        )
+
     tmp_dir = dest_dir.with_name(dest_dir.name + ".tmp")
     if tmp_dir.exists():
         shutil.rmtree(tmp_dir)
@@ -498,15 +511,20 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
 
     if lora_mode == "native":
         state = {}
-        skipped = []
+        meta_trainable = []
         n_expert_blocks = 0
         expert_lora_r = 0
         expert_lora_alpha = 0
         for name, mod in model.named_modules():
             if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear, BF16LoRALinear)) and mod.r > 0:
                 a, b = mod.lora_A, mod.lora_B
-                if (hasattr(a, "is_meta") and a.is_meta) or (hasattr(b, "is_meta") and b.is_meta):
-                    skipped.append(name)
+                a_meta = hasattr(a, "is_meta") and a.is_meta
+                b_meta = hasattr(b, "is_meta") and b.is_meta
+                if a_meta:
+                    meta_trainable.append(f"{name}.lora_A")
+                if b_meta:
+                    meta_trainable.append(f"{name}.lora_B")
+                if a_meta or b_meta:
                     continue
                 state[f"base_model.model.{name}.lora_A.weight"] = a.detach().cpu().contiguous()
                 state[f"base_model.model.{name}.lora_B.weight"] = b.detach().cpu().contiguous()
@@ -518,20 +536,23 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
                 meta = False
                 for proj in ("gate_up", "down"):
                     A = getattr(mod, f"lora_A_{proj}"); B = getattr(mod, f"lora_B_{proj}")
-                    if (hasattr(A, "is_meta") and A.is_meta) or (hasattr(B, "is_meta") and B.is_meta):
+                    if hasattr(A, "is_meta") and A.is_meta:
+                        meta_trainable.append(f"{name}.experts.{proj}.lora_A")
                         meta = True
-                        break
+                    if hasattr(B, "is_meta") and B.is_meta:
+                        meta_trainable.append(f"{name}.experts.{proj}.lora_B")
+                        meta = True
+                    if meta:
+                        continue
                     tensors[f"base_model.model.{name}.experts.{proj}.lora_A"] = A.detach().cpu().contiguous()
                     tensors[f"base_model.model.{name}.experts.{proj}.lora_B"] = B.detach().cpu().contiguous()
                 if meta:
-                    skipped.append(name + " (experts)")
                     continue
                 state.update(tensors)
                 n_expert_blocks += 1
                 expert_lora_r = mod.lora_r
                 expert_lora_alpha = mod.lora_alpha
-        if skipped:
-            log_fn("save_warn_dropping_meta_modules", count=len(skipped), sample=skipped[:3])
+        _raise_if_meta_trainable_tensors(meta_trainable, "native")
         if n_expert_blocks:
             log_fn("save_expert_lora", blocks=n_expert_blocks, r=expert_lora_r)
         safe_save_file(state, str(tmp_dir / "adapter_model.safetensors"))
@@ -564,9 +585,7 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
         from peft.utils import get_peft_model_state_dict
         sd = get_peft_model_state_dict(model)
         meta_keys = [k for k, v in sd.items() if hasattr(v, "is_meta") and v.is_meta]
-        if meta_keys:
-            log_fn("save_warn_dropping_meta_keys", count=len(meta_keys), sample=meta_keys[:3])
-            sd = {k: v for k, v in sd.items() if k not in set(meta_keys)}
+        _raise_if_meta_trainable_tensors(meta_keys, "PEFT")
         safe_save_file({k: v.detach().contiguous() for k, v in sd.items()},
                        str(tmp_dir / "adapter_model.safetensors"),
                        metadata={"format": "pt"})
@@ -584,15 +603,49 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
     tmp_dir.rmdir()
 
 
+def _validate_native_resume_coverage(
+    *,
+    adapter_dir: Path,
+    expected_modules: int,
+    loaded_modules: int,
+    expected_expert_blocks: int,
+    loaded_expert_blocks: int,
+    expert_missing: int,
+    log_fn,
+) -> None:
+    expected_total = expected_modules + expected_expert_blocks
+    loaded_total = loaded_modules + loaded_expert_blocks
+    if expected_total == 0:
+        return
+    if loaded_total == expected_total:
+        return
+    log_fn(
+        "resume_adapter_mismatch",
+        modules=f"{loaded_modules}/{expected_modules}",
+        expert_blocks=f"{loaded_expert_blocks}/{expected_expert_blocks}",
+        expert_missing=expert_missing,
+        path=str(adapter_dir),
+    )
+    raise RuntimeError(
+        f"resume adapter mismatch at {adapter_dir}: matched {loaded_total}/{expected_total} "
+        f"expected LoRA target(s) (modules {loaded_modules}/{expected_modules}, expert "
+        f"blocks {loaded_expert_blocks}/{expected_expert_blocks}). Refusing to resume "
+        "with a partial or zero adapter while restoring optimizer/scheduler/RNG state."
+    )
+
+
 def _load_adapter_weights(model, adapter_dir: Path, lora_mode: str, log_fn) -> None:
     from safetensors.torch import load_file
     sd = load_file(str(Path(adapter_dir) / "adapter_model.safetensors"))
     if lora_mode == "native":
+        expected = 0
         loaded = 0
+        expected_expert_blocks = 0
         expert_loaded = 0
         expert_missing = 0
         for name, mod in model.named_modules():
             if isinstance(mod, (NVFP4LoRALinear, FP8LoRALinear, BF16LoRALinear)) and mod.r > 0:
+                expected += 1
                 k_a = f"base_model.model.{name}.lora_A.weight"
                 k_b = f"base_model.model.{name}.lora_B.weight"
                 if k_a in sd and k_b in sd:
@@ -600,6 +653,7 @@ def _load_adapter_weights(model, adapter_dir: Path, lora_mode: str, log_fn) -> N
                     mod.lora_B.data.copy_(sd[k_b].to(mod.lora_B.device, mod.lora_B.dtype))
                     loaded += 1
             elif isinstance(mod, NVFP4Experts3D) and getattr(mod, "lora_r", 0) > 0:
+                expected_expert_blocks += 1
                 keys = {proj: (f"base_model.model.{name}.experts.{proj}.lora_A",
                                f"base_model.model.{name}.experts.{proj}.lora_B")
                         for proj in ("gate_up", "down")}
@@ -631,6 +685,15 @@ def _load_adapter_weights(model, adapter_dir: Path, lora_mode: str, log_fn) -> N
             raise RuntimeError(
                 f"resume: adapter at {adapter_dir} contains per-expert LoRA tensors but the model "
                 f"was built without expert LoRA. Re-pass --expert-lora-r (and matching alpha) to resume.")
+        _validate_native_resume_coverage(
+            adapter_dir=Path(adapter_dir),
+            expected_modules=expected,
+            loaded_modules=loaded,
+            expected_expert_blocks=expected_expert_blocks,
+            loaded_expert_blocks=expert_loaded,
+            expert_missing=expert_missing,
+            log_fn=log_fn,
+        )
         log_fn("resume_adapter_loaded", modules=loaded, expert_blocks=expert_loaded,
                expert_missing=expert_missing, path=str(adapter_dir))
     else:
@@ -713,6 +776,18 @@ def _save_with_timeout(save_fn, dest, log_fn, *, timeout_s: float, label: str) -
     if "exc" in err:
         raise err["exc"]
     return True
+
+
+FINAL_SAVE_TIMEOUT_EXIT_CODE = 3
+
+
+def _exit_after_final_save_timeout(output_dir: Path, log_fn) -> None:
+    log_fn("final_save_timeout", path=str(output_dir), fatal=True,
+           exit_code=FINAL_SAVE_TIMEOUT_EXIT_CODE,
+           note="root adapter save did not complete; refusing to report success")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(FINAL_SAVE_TIMEOUT_EXIT_CODE)
 
 
 def main():
@@ -1190,8 +1265,10 @@ def main():
             save_to(best_dir)
 
     log("saving_adapter", path=args.output_dir)
-    _save_with_timeout(save_to, Path(args.output_dir), log,
-                       timeout_s=args.final_save_timeout, label="root")
+    final_save_ok = _save_with_timeout(save_to, Path(args.output_dir), log,
+                                       timeout_s=args.final_save_timeout, label="root")
+    if not final_save_ok:
+        _exit_after_final_save_timeout(Path(args.output_dir), log)
     log("done",
         total_seconds=round(time.time() - run_start, 1),
         total_updates=update_step,
