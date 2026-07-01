@@ -6,6 +6,7 @@ weights as per-expert safetensors keys on disk.
 """
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 from typing import Mapping
@@ -154,6 +155,10 @@ class NVFP4Experts3D(nn.Module):
         device: torch.device | str | None = None,
         quant_format: str = "compressed_tensors",
         split_gate_up_scales: bool = False,
+        lora_r: int = 0,
+        lora_alpha: int = 0,
+        lora_dropout: float = 0.0,
+        lora_dtype: torch.dtype = torch.bfloat16,
     ):
         super().__init__()
         if quant_format not in ("compressed_tensors", "modelopt"):
@@ -165,6 +170,23 @@ class NVFP4Experts3D(nn.Module):
         self.quant_format = quant_format
         self.split_gate_up_scales = bool(split_gate_up_scales)
         self.act_fn = act_fn if act_fn is not None else nn.SiLU()
+
+        # Per-expert LoRA (opt-in; lora_r=0 -> exact no-op, zero new params).
+        # The frozen NVFP4 expert weights stay in the buffers above; the only
+        # trainable params are bf16 per-expert A/B for the gate_up and down
+        # projections, stored as a native train-side stacked layout: A (E, r, in),
+        # B (E, out, r). Delta math is the standard LoRA recipe applied per expert:
+        # y = base(x) + (alpha/r) * (x @ A_e^T) @ B_e^T. (Mapping this stacked
+        # layout to a serve engine's fused-MoE LoRA format is a separate step.)
+        self.lora_r = int(lora_r)
+        # Default alpha to 2*r when unset so a caller that passes only lora_r does
+        # not get a silently dead adapter (scale=0). The CLI applies the same
+        # default, but normalizing here makes the module/replacement API safe too.
+        if self.lora_r > 0 and int(lora_alpha) == 0:
+            lora_alpha = 2 * self.lora_r
+        self.lora_alpha = int(lora_alpha)
+        self.lora_scale = (self.lora_alpha / self.lora_r) if self.lora_r > 0 else 0.0
+        self.lora_dropout = nn.Dropout(p=lora_dropout) if (lora_r > 0 and lora_dropout > 0) else nn.Identity()
 
         # Grouped expert path: process hit experts in batches of
         # `expert_batch_size` (K), dequantizing K weights per call and running
@@ -268,6 +290,49 @@ class NVFP4Experts3D(nn.Module):
             torch.ones(self.num_experts, 1, dtype=torch.float32, device=device),
         )
 
+        # Per-expert LoRA params. A is (E, r, in); B is (E, out, r). gate_up's
+        # logical output is 2*intermediate_dim regardless of split_gate_up_scales
+        # (the split only concerns the frozen base's quant scales; the LoRA delta
+        # is added on the fused (2*inter) output before the gate/up chunk). B is
+        # zero-init so the initial delta is exactly zero (standard PEFT init).
+        if self.lora_r > 0:
+            E, r = self.num_experts, self.lora_r
+            gate_up_out = 2 * self.intermediate_dim
+            self.lora_A_gate_up = nn.Parameter(torch.empty(E, r, self.hidden_dim, device=device, dtype=lora_dtype))
+            self.lora_B_gate_up = nn.Parameter(torch.zeros(E, gate_up_out, r, device=device, dtype=lora_dtype))
+            self.lora_A_down = nn.Parameter(torch.empty(E, r, self.intermediate_dim, device=device, dtype=lora_dtype))
+            self.lora_B_down = nn.Parameter(torch.zeros(E, self.hidden_dim, r, device=device, dtype=lora_dtype))
+            # Kaiming PER EXPERT: kaiming_uniform_ on the 3D (E, r, in) tensor would
+            # compute fan_in = r*in (treating E,r as channels), shrinking the init by
+            # ~sqrt(r). Initialize each expert's (r, in) slice with the correct fan_in.
+            with torch.no_grad():
+                for A in (self.lora_A_gate_up, self.lora_A_down):
+                    for e in range(E):
+                        nn.init.kaiming_uniform_(A[e], a=math.sqrt(5))
+        else:
+            self.lora_A_gate_up = self.lora_B_gate_up = None
+            self.lora_A_down = self.lora_B_down = None
+
+    def _lora_delta_grouped(
+        self, x: torch.Tensor, A: torch.Tensor, B: torch.Tensor, expert_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """Batched per-expert LoRA delta for a K-expert group.
+
+        x: (k, L, in); A: (E, r, in); B: (E, out, r); expert_idx: (k,).
+        Returns scale * (x @ A_e^T) @ B_e^T -> (k, L, out). Plain torch (bmm +
+        gather), so autograd produces grads for A/B; the frozen base is untouched.
+        """
+        A_b = A.index_select(0, expert_idx).to(x.dtype)   # (k, r, in)
+        B_b = B.index_select(0, expert_idx).to(x.dtype)   # (k, out, r)
+        t = torch.bmm(self.lora_dropout(x), A_b.transpose(1, 2))  # (k, L, r)
+        return torch.bmm(t, B_b.transpose(1, 2)) * self.lora_scale  # (k, L, out)
+
+    def _lora_delta_single(self, x: torch.Tensor, A_i: torch.Tensor, B_i: torch.Tensor) -> torch.Tensor:
+        """Per-expert LoRA delta for one expert (legacy loop path).
+        x: (L, in); A_i: (r, in); B_i: (out, r). Returns scale*(x@A_i^T)@B_i^T."""
+        t = F.linear(self.lora_dropout(x), A_i.to(x.dtype))   # (L, r)
+        return F.linear(t, B_i.to(x.dtype)) * self.lora_scale  # (L, out)
+
     def _gate_up_acted(self, x: torch.Tensor, expert_idx: torch.Tensor | int) -> torch.Tensor:
         """act(gate(x)) * up(x) for one expert, honoring the storage mode."""
         i = int(expert_idx)
@@ -288,20 +353,25 @@ class NVFP4Experts3D(nn.Module):
                 self.group_size,
                 self.quant_format,
             )
+            gate_up = torch.cat([gate, up], dim=-1) if self.lora_r > 0 else None
         else:
-            gate, up = _DequantExpertLinear.apply(
+            gate_up = _DequantExpertLinear.apply(
                 x,
                 self.gate_up_packed[i].contiguous(),
                 self.gate_up_scale[i].contiguous(),
                 self.gate_up_global_scale[i],
                 self.group_size,
                 self.quant_format,
-            ).chunk(2, dim=-1)
+            )
+        if self.lora_r > 0:
+            gate_up = gate_up + self._lora_delta_single(x, self.lora_A_gate_up[i], self.lora_B_gate_up[i])
+        if self.lora_r > 0 or not self.split_gate_up_scales:
+            gate, up = gate_up.chunk(2, dim=-1)
         return self.act_fn(gate) * up
 
     def _down_linear(self, x: torch.Tensor, expert_idx: torch.Tensor | int) -> torch.Tensor:
         i = int(expert_idx)
-        return _DequantExpertLinear.apply(
+        y = _DequantExpertLinear.apply(
             x,
             self.down_packed[i].contiguous(),
             self.down_scale[i].contiguous(),
@@ -309,6 +379,9 @@ class NVFP4Experts3D(nn.Module):
             self.group_size,
             self.quant_format,
         )
+        if self.lora_r > 0:
+            y = y + self._lora_delta_single(x, self.lora_A_down[i], self.lora_B_down[i])
+        return y
 
     def forward(
         self,
@@ -400,6 +473,12 @@ class NVFP4Experts3D(nn.Module):
             gather_idx = seg_offsets[:, None] + seg_pos[None, :]
             gather_idx = torch.where(valid, gather_idx, torch.zeros_like(gather_idx))
             current_state = x_sorted[gather_idx.reshape(-1)].view(k, seg_len, self.hidden_dim)
+            if self.lora_r > 0:
+                # Zero padded lanes (they alias x_sorted[0]) before any trainable
+                # work. Their outputs are dropped by `valid` later, but a non-finite
+                # activation in row 0 could otherwise reach the LoRA bmm backward as
+                # 0*NaN and poison the A/B grads. Zero in -> zero through base+LoRA.
+                current_state = current_state.masked_fill(~valid.unsqueeze(-1), 0.0)
 
             expert_idx = batch_cpu.to(device)
             if self.split_gate_up_scales:
@@ -421,8 +500,9 @@ class NVFP4Experts3D(nn.Module):
                     self.group_size,
                     self.quant_format,
                 )
+                gate_up = torch.cat([gate, up], dim=-1) if self.lora_r > 0 else None
             else:
-                gate, up = _GroupedDequantExpertLinear.apply(
+                gate_up = _GroupedDequantExpertLinear.apply(
                     current_state,
                     self.gate_up_packed,
                     self.gate_up_scale,
@@ -430,10 +510,17 @@ class NVFP4Experts3D(nn.Module):
                     expert_idx,
                     self.group_size,
                     self.quant_format,
-                ).chunk(2, dim=-1)
+                )
+            if self.lora_r > 0:
+                gate_up = gate_up + self._lora_delta_grouped(
+                    current_state, self.lora_A_gate_up, self.lora_B_gate_up, expert_idx
+                )
+            if self.lora_r > 0 or not self.split_gate_up_scales:
+                gate, up = gate_up.chunk(2, dim=-1)
             current_hidden_states = self.act_fn(gate) * up
+            down_in = current_hidden_states
             current_hidden_states = _GroupedDequantExpertLinear.apply(
-                current_hidden_states,
+                down_in,
                 self.down_packed,
                 self.down_scale,
                 self.down_global_scale,
@@ -441,6 +528,10 @@ class NVFP4Experts3D(nn.Module):
                 self.group_size,
                 self.quant_format,
             )
+            if self.lora_r > 0:
+                current_hidden_states = current_hidden_states + self._lora_delta_grouped(
+                    down_in, self.lora_A_down, self.lora_B_down, expert_idx
+                )
             out_chunks.append(
                 current_hidden_states.reshape(k * seg_len, self.hidden_dim)[valid.reshape(-1)]
             )
@@ -650,11 +741,21 @@ def replace_moe_experts_with_nvfp4_3d(
     device: "torch.device | str | None" = None,
     quant_format: str = "compressed_tensors",
     split_gate_up_scales: bool = False,
+    lora_r: int = 0,
+    lora_alpha: int = 0,
+    lora_dropout: float = 0.0,
+    lora_dtype: "torch.dtype" = None,
 ) -> int:
     """Walk the model and replace each fused-3D MoE experts block with NVFP4Experts3D.
 
+    lora_r>0 attaches trainable per-expert LoRA (gate_up + down) to every routed-expert
+    block; lora_r=0 (default) leaves the experts frozen, exactly as before.
+
     Returns the number of blocks replaced.
     """
+    import torch as _torch
+    if lora_dtype is None:
+        lora_dtype = _torch.bfloat16
     import torch.nn as nn
 
     from .families import FAMILIES
@@ -698,6 +799,10 @@ def replace_moe_experts_with_nvfp4_3d(
             device=device,
             quant_format=quant_format,
             split_gate_up_scales=split_gate_up_scales,
+            lora_r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            lora_dtype=lora_dtype,
         )
         # Place new module in the model tree
         parent_name, _, child_attr = name.rpartition(".")
