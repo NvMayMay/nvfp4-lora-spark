@@ -50,6 +50,7 @@ def test_rekey_roundtrip_keys_and_shapes(tmp_path):
     E, r, h, i, nL = _write_native(tmp_path / "native")
     rep = _rk.rekey(tmp_path / "native", tmp_path / "vllm")
     assert rep["blocks"] == nL and rep["experts_per_block"] == [E]
+    assert rep["target_format"] == "per-expert"
     sd = load_file(str(tmp_path / "vllm" / "adapter_model.safetensors"))
     # every layer x expert x {gate,up,down}_proj x {A,B} present, correct shapes
     assert len(sd) == nL * E * 6
@@ -99,3 +100,51 @@ def test_rekey_preserves_delta(tmp_path):
             dn_nat = (x_i @ dA[e].T) @ dB[e].T
             dn_rk = (x_i @ vll[f"{b}.down_proj.lora_A.weight"].T) @ vll[f"{b}.down_proj.lora_B.weight"].T
             assert torch.allclose(dn_nat, dn_rk, atol=1e-6), f"down delta mismatch L{L} e{e}"
+
+
+def test_rekey_qwen_fused_3d_keys_shapes_and_loader_reshape(tmp_path):
+    E, r, h, i, nL = _write_native(tmp_path / "native")
+    rep = _rk.rekey(
+        tmp_path / "native",
+        tmp_path / "vllm",
+        target_format="fused-3d",
+    )
+    assert rep["blocks"] == nL and rep["experts_per_block"] == [E]
+    assert rep["target_format"] == "fused-3d"
+
+    nat = load_file(str(tmp_path / "native" / "adapter_model.safetensors"))
+    sd = load_file(str(tmp_path / "vllm" / "adapter_model.safetensors"))
+    assert len(sd) == nL * 4
+    for L in range(1, nL + 1):
+        blk = f"model.layers.{L}.mlp.experts"
+        b = f"base_model.model.{blk}"
+        assert tuple(sd[f"{b}.base_layer.lora_A.weight"].shape) == (E * r, h)
+        assert tuple(sd[f"{b}.base_layer.lora_B.weight"].shape) == (2 * i, E * r)
+        assert tuple(sd[f"{b}.lora_A.weight"].shape) == (E * r, i)
+        assert tuple(sd[f"{b}.lora_B.weight"].shape) == (h, E * r)
+
+        # Mirrors vLLM FusedMoE3DWithLoRA._stack_moe_lora_weights.
+        gu_a = sd[f"{b}.base_layer.lora_A.weight"].reshape(E, -1, h)
+        gu_b = sd[f"{b}.base_layer.lora_B.weight"].reshape(2 * i, -1, E).permute(2, 0, 1)
+        dn_a = sd[f"{b}.lora_A.weight"].reshape(E, -1, i)
+        dn_b = sd[f"{b}.lora_B.weight"].reshape(h, -1, E).permute(2, 0, 1)
+        assert torch.equal(gu_a, nat[f"base_model.model.{blk}.experts.gate_up.lora_A"])
+        assert torch.equal(gu_b, nat[f"base_model.model.{blk}.experts.gate_up.lora_B"])
+        assert torch.equal(dn_a, nat[f"base_model.model.{blk}.experts.down.lora_A"])
+        assert torch.equal(dn_b, nat[f"base_model.model.{blk}.experts.down.lora_B"])
+
+    cfg = json.load(open(tmp_path / "vllm" / "adapter_config.json"))
+    assert "experts" in set(cfg["target_modules"])
+    assert "expert_lora" not in cfg
+
+
+def test_rekey_auto_selects_qwen_fused_3d_from_base_config(tmp_path):
+    _write_native(tmp_path / "native")
+    base = tmp_path / "base"
+    base.mkdir()
+    json.dump(
+        {"model_type": "qwen3_5_moe", "text_config": {"model_type": "qwen3_5_moe_text"}},
+        open(base / "config.json", "w"),
+    )
+    rep = _rk.rekey(tmp_path / "native", tmp_path / "vllm", base_model=base)
+    assert rep["target_format"] == "fused-3d"
