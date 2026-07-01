@@ -118,7 +118,8 @@ def main():
                 continue
             user = _build_prompt(sb, db_id, row["question"])
             gold = row["query"].strip()
-            rows.append({"messages": [{"role": "user", "content": user},
+            rows.append({"db_id": db_id,
+                         "messages": [{"role": "user", "content": user},
                                       {"role": "assistant", "content": gold}]})
             if not sample_shown:
                 print("\n" + "=" * 72)

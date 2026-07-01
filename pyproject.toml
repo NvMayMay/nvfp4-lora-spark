@@ -35,3 +35,6 @@ packages = ["nvfp4_lora", "nybbloris"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: tests that require external model fixtures or services",
+]
