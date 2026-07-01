@@ -23,6 +23,8 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+# Public reproduction (REPRODUCE_SPIDER.md): scripts/prep_spider.py pulls Spider via HF datasets.
+repro = ["datasets>=2.14"]
 
 [project.scripts]
 nybbloris = "nybbloris.cli:main"

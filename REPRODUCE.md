@@ -1,5 +1,15 @@
 # Reproducing nvfp4-lora-spark results
 
+> **Looking for the quick public repro?** Use **[REPRODUCE_SPIDER.md](REPRODUCE_SPIDER.md)** (and
+> `scripts/repro_spider.sh`): a public base + the public Spider dataset, driven end-to-end by the
+> unified trainer + runtime-LoRA serve + `eval_retention.py`, with expected before/after numbers.
+> That is the modern, no-private-data, train -> serve -> learned-behaviour loop.
+>
+> **This document is the LEGACY path** (v1.0 Nemotron/Super measurement runs): it edits constants in
+> the frozen `train/*.py` scripts, uses private clinical/regulatory data for the Super example, and
+> serves a *merged* checkpoint rather than a runtime adapter. It is kept for exact reproduction of the
+> original headline stack, not as the recommended getting-started flow.
+
 Exact stack used to produce the headline numbers in the README.
 
 ## Path conventions

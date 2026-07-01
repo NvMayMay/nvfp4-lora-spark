@@ -76,13 +76,46 @@ def classify(base_path, base_keys):
 def _kind(path):
     if "shared_expert" in path:
         return "shared_expert"
-    if re.search(r"experts\.\d+", path) or ".experts." in path:
+    # routed experts, per-expert (`experts.3.*`) OR fused-3D (`...mlp.experts` /
+    # `...mlp.experts.base_layer`, no expert index) -- both are FusedMoE at serve.
+    if re.search(r"experts\.\d+", path) or ".experts." in path or path.endswith(".experts"):
         return "routed_expert"
     if "self_attn" in path or "linear_attn" in path:
         return "attention"
     if ".mlp." in path:
         return "mlp"
     return "other"
+
+
+_FUSED_EXPERT_RE = re.compile(r"^(?P<prefix>.+\.experts)(?:\.base_layer)?$")
+
+
+def _classify_fused_expert(path, base_keys):
+    """Resolve a FUSED-3D routed-expert adapter target against the per-expert base.
+
+    A fused adapter targets the whole MoE block as `X.mlp.experts` (down) and
+    `X.mlp.experts.base_layer` (gate_up); there is no dense `X.mlp.experts.weight`
+    in the checkpoint -- the routed experts live per-expert as
+    `X.mlp.experts.{e}.{gate,up,down}_proj.*`. Resolve the fused target against
+    expert 0's projections so the contract can SEE that it binds (and therefore
+    distinguish a flat-vs-wrapped fused-MoE no-op from a clean bind -- the class
+    that silently no-op'd on Qwen3.5-122B). Returns None for non-fused paths.
+    """
+    m = _FUSED_EXPERT_RE.match(path)
+    if not m:
+        return None
+    prefix = m.group("prefix")
+    for proj in ("gate_proj", "up_proj", "down_proj"):
+        q = classify(f"{prefix}.0.{proj}", base_keys)
+        if q is not None:
+            return q
+    return None
+
+
+def _resolve(path, base_keys):
+    """Quant type of a resolved adapter target: dense OR fused-3D routed-expert."""
+    q = _classify_fused_expert(path, base_keys)
+    return q if q is not None else classify(path, base_keys)
 
 
 def _read_json(p):
@@ -154,22 +187,26 @@ def serve_plan(base_model_dir, adapter_dir):
         serve_keys = base_keys
 
     def resolves(fn):
-        return sum(1 for m in mods if classify(fn(m), serve_keys) is not None)
+        return sum(1 for m in mods if _resolve(fn(m), serve_keys) is not None)
 
     rekey_name, fn = max(REKEYS, key=lambda nf: resolves(nf[1])) if mods else ("identity", lambda k: k)
-    naive = sum(1 for m in mods if classify(m, serve_keys) is not None)
+    naive = sum(1 for m in mods if _resolve(m, serve_keys) is not None)
     resolved = resolves(fn)
 
     # Quant-liveness at SERVE (MEASURED §7h, vLLM 0.22.1): the LoRA delta is applied
     # in bf16 independently of the base weight's quant, so DENSE targets serve LIVE
-    # whether NVFP4, FP8, or bf16. Only ROUTED-expert FusedMoE is gated
-    # (supports_lora=False upstream). FP8 is frozen only by the eager TRAIN loader,
-    # never by serve -- so dense-FP8 is counted live and reported as info, not a
-    # dropped delta.
+    # whether NVFP4, FP8, or bf16. ROUTED-expert FusedMoE is BACKEND-GATED (counted in
+    # blocked_routed): it serves LIVE on a LoRA-capable MoE backend (the emulation
+    # backend -- our validated one-box path, proven on GLM-4.5-Air -- or marlin), and is
+    # blocked ONLY on the cutlass/flashinfer fast backends (supports_lora=False). The
+    # name "blocked_routed" is historical; it means "needs a LoRA-capable MoE backend",
+    # NOT "merge-only". A backend-parameterized verdict (live on emulation/marlin) is a
+    # follow-up; this static check cannot see the runtime backend choice. FP8 is frozen
+    # only by the eager TRAIN loader, never by serve -- so dense-FP8 is counted live.
     by_quant, by_kind, unresolved = Counter(), Counter(), []
     live = blocked = fp8_dense = 0
     for m in mods:
-        q = classify(fn(m), serve_keys)
+        q = _resolve(fn(m), serve_keys)
         k = _kind(m)
         by_kind[k] += 1
         if q is None:
@@ -184,11 +221,19 @@ def serve_plan(base_model_dir, adapter_dir):
                 fp8_dense += 1
 
     needs_rekey = resolved > 0 and naive < resolved
+    # NO-OP / NEEDS-REKEY rank ABOVE BLOCKED-ROUTED on purpose: a routed-expert
+    # adapter that also needs a re-key (e.g. a fused-3D MoE adapter carrying the flat
+    # `model.layers.*` path against a wrapped multimodal base) binds NOTHING as
+    # shipped -- that silent no-op is the more urgent, actionable fact than the
+    # backend-gating, and stating BLOCKED-ROUTED there would hide it. This is exactly
+    # the Qwen3.5-122B fused-MoE case: flat keys on a `language_model.`-wrapped base
+    # -> naive resolves 0 -> NO-OP, re-key first. (No existing routed case needs a
+    # re-key, so this ordering does not change their verdicts.)
     verdict = ("EMPTY" if not mods else
                "FAIL" if unresolved else
-               "BLOCKED-ROUTED" if blocked else
                "NO-OP" if naive == 0 and resolved > 0 else
                "NEEDS-REKEY" if needs_rekey else
+               "BLOCKED-ROUTED" if blocked else
                "PASS")
     return {
         "base": {"dir": str(base_model_dir), "arch": arch, "model_type": cfg.get("model_type"),
@@ -241,6 +286,8 @@ def render_plan(plan):
     elif bi["needs_rekey"]:
         tail = f" Requires the '{bi['rekey']}' re-key (else a naive load no-ops)."
     if t["blocked_routed"]:
-        tail += f" {t['blocked_routed']} routed-expert deltas BLOCKED (merge-for-serve or skip)."
+        tail += (f" {t['blocked_routed']} routed-expert deltas BACKEND-GATED: live on a LoRA-capable MoE "
+                 f"backend (emulation/marlin), blocked only on cutlass/flashinfer. Serve --moe-backend "
+                 f"emulation, or merge-for-serve.")
     out.append(f"PLAN    : runtime-LoRA serves {t['live']}/{n} deltas.{tail}  VERDICT: {plan['verdict']}")
     return "\n".join(out)

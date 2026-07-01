@@ -33,14 +33,18 @@ upstream-PR work in progress.
 
 ### `RuntimeError: Triton Error [CUDA]: an illegal memory access was encountered ... _fused_moe_lora_expand`
 
-**Cause**: known vLLM 0.21 bug. The Triton `_fused_moe_lora_expand`
-kernel assumes Marlin-format MoE weight layout. With the EMULATION
-backend, weights are still in raw NVFP4 packed form; the kernel
-dereferences off-end and crashes during dummy warmup.
+**Cause**: a vLLM **0.21**-era bug. The Triton `_fused_moe_lora_expand`
+kernel assumed a Marlin-format MoE weight layout; with the EMULATION
+backend the weights are still in raw NVFP4 packed form, so the kernel
+dereferenced off-end and crashed during dummy warmup.
 
-**Fix**: don't combine `--enable-lora` with `--moe-backend emulation`.
-The merge-then-serve workflow above avoids this entirely. The upstream bug is
-the Triton fused MoE LoRA kernel assuming a Marlin-format weight layout.
+**Fix**: **on vLLM 0.22.1 the EMULATION backend supports runtime LoRA and is the
+blessed runtime-LoRA path for routed-MoE NVFP4** (`--moe-backend emulation
+--enable-lora`), proven end-to-end for GLM-4.5-Air and Qwen3.5-122B expert-LoRA
+(see `docs/cross_arch_status.md`). If you hit this crash you are on an older
+vLLM; upgrade to 0.22.1. Merge-then-serve remains an alternative where you do
+not need request-time adapter swap, or on backends that report
+`supports_lora=False` (CUTLASS/flashinfer on sm_121).
 
 ### `ValueError: No available memory for the cache blocks. Try increasing gpu_memory_utilization`
 
