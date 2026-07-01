@@ -575,6 +575,37 @@ def _rotate_checkpoints(output_dir: Path, keep: int = 2) -> None:
         shutil.rmtree(p)
 
 
+def _save_with_timeout(save_fn, dest, log_fn, *, timeout_s: float, label: str) -> bool:
+    """Run save_fn(dest) in a worker thread, bounded by timeout_s. See PR #19.
+
+    Guards the observed large-MoE final root-save hang (process spinning at
+    ~100% CPU after best/ was already written). best/ and the last checkpoint
+    are canonical, so the convenience root save is time-boxed. Returns True if
+    it completed, False on overrun (worker abandoned, process hard-exits).
+    """
+    import threading
+
+    err: dict = {}
+
+    def _run():
+        try:
+            save_fn(dest)
+        except BaseException as e:  # noqa: BLE001 -- re-raised in the parent thread
+            err["exc"] = e
+
+    t = threading.Thread(target=_run, name=f"final-save-{label}", daemon=True)
+    t.start()
+    t.join(timeout_s)
+    if t.is_alive():
+        log_fn("final_save_timeout", dest=str(dest), timeout_s=timeout_s,
+               note="root save overran; best/ and the last checkpoint are the "
+                    "canonical artifacts. Exiting without blocking on it.")
+        return False
+    if "exc" in err:
+        raise err["exc"]
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model-dir", required=True)
@@ -627,6 +658,10 @@ def main():
                          "best triggers a confirming FULL eval; only the full value "
                          "updates best tracking. 0 means every eval is full.")
     ap.add_argument("--checkpoint-every", type=int, default=50)
+    ap.add_argument("--final-save-timeout", type=float, default=900.0,
+                    help="Seconds to allow the final root-dir adapter save before "
+                         "abandoning it and hard-exiting (best/ and the last checkpoint "
+                         "remain canonical). Guards the large-MoE final-save hang.")
     ap.add_argument("--max-train-examples", type=int, default=None)
     ap.add_argument("--max-val-examples", type=int, default=None)
     ap.add_argument("--seed", type=int, default=42)
@@ -674,6 +709,18 @@ def main():
         model_dir, target_suffixes,
         allow_partial_targets=args.allow_partial_targets,
     )
+    # Force native for EXPERT-ONLY runs on a fused-3D family: with no attention/MLP
+    # targets, detect_lora_mode has nothing NVFP4 to classify and defaults to peft,
+    # which would SILENTLY drop the expert LoRA. The fused-3D experts ARE native
+    # NVFP4, so expert_lora_r on a moe_experts_class family must run native. (Needed
+    # for e.g. Mistral-4/Mistral-3 MoE, whose MLA attention is BF16, so there is no
+    # NVFP4 attention target to trip native the usual way.)
+    if (args.expert_lora_r and lora_mode != "native"
+            and family.get("moe_experts_class") and not target_suffixes):
+        log("force_native_expert_only",
+            reason="expert_lora_r set on a fused-3D family with no native targets",
+            prev_mode=lora_mode)
+        lora_mode = "native"
     log("strategy", model_type=model_type, auto_class=family["auto_class"],
         lora_mode=lora_mode, targets=target_suffixes)
 
@@ -990,11 +1037,17 @@ def main():
             save_to(best_dir)
 
     log("saving_adapter", path=args.output_dir)
-    save_to(Path(args.output_dir))
+    _save_with_timeout(save_to, Path(args.output_dir), log,
+                       timeout_s=args.final_save_timeout, label="root")
     log("done",
         total_seconds=round(time.time() - run_start, 1),
         total_updates=update_step,
         best_val_loss=(round(best_val_loss, 4) if best_val_loss != float("inf") else None))
+    # Hard-exit after the final log to dodge interpreter/CUDA teardown spin on
+    # GB10/UMA with a large resident MoE model (PR #19). Artifacts are flushed.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":
