@@ -7,5 +7,5 @@ The productized surface over the nvfp4_lora engine. v1 entry points:
 """
 from .plan import render_plan, serve_plan
 
-__version__ = "1.3.0"
+__version__ = "1.5.0"
 __all__ = ["serve_plan", "render_plan", "__version__"]
