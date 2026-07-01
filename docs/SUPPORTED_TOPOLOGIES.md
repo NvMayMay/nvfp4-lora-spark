@@ -35,7 +35,7 @@ multimodal-tower skip lists, fused-MoE class names) lives in ONE registry:
 
 | `model_type` | auto class | attention | routed experts | status |
 |---|---|---|---|---|
-| `qwen3_5_moe` / `qwen3_5_moe_text` | causal LM | NVFP4 q/k/v/o on full-attention layers (native LoRA); GatedDeltaNet linear-attention layers BF16 | per-expert CT keys, fused-3D in memory (`Qwen3_5MoeExperts`) | trained + merged + served end-to-end |
+| `qwen3_5_moe` / `qwen3_5_moe_text` | causal LM | NVFP4 q/k/v/o on full-attention layers (native LoRA); GatedDeltaNet linear-attention layers BF16 | per-expert CT keys, fused-3D in memory (`Qwen3_5MoeExperts`) | trained + runtime-LoRA served end-to-end (logprob-delta confirmed). NB: the 122B checkpoint is a vision-wrapped `...ForConditionalGeneration`, so the expert/attn adapter must be re-keyed to the `language_model.model.layers.N` path (`rekey_expert_lora_for_vllm.py --wrapped auto`); see `cross_arch_status.md` FINDING #3 |
 | `mistral3` / `mistral4` | image-text-to-text (vision tower frozen + unmaterialized) | MLA attention BF16 (PEFT LoRA) | per-expert CT keys, fused-3D in memory (`Mistral4NaiveMoe`) | trained end-to-end |
 | `nemotron_h` (Nemotron-3 Nano/Super) | causal LM | BF16/FP8 (not LoRA-targeted) | per-expert ModelOpt keys, per-expert in memory (no fused-3D container; `st_to_model`/`expert_prefix`/`moe_experts_class` are None and the loader's dynamic prefix heuristic applies, since Nano materializes `backbone.*` but Super `model.*`) | unified trainer (validated: Nano dry-run + 3-step smoke); `train/*.py` remain the frozen v1.0 measurement-run path |
 
