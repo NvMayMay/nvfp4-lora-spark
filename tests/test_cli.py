@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from nybbloris.cli import VERDICT_EXIT, main
+from nybbloris.cli import VERDICT_EXIT, _derive_probe_prompt, main
 from test_serve_contract import ATTN, _build_adapter, _build_base, _mods
 
 
@@ -58,6 +58,21 @@ def test_inspect_json_stdout_is_parseable(tmp_path, capsys):
           "--adapter-dir", str(tmp_path / "ad"), "--json"])
     plan = json.loads(capsys.readouterr().out)
     assert plan["verdict"] == "PASS" and plan["targets"]["live"] == len(ATTN)
+
+
+def test_derive_probe_prompt_from_val_row(tmp_path):
+    # --verify's apply-check probe prompt is stitched from the first val row's messages.
+    vf = tmp_path / "val.jsonl"
+    vf.write_text(json.dumps({"messages": [
+        {"role": "user", "content": "count the singers"},
+        {"role": "assistant", "content": "SELECT COUNT(*) FROM singer;"}]}) + "\n")
+    p = _derive_probe_prompt(str(vf))
+    assert "count the singers" in p and "SELECT COUNT(*)" in p
+
+
+def test_derive_probe_prompt_missing_file_is_none(tmp_path):
+    # Missing/unreadable val file falls back to None (checker uses its default probe).
+    assert _derive_probe_prompt(str(tmp_path / "nope.jsonl")) is None
 
 
 def test_doctor_runs_and_reports(capsys):

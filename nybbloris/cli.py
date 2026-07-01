@@ -84,6 +84,57 @@ def _terminate(proc):
         proc.kill()
 
 
+def _derive_probe_prompt(val_file, max_chars=4000):
+    """A raw probe prompt for the apply-check, built from the first val row (or None).
+
+    The apply-check scores prompt tokens via echo-logprobs, so it wants a plain string;
+    we stitch the first row's message contents. Falls back to the checker's own default
+    probe when the file is missing/unreadable.
+    """
+    try:
+        with open(val_file) as f:
+            row = json.loads(f.readline())
+        msgs = row.get("messages") or []
+        text = "\n".join(m.get("content", "") for m in msgs
+                         if isinstance(m.get("content"), str)).strip()
+        return text[:max_chars] or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _apply_check(base_url, base_name, adapter_names, env, prompt=None):
+    """DECISIVE runtime-apply gate: prompt-echo logprob delta, base vs each adapter.
+
+    The parity probe below is advisory: greedy text can match base even when the adapter
+    IS applied (saturated prompts) or when it is a silent NO-OP, and vLLM greedy is
+    nondeterministic. Identical prompt logprobs, by contrast, PROVE the adapter delta is
+    not in the forward pass. Returns True iff EVERY adapter moves the logprobs past the
+    threshold. Shells out to scripts/serve_apply_check.py (exit 0 = applies, else not).
+    """
+    import tempfile
+    checker = REPO_ROOT / "scripts" / "serve_apply_check.py"
+    ok = True
+    print("\n[verify] runtime APPLY check (prompt-echo logprob delta, decisive):")
+    for a in adapter_names:
+        out = str(Path(tempfile.gettempdir()) / f"nybbloris_apply_{a}.json")
+        cmd = [sys.executable, str(checker), "--base-url", base_url,
+               "--base-model", base_name, "--adapter-model", a, "--out", out]
+        if prompt:
+            cmd += ["--prompt", prompt]
+        applies = subprocess.call(cmd, env=env) == 0
+        try:
+            v = json.load(open(out))
+            detail = f"max|delta|={v['max_abs_delta']:.3e} (sum {v['sum_delta']:+.3f})"
+        except Exception:  # noqa: BLE001
+            detail = "(no verdict json)"
+        print(f"  {a}: {'APPLIES' if applies else 'NO-OP / error'}  {detail}")
+        ok = ok and applies
+    print(f"[verify] APPLY VERDICT: {'PASS' if ok else 'FAIL'} -- "
+          + ("every adapter changes the forward pass." if ok
+             else "an adapter loaded but did NOT apply (logprobs identical): silent no-op."))
+    return ok
+
+
 def _verify(base_url, base_name, adapter_names, val_file, n, max_new, threshold, env,
             max_prompt_chars=24000):
     """Runtime behavioral check: base vs each adapter, via the serve-parity probe.
@@ -122,9 +173,10 @@ def _verify(base_url, base_name, adapter_names, val_file, n, max_new, threshold,
             print(f"      base : {gb!r}")
             print(f"      {a:<8}: {ga!r}")
         ok = ok and diverged
-    print(f"[verify] VERDICT: {'PASS' if ok else 'WARN'} -- "
+    print(f"[verify] PARITY (advisory): {'diverged' if ok else 'WARN'} -- "
           + ("all adapters changed behavior vs base." if ok
-             else "an adapter looks behaviorally identical to base (investigate)."))
+             else "an adapter looks behaviorally identical to base (greedy can mislead; "
+                  "trust the APPLY check above)."))
     return ok
 
 
@@ -220,8 +272,9 @@ def cmd_serve(args):
     if not args.verify:
         return subprocess.call(cmd, env=env)
 
-    # --verify: launch in the background, wait for READY, run the runtime parity,
-    # then keep serving (or tear down + exit on the verdict if --verify-only).
+    # --verify: launch in the background, wait for READY, run the DECISIVE apply-check
+    # (logprob delta) plus the advisory behavioral parity, then keep serving (or tear
+    # down + exit on the apply verdict if --verify-only).
     if not args.val_file:
         print("[serve] --verify requires --val-file (prompts to diff base vs adapter).")
         return 2
@@ -236,9 +289,17 @@ def cmd_serve(args):
             print("[serve] server did not become READY in time; aborting.")
             _terminate(proc)
             return 1
-        ok = _verify(base_url, served, [n for n, _ in lora_modules],
-                     args.val_file, args.verify_n, args.verify_max_new_tokens,
-                     args.verify_threshold, env, args.verify_max_prompt_chars)
+        adapter_names = [n for n, _ in lora_modules]
+        # Decisive gate: does the adapter actually change the forward pass?
+        ok = _apply_check(base_url, served, adapter_names, env,
+                          _derive_probe_prompt(args.val_file))
+        # Advisory: behavioral divergence on generated text (does not change the verdict).
+        try:
+            _verify(base_url, served, adapter_names,
+                    args.val_file, args.verify_n, args.verify_max_new_tokens,
+                    args.verify_threshold, env, args.verify_max_prompt_chars)
+        except Exception as e:  # noqa: BLE001
+            print(f"[verify] (advisory parity probe skipped: {type(e).__name__}: {e})")
         if args.verify_only:
             print("[serve] --verify-only: stopping the server.")
             _terminate(proc)
