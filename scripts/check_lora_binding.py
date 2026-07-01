@@ -64,7 +64,10 @@ def main():
               f"Re-key it (scripts/rekey_lora_for_vllm.py) before serving.")
     elif v == "BLOCKED-ROUTED":
         print(f"[binding] VERDICT: BLOCKED-ROUTED -- {t['blocked_routed']}/{n} targets are routed-expert "
-              f"FusedMoE (supports_lora=False at serve). Merge-for-serve those, or drop them.")
+              f"FusedMoE, BACKEND-GATED at serve. They serve LIVE on a LoRA-capable MoE backend "
+              f"(emulation -- the validated one-box path -- or marlin); they are blocked ONLY on the "
+              f"cutlass/flashinfer fast backends (supports_lora=False). Serve with --moe-backend emulation, "
+              f"or merge-for-serve. NOT a dead end: do not read this as 'merge-only'.")
     elif v == "NEEDS-REKEY":
         pct = 100 * miss // n
         print(f"[binding] VERDICT: NEEDS-REKEY -- binds only with the '{bi['rekey']}' re-key; a naive load "

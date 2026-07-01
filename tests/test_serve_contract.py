@@ -30,6 +30,10 @@ from nybbloris.plan import lm_head_status, render_plan, serve_plan
 ATTN = ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj"]
 SHARED = ["mlp.shared_expert.gate_proj", "mlp.shared_expert.up_proj", "mlp.shared_expert.down_proj"]
 ROUTED = ["mlp.experts.0.gate_proj", "mlp.experts.0.up_proj", "mlp.experts.0.down_proj"]
+# Fused-3D MoE LoRA: the adapter targets the whole expert block (no expert index),
+# `mlp.experts` (down) + `mlp.experts.base_layer` (gate_up). The base still stores
+# experts per-expert, so serve_plan must resolve the fused target against expert 0.
+FUSED = ["mlp.experts", "mlp.experts.base_layer"]
 
 
 def _full(layout: str, rel: str) -> str:
@@ -171,6 +175,31 @@ CASES = [
          adapter=["lm_head"] + _mods("flat", ATTN),
          expect=dict(verdict="NEEDS-REKEY", naive=1, resolved=5,
                      needs_rekey=True, rekey="language_model")),
+
+    # 10. THE Qwen3.5-122B fused-MoE no-op, at the contract level: a fused-3D expert
+    #     adapter carrying the flat `model.layers.*` path against a wrapped base binds
+    #     NOTHING as shipped. Before the fused-expert resolver these targets read as
+    #     UNRESOLVED (FAIL, indistinguishable from the fix); now they resolve only via
+    #     the language_model re-key -> naive 0 -> NO-OP, correctly flagging the silent
+    #     no-op that only a runtime logprob-delta check had caught.
+    dict(id="noop_wrapped_flat_fused_experts",
+         base=dict(arch="Qwen3_5MoeForConditionalGeneration", model_type="qwen3_5_moe",
+                   quant_method="modelopt", layout="wrapped",
+                   targets=[(r, "nvfp4") for r in ROUTED]),
+         adapter=_mods("flat", FUSED),
+         expect=dict(verdict="NO-OP", wrapped=True, naive=0, resolved=2,
+                     needs_rekey=True, rekey="language_model", blocked=2, live=0)),
+
+    # 11. The fix: the same fused-3D expert adapter re-keyed to the wrapped serve path
+    #     resolves directly. Routed experts remain backend-gated -> BLOCKED-ROUTED
+    #     (live on emulation/marlin), but it now binds (naive == resolved, no re-key).
+    dict(id="pass_wrapped_rekeyed_fused_experts",
+         base=dict(arch="Qwen3_5MoeForConditionalGeneration", model_type="qwen3_5_moe",
+                   quant_method="modelopt", layout="wrapped",
+                   targets=[(r, "nvfp4") for r in ROUTED]),
+         adapter=_mods("serve", FUSED),
+         expect=dict(verdict="BLOCKED-ROUTED", wrapped=True, naive=2, resolved=2,
+                     needs_rekey=False, blocked=2, live=0)),
 ]
 
 

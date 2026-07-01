@@ -18,7 +18,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent  # nvfp4-lora-spark/
 #   0  PASS            binds + serves live as-is
 #   1  FAIL / EMPTY    does not bind to this base (or no LoRA tensors found)
 #   3  NO-OP/NEEDS-REKEY  binds only after re-keying (`serve --rekey auto`)
-#   4  BLOCKED-ROUTED  binds, but targets are routed-expert (not served at runtime)
+#   4  BLOCKED-ROUTED  binds, but targets are routed-expert MoE: served live ONLY on a
+#                      LoRA-capable MoE backend (`--moe-backend emulation`, or marlin),
+#                      NOT on the cutlass/flashinfer fast backends (supports_lora=False).
+#                      Not "merge-only"; pick a LoRA-capable backend or merge-for-serve.
 VERDICT_EXIT = {"PASS": 0, "FAIL": 1, "EMPTY": 1, "NO-OP": 3, "NEEDS-REKEY": 3, "BLOCKED-ROUTED": 4}
 
 
