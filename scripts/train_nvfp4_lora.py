@@ -475,7 +475,11 @@ def evaluate(model, loader, device) -> float:
     for batch in loader:
         batch = {k: v.to(device) for k, v in batch.items()}
         out = model(**batch)
-        n_tok = (batch["labels"] != -100).sum().item()
+        # out.loss is CE over SHIFTED tokens (labels[:, 1:] vs logits[:, :-1]),
+        # so the token-weight must be the shifted supervised-token count, not the
+        # full unshifted (labels != -100) count. Using the unshifted count over-
+        # weights batches by their first label position and biases model selection.
+        n_tok = (batch["labels"][:, 1:] != -100).sum().item()
         total_loss += out.loss.item() * n_tok
         total_tokens += n_tok
     model.train()
