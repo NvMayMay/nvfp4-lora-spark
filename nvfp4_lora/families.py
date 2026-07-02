@@ -180,22 +180,111 @@ def model_type_from_config(model_dir: str | Path) -> str | None:
     return cfg.get("model_type")
 
 
-def resolve_family(model_dir: str | Path) -> tuple[str, dict]:
+# Best-effort defaults for an unregistered but structurally-standard NVFP4
+# checkpoint: a flat causal-LM whose backbone is `model.layers.*` (or nemotron's
+# `backbone.layers.*`) on disk and in memory. st_to_model=None routes non-expert
+# weights through the loader's dynamic identity translator; moe_experts_class=None
+# means any routed experts are handled per-expert by replace_nvfp4_modules (like
+# nemotron_h / qwen3 / llama). This deliberately does NOT cover multimodal-wrapped
+# bases (they need an explicit st_to_model rewrite) or unregistered FUSED-3D MoE
+# blocks (they need an HF class name); both are caught downstream by the strict-load
+# / coverage / no-meta gates, which fail fast rather than train a silent mismatch.
+_GENERIC_FAMILY_DEFAULTS: dict = {
+    "auto_class": "causal_lm",
+    "expert_prefix": None,
+    "peft_scope": r"^(model|backbone)\.layers\.",
+    "freeze": (),
+    "skip_st_prefixes": (),
+    "st_to_model": None,
+    "meta_allowed_prefixes": (),
+    "moe_experts_class": None,
+}
+
+# The fields every family entry (registered or user-supplied) must define.
+_REQUIRED_FAMILY_KEYS = (
+    "auto_class", "expert_prefix", "peft_scope", "freeze", "skip_st_prefixes",
+    "st_to_model", "meta_allowed_prefixes", "moe_experts_class",
+)
+
+
+def synthesize_generic_family(model_dir: str | Path) -> dict:
+    """Best-effort family for an unregistered flat causal-LM NVFP4 checkpoint.
+
+    Refuses (SystemExit, with a --family-config hint) for multimodal-wrapped
+    architectures, whose decoder lives under a `language_model.` prefix and needs an
+    explicit st_to_model rewrite the generic identity mapping cannot supply. The
+    returned dict is tagged `_unverified` so callers can warn + stamp provenance.
+    """
+    cfg_path = Path(model_dir) / "config.json"
+    cfg = {}
+    try:
+        cfg = json.loads(cfg_path.read_text())
+    except (OSError, ValueError):
+        pass
+    arch = (cfg.get("architectures") or [None])[0] or ""
+    if arch.endswith("ForConditionalGeneration"):
+        raise SystemExit(
+            f"model_type={cfg.get('model_type')!r} is an unregistered multimodal-wrapped "
+            f"architecture ({arch}); the generic fallback only handles flat causal-LM "
+            f"layouts. Supply an explicit --family-config family.json describing the "
+            f"wrapped st_to_model rewrite (e.g. [[\"language_model.model.\", "
+            f"\"model.language_model.\"]]) and peft_scope."
+        )
+    fam = dict(_GENERIC_FAMILY_DEFAULTS)
+    fam["_generic"] = True
+    fam["_unverified"] = True
+    fam["_note"] = (f"synthesized generic family for model_type={cfg.get('model_type')!r} "
+                    f"arch={arch!r}; verify with a short train + coverage check")
+    return fam
+
+
+def load_family_config(path: str | Path) -> dict:
+    """Load a user-supplied family spec (the --family-config escape hatch).
+
+    Lets a user onboard a model without editing library source. Validates that every
+    required field is present and coerces list fields to the tuples consumers expect.
+    """
+    obj = json.loads(Path(path).read_text())
+    missing = [k for k in _REQUIRED_FAMILY_KEYS if k not in obj]
+    if missing:
+        raise SystemExit(
+            f"--family-config {path}: missing required keys {missing}. "
+            f"Required: {list(_REQUIRED_FAMILY_KEYS)}."
+        )
+    for k in ("freeze", "skip_st_prefixes", "meta_allowed_prefixes"):
+        obj[k] = tuple(obj[k]) if obj[k] is not None else ()
+    if obj["st_to_model"] is not None:
+        obj["st_to_model"] = tuple(tuple(r) for r in obj["st_to_model"])
+    if obj["expert_prefix"] is not None:
+        obj["expert_prefix"] = tuple(obj["expert_prefix"])
+    obj["_source"] = str(path)
+    return obj
+
+
+def resolve_family(model_dir: str | Path, *, allow_generic: bool = False,
+                   family_config: str | Path | None = None) -> tuple[str, dict]:
     """Map a checkpoint directory to (model_type, family registry entry).
 
-    Raises SystemExit with a porting hint for unknown model types.
+    Resolution order: an explicit `family_config` wins; then the registry; then, only
+    if `allow_generic`, a best-effort synthesized family for a flat causal-LM checkpoint
+    (tagged `_unverified`). Otherwise raises SystemExit with the porting options. The
+    default (allow_generic=False, no family_config) preserves the strict fail-fast.
     """
     model_type = model_type_from_config(model_dir)
+    if family_config is not None:
+        return (model_type or "custom", load_family_config(family_config))
     fam = FAMILIES.get(model_type)
-    if fam is None:
-        raise SystemExit(
-            f"Unsupported model_type={model_type!r}. Known: {sorted(FAMILIES)}. "
-            f"Add a FAMILIES entry in nvfp4_lora/families.py (and a "
-            f"make_key_translator branch in loader.py if the safetensors "
-            f"layout is new). Run scripts/inspect_nvfp4_checkpoint.py on the "
-            f"checkpoint first to see its layout."
-        )
-    return model_type, fam
+    if fam is not None:
+        return model_type, fam
+    if allow_generic:
+        return model_type, synthesize_generic_family(model_dir)
+    raise SystemExit(
+        f"Unsupported model_type={model_type!r}. Known: {sorted(FAMILIES)}. Options: "
+        f"add a FAMILIES entry in nvfp4_lora/families.py; pass --family-config family.json; "
+        f"or re-run with --allow-unverified-family for a best-effort flat causal-LM mapping "
+        f"(guarded by the strict-load / coverage gates). Run "
+        f"scripts/inspect_nvfp4_checkpoint.py on the checkpoint first to see its layout."
+    )
 
 
 def make_family_translator(fam: dict):

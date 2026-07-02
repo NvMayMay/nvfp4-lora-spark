@@ -1,0 +1,14 @@
+{
+  "_comment": "Example --family-config for onboarding a model without editing library source. Pass with: train_nvfp4_lora.py --family-config this.json ...  Wins over the registry and the generic fallback. This example describes a MULTIMODAL-WRAPPED base (the case the generic fallback refuses): the text decoder lives on disk under language_model.model.* and is materialized in memory under model.language_model.*, so st_to_model rewrites it, peft_scope anchors LoRA targets to the text backbone, and the vision tower is skipped/frozen. For a flat causal-LM you usually do not need this file at all (the default generic fallback handles it); set st_to_model to null, freeze/skip/meta_allowed_prefixes to [], expert_prefix and moe_experts_class to null.",
+  "auto_class": "image_text_to_text",
+  "expert_prefix": ["model.language_model.", "language_model.model."],
+  "peft_scope": "^model\\.language_model\\.",
+  "freeze": ["vision_tower", "multi_modal_projector"],
+  "skip_st_prefixes": ["vision_tower.", "multi_modal_projector."],
+  "st_to_model": [
+    ["language_model.model.", "model.language_model."],
+    ["language_model.lm_head.", "lm_head."]
+  ],
+  "meta_allowed_prefixes": ["model.vision_tower.", "model.multi_modal_projector."],
+  "moe_experts_class": null
+}
