@@ -40,3 +40,6 @@ docs/notebook.md
 data/
 scripts/*_ich*.py
 scripts/*_rh*.py
+# private-domain eval outputs + a plan doc that names the private clinical domain
+results/**/*ich*
+docs/plans/mistral_bf16_to_nvfp4_quant.md
