@@ -90,6 +90,20 @@ def classify_module_storage(keys: set[str], prefix: str) -> str:
     return "absent"
 
 
+def is_fp8_module(keys: set[str], prefix: str) -> bool:
+    """Canonical FP8-per-tensor test for a module prefix, from index keys alone.
+
+    An FP8 per-tensor module has `.weight` + `.weight_scale` but NO `.weight_scale_2`
+    (the fp32 per-tensor scale that ModelOpt NVFP4 always carries). This is the SAME
+    signal `classify_module_storage` uses; expose it so pre-flight tools
+    (`nybbloris.plan`) label FP8 identically to the loader instead of drifting to a
+    different heuristic (e.g. `.input_scale`, which is an ACTIVATION scale and is not
+    reliably present). Note a compressed-tensors NVFP4 module uses `.weight_packed`,
+    so it never trips this test.
+    """
+    return classify_module_storage(keys, prefix) == "fp8"
+
+
 def list_weight_module_prefixes(keys: set[str]) -> set[str]:
     """All module prefixes that own a weight tensor (.weight or .weight_packed)."""
     out = set()

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from nybbloris.plan import lm_head_status, render_plan, serve_plan
+from nybbloris.plan import adapter_modules, lm_head_status, render_plan, serve_plan
 
 # Relative module paths by kind (the _kind() classifier keys off these substrings).
 ATTN = ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj"]
@@ -292,3 +292,108 @@ def test_lm_head_status_missing_index(tmp_path):
     st = lm_head_status(tmp_path)
     assert st["present"] is False and st["quantized"] is False
     assert st["note"] == "no index.json"
+
+
+# --------------------------------------------------------------------------------------
+# Native EXPERT adapter key recognition: the trainer's stacked expert tensors are named
+# `...experts.{gate_up,down}.lora_{A,B}` WITHOUT a `.weight` suffix. adapter_modules must
+# recognize them (they previously read as EMPTY, so a native expert adapter inspected as
+# a no-target adapter -> a hidden EMPTY verdict). adapter_keys is now the schema source.
+# --------------------------------------------------------------------------------------
+def _write_native_expert_adapter(adapter_dir: Path, blocks=("model.layers.0.mlp.experts",)):
+    adapter_dir.mkdir(parents=True, exist_ok=True)
+    (adapter_dir / "adapter_config.json").write_text(json.dumps(
+        {"r": 8, "lora_alpha": 16, "peft_type": "LORA", "target_modules": ["experts"]}))
+    header = {"__metadata__": {"format": "pt"}}
+    for blk in blocks:
+        for proj in ("gate_up", "down"):
+            for ab in ("lora_A", "lora_B"):
+                # NOTE: native stacked expert keys carry NO `.weight` suffix.
+                header[f"base_model.model.{blk}.{proj}.{ab}"] = {
+                    "dtype": "F16", "shape": [1, 1], "data_offsets": [0, 0]}
+    blob = json.dumps(header).encode("utf-8")
+    with open(adapter_dir / "adapter_model.safetensors", "wb") as fh:
+        fh.write(struct.pack("<Q", len(blob)))
+        fh.write(blob)
+
+
+def test_adapter_modules_recognizes_native_expert_keys(tmp_path):
+    _write_native_expert_adapter(tmp_path / "ad",
+                                 blocks=("model.layers.0.mlp.experts", "model.layers.1.mlp.experts"))
+    mods = adapter_modules(tmp_path / "ad")
+    # 2 blocks x {gate_up, down} = 4 target-module paths, none dropped as "empty".
+    assert mods == [
+        "model.layers.0.mlp.experts.down", "model.layers.0.mlp.experts.gate_up",
+        "model.layers.1.mlp.experts.down", "model.layers.1.mlp.experts.gate_up",
+    ]
+
+
+def test_serve_plan_native_expert_adapter_not_empty(tmp_path):
+    """A native expert adapter must NOT inspect as EMPTY (it has real targets)."""
+    _build_base(tmp_path / "base", arch="Qwen3MoeForCausalLM", model_type="qwen3_moe",
+                quant_method="modelopt", layout="flat", targets=[(r, "nvfp4") for r in ROUTED])
+    _write_native_expert_adapter(tmp_path / "ad")
+    plan = serve_plan(tmp_path / "base", tmp_path / "ad")
+    assert plan["verdict"] != "EMPTY"
+    assert plan["adapter"]["n_targets"] == 2
+    assert plan["adapter"]["expert_layout"] == "native"
+
+
+# --------------------------------------------------------------------------------------
+# Backend-aware routed verdict: BLOCKED-ROUTED is a BACKEND-GATED state (live on
+# emulation/marlin, blocked on cutlass/flashinfer), NOT merge-only. The structured
+# `routed` block carries the per-backend truth; render_plan states it.
+# --------------------------------------------------------------------------------------
+def test_fp8_classify_agrees_with_loader_no_input_scale(tmp_path):
+    """FP8 is `.weight` + `.weight_scale` with NO `.weight_scale_2` (the loader's
+    is_fp8_module signal). The old plan.classify required `.input_scale` -- an
+    ACTIVATION scale that a checkpoint need not carry -- and mislabeled such modules
+    BF16. Build an FP8 attention target WITHOUT input_scale and assert it is FP8-live.
+    """
+    q = "model.layers.0.self_attn.q_proj"
+    keys = [f"{q}.weight", f"{q}.weight_scale"]  # FP8: no weight_scale_2, no input_scale
+    (tmp_path / "base").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "base" / "config.json").write_text(json.dumps(
+        {"architectures": ["Qwen3MoeForCausalLM"], "model_type": "qwen3_moe",
+         "quantization_config": {"quant_method": "modelopt"}}))
+    (tmp_path / "base" / "model.safetensors.index.json").write_text(json.dumps(
+        {"weight_map": {k: "model-00001-of-00001.safetensors" for k in keys}}))
+    _build_adapter(tmp_path / "ad", ["model.layers.0.self_attn.q_proj"])
+    plan = serve_plan(tmp_path / "base", tmp_path / "ad")
+    assert plan["verdict"] == "PASS"
+    assert plan["targets"]["by_quant"].get("FP8") == 1
+    assert plan["targets"]["fp8_dense_live"] == 1
+
+
+def test_routed_verdict_is_backend_aware(tmp_path):
+    _build_base(tmp_path / "base", arch="Qwen3MoeForCausalLM", model_type="qwen3_moe",
+                quant_method="modelopt", layout="flat", targets=[(r, "nvfp4") for r in ROUTED])
+    _build_adapter(tmp_path / "ad", _mods("flat", ROUTED))
+    plan = serve_plan(tmp_path / "base", tmp_path / "ad")
+    assert plan["verdict"] == "BLOCKED-ROUTED"
+    routed = plan["routed"]
+    assert routed["n"] == 3
+    assert "emulation" in routed["live_on"]
+    assert "cutlass" in routed["blocked_on"] and "flashinfer" in routed["blocked_on"]
+    assert "not merge-only" in routed["note"].lower()
+
+
+def test_routed_block_empty_when_no_routed_targets(tmp_path):
+    _build_base(tmp_path / "base", arch="Qwen3MoeForCausalLM", model_type="qwen3_moe",
+                quant_method="modelopt", layout="flat", targets=[(r, "nvfp4") for r in ATTN])
+    _build_adapter(tmp_path / "ad", _mods("flat", ATTN))
+    plan = serve_plan(tmp_path / "base", tmp_path / "ad")
+    assert plan["verdict"] == "PASS"
+    assert plan["routed"]["n"] == 0
+    assert plan["routed"]["live_on"] == [] and plan["routed"]["blocked_on"] == []
+
+
+def test_render_plan_states_backend_gating(tmp_path):
+    _build_base(tmp_path / "base", arch="Qwen3MoeForCausalLM", model_type="qwen3_moe",
+                quant_method="modelopt", layout="flat", targets=[(r, "nvfp4") for r in ROUTED])
+    _build_adapter(tmp_path / "ad", _mods("flat", ROUTED))
+    text = render_plan(serve_plan(tmp_path / "base", tmp_path / "ad"))
+    assert "BACKEND-GATED" in text
+    assert "emulation" in text
+    # No longer claims a flat "BLOCKED (routed-MoE)" merge-only line.
+    assert "ROUTED-MoE (gated)" in text
