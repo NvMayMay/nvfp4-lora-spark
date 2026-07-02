@@ -40,10 +40,15 @@ identical; validated to match the launch-attach behavior on Llama-3.1-8B.
 ## Prerequisites
 
 - One GB10 / DGX Spark (sm_121, ~128 GB unified memory). Peak training memory is ~11 GB.
-- The training and serving venvs from the [README](README.md#quickstart). The serving
-  step uses the **runtime-LoRA path**, i.e. the **vLLM 0.22.1 host venv**.
+- The train env (`pip install -e .` from the clone, per [README Install](README.md#install))
+  and a serving venv. The serving step uses the **runtime-LoRA path** driven by
+  `nybbloris serve`, which launches the **vLLM 0.22.1 host venv** for you — point `--vllm`
+  at that venv's `vllm` binary. See [docs/SERVING.md](docs/SERVING.md).
 - `nvcc` on `PATH` for the serve step (flashinfer JITs its kernels at first serve):
-  `export PATH=/usr/local/cuda/bin:$PATH`.
+  `export PATH=/usr/local/cuda/bin:$PATH`. `nybbloris serve` also prepends
+  `/usr/local/cuda/bin` to `PATH` itself.
+- Activate the env explicitly and use `python3` throughout, e.g.
+  `source .venv/bin/activate` (do not rely on a bare `python` being on `PATH`).
 
 ## 1. Get the base model (~6 GB)
 
@@ -58,7 +63,7 @@ Joins each question to its DB schema (the base hallucinates columns without it) 
 chat-format JSONL. Schemas come from `richardr1126/spider-schema` (auto-downloaded).
 
 ```bash
-python scripts/prep_spider.py --out-dir data/spider
+python3 scripts/prep_spider.py --out-dir data/spider
 # -> data/spider/spider.train.chat.jsonl  (7000)
 # -> data/spider/spider.dev.chat.jsonl    (1034)
 ```
@@ -70,8 +75,11 @@ reproduce the headline numbers, use `--epochs 1`. The `llama` family resolves to
 NVFP4 LoRA automatically; `--dry-run` first if you want to confirm target coverage and
 memory before committing.
 
+You can run the trainer through the CLI (`nybbloris train ...`, which also auto-runs a
+post-train serve pre-flight) or the script directly:
+
 ```bash
-python -u scripts/train_nvfp4_lora.py \
+python3 -u scripts/train_nvfp4_lora.py \
     --model-dir models/Llama-3.1-8B-Instruct-NVFP4 \
     --train-file data/spider/spider.train.chat.jsonl \
     --val-file   data/spider/spider.dev.chat.jsonl \
@@ -85,30 +93,47 @@ python -u scripts/train_nvfp4_lora.py \
 
 The adapter lands in `adapters/spider_llama8b_r32/best` (lowest dev loss).
 
-## 4. Serve base + adapter (runtime-LoRA)
-
-Serve the NVFP4 base once and attach the adapter as a named LoRA. Both are queryable:
-`base` (no adapter) and `myft` (adapter applied live). Use the vLLM 0.22.1 host venv.
+**Confirm it binds first** (static, seconds, no GPU):
 
 ```bash
-export PATH=/usr/local/cuda/bin:$PATH        # flashinfer needs nvcc
-MAX_JOBS=1 vllm serve models/Llama-3.1-8B-Instruct-NVFP4 \
-    --served-model-name base --host 127.0.0.1 --port 8000 \
-    --enable-lora --max-lora-rank 32 --max-loras 2 \
-    --lora-modules myft=adapters/spider_llama8b_r32/best \
-    --max-model-len 8192 --enforce-eager \
-    --gpu-memory-utilization 0.6 --kv-cache-dtype fp8
+nybbloris inspect \
+    --base-model-dir models/Llama-3.1-8B-Instruct-NVFP4 \
+    --adapter-dir    adapters/spider_llama8b_r32/best
+# Llama is flat, so it binds directly: VERDICT PASS
 ```
 
-First serve JITs flashinfer kernels (a few minutes). `inspect` first if you want the
-binding verdict: `python -m nybbloris.cli inspect --base-model-dir models/Llama-3.1-8B-Instruct-NVFP4 --adapter-dir adapters/spider_llama8b_r32/best` (Llama is flat, so it binds directly: VERDICT PASS).
+## 4. Serve base + adapter (runtime-LoRA) and prove the adapter applied
+
+`nybbloris serve` gates the checkpoint (lm_head compat, binding, provenance), then launches
+the vLLM 0.22.1 host venv with the adapter attached as a named LoRA. Both are queryable:
+`base` (no adapter) and `myft` (adapter applied live). Point `--vllm` at the serve venv's
+`vllm` binary. Add `--verify --val-file ...` to run the **decisive apply-check** (a
+prompt-echo logprob delta base vs adapter): identical logprobs prove a silent no-op, a moved
+delta proves the adapter changed the forward pass.
+
+```bash
+export PATH=/usr/local/cuda/bin:$PATH        # flashinfer needs nvcc (serve also does this)
+nybbloris serve \
+    --base-model-dir models/Llama-3.1-8B-Instruct-NVFP4 \
+    --served-model-name base --host 127.0.0.1 --port 8000 \
+    --adapter myft=adapters/spider_llama8b_r32/best \
+    --vllm /path/to/serve-venv/bin/vllm \
+    --max-model-len 8192 --gpu-memory-utilization 0.6 \
+    --max-lora-rank 32 --max-loras 2 \
+    --verify --val-file data/spider/spider.dev.chat.jsonl
+```
+
+First serve JITs flashinfer kernels (a few minutes). After the `--verify` APPLY VERDICT prints
+`PASS`, serving continues so you can run the scorer below in another shell (Ctrl-C to stop, or
+add `--verify-only` to tear down after the check as a CI gate). `nybbloris serve --dry-run`
+prints the exact vLLM command it would launch if you want to inspect or hand-edit it.
 
 ## 5. Score the before/after (deterministic)
 
 In another shell, against the running server:
 
 ```bash
-python scripts/eval_retention.py \
+python3 scripts/eval_retention.py \
     --dev-file data/spider/spider.dev.chat.jsonl \
     --models base myft --n 1034 --out spider_retention.json
 ```
@@ -125,8 +150,10 @@ You should see the deltas in the table above (`myft` lower NLL, higher exact-set
 
 ## Notes
 
-- **Tear-down.** vLLM spawns an `EngineCore` worker that holds the GPU after `vllm serve`
-  exits; on GB10 its comm is truncated, so kill it by name: `pkill -9 EngineCor`.
+- **Tear-down.** vLLM spawns an `EngineCore` worker that holds the GPU after it exits; on
+  GB10 its comm is truncated. `nybbloris serve` shuts the process group down gracefully
+  (SIGINT then SIGKILL) on Ctrl-C / `--verify-only`; if you launched vLLM by hand, kill the
+  orphan by name: `pkill -9 EngineCor`.
 - **Determinism.** The NLL metric is teacher-forced (single forward pass) and fully
   deterministic; exact-set-match uses greedy decode (`temperature=0`).
 - **n.** The headline uses `--n 1034` (the full dev set). `--n 200` is a faster,
