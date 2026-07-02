@@ -16,6 +16,21 @@ from .plan import (LORA_BLOCKED_MOE_BACKENDS, LORA_CAPABLE_MOE_BACKENDS,
 REPO_ROOT = Path(__file__).resolve().parent.parent  # nvfp4-lora-spark/
 
 
+def _require_script(path: Path) -> bool:
+    """True if a shell-out helper is on disk; else print a clear reason and return False.
+
+    The script-backed subcommands resolve helpers under REPO_ROOT/scripts, which exists for
+    an editable install from a clone but NOT for a bare wheel. Without this, a missing helper
+    surfaces as an opaque `python: can't open file ...`. Callers should abort cleanly instead.
+    """
+    if not path.exists():
+        print(f"[error] required helper not found: {path}\n"
+              f"        Script-backed subcommands need the source checkout "
+              f"(`pip install -e .` from a clone), not a bare wheel.")
+        return False
+    return True
+
+
 # Documented `inspect` exit codes, so a CI step / serve script can branch on the verdict:
 #   0  PASS            binds + serves live as-is
 #   1  FAIL / EMPTY    does not bind to this base (or no LoRA tensors found)
@@ -116,6 +131,8 @@ def _apply_check(base_url, base_name, adapter_names, env, prompt=None):
     """
     import tempfile
     checker = REPO_ROOT / "scripts" / "serve_apply_check.py"
+    if not _require_script(checker):
+        return False
     ok = True
     print("\n[verify] runtime APPLY check (prompt-echo logprob delta, decisive):")
     for a in adapter_names:
@@ -151,6 +168,8 @@ def _verify(base_url, base_name, adapter_names, val_file, n, max_new, threshold,
     """
     import tempfile
     probe = REPO_ROOT / "scripts" / "serve_parity_vllm.py"
+    if not _require_script(probe):
+        return False
     out = str(Path(tempfile.gettempdir()) / "nybbloris_verify.json")
     cmd = [sys.executable, str(probe), "--base-url", base_url, "--val-file", val_file,
            "--models", base_name, *adapter_names,

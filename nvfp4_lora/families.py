@@ -56,30 +56,7 @@ FAMILIES: dict[str, dict] = {
         "meta_allowed_prefixes": (),
         "moe_experts_class": "Qwen3_5MoeExperts",
     },
-    "qwen3_5_moe_text": {
-        "auto_class": "causal_lm",
-        "expert_prefix": ("model.", "model.language_model."),
-        "peft_scope": r"^model\.layers\.",
-        "freeze": (),
-        "skip_st_prefixes": ("model.visual.",),
-        "st_to_model": (("model.language_model.", "model."),),
-        "meta_allowed_prefixes": (),
-        "moe_experts_class": "Qwen3_5MoeExperts",
-    },
     "mistral3": {
-        "auto_class": "image_text_to_text",
-        "expert_prefix": ("model.language_model.", "language_model.model."),
-        "peft_scope": r"^model\.language_model\.",
-        "freeze": ("vision_tower", "multi_modal_projector"),
-        "skip_st_prefixes": ("vision_tower.", "multi_modal_projector."),
-        "st_to_model": (
-            ("language_model.model.", "model.language_model."),
-            ("language_model.lm_head.", "lm_head."),
-        ),
-        "meta_allowed_prefixes": ("model.vision_tower.", "model.multi_modal_projector."),
-        "moe_experts_class": "Mistral4NaiveMoe",
-    },
-    "mistral4": {
         "auto_class": "image_text_to_text",
         "expert_prefix": ("model.language_model.", "language_model.model."),
         "peft_scope": r"^model\.language_model\.",
@@ -164,6 +141,12 @@ FAMILIES: dict[str, dict] = {
         "moe_experts_class": None,
     },
 }
+
+# These share the exact checkpoint layout of their base entry (qwen3_5_moe_text is the
+# text-only config split of qwen3_5_moe; mistral4 is the v4 point release of mistral3),
+# so they alias to ONE object rather than a copied literal that could silently drift.
+FAMILIES["qwen3_5_moe_text"] = FAMILIES["qwen3_5_moe"]
+FAMILIES["mistral4"] = FAMILIES["mistral3"]
 
 
 def model_type_from_config(model_dir: str | Path) -> str | None:
