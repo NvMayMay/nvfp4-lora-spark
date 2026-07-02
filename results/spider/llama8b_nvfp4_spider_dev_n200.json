@@ -1,0 +1,3035 @@
+{
+  "summary": {
+    "n": 200,
+    "models": [
+      "base",
+      "spider_llama8b"
+    ],
+    "skipped": {
+      "nll": {
+        "base": 0,
+        "spider_llama8b": 0
+      },
+      "em": {
+        "base": 0,
+        "spider_llama8b": 0
+      }
+    },
+    "mean_gold_nll": {
+      "base": 0.95343,
+      "spider_llama8b": 0.98474
+    },
+    "nll_delta_vs_base": {
+      "spider_llama8b": 0.03131
+    },
+    "exact_set_match": {
+      "base": 0.315,
+      "spider_llama8b": 0.535
+    },
+    "em_delta_vs_base": {
+      "spider_llama8b": 0.22
+    }
+  },
+  "per_example": [
+    {
+      "gold": "SELECT count(*) FROM singer",
+      "nll": {
+        "base": 1.56038,
+        "spider_llama8b": 2.19503
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM singer",
+        "spider_llama8b": "SELECT count(*) FROM singer"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM singer",
+      "nll": {
+        "base": 1.63406,
+        "spider_llama8b": 2.09055
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM singer",
+        "spider_llama8b": "SELECT count(*) FROM singer"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  country ,  age FROM singer ORDER BY age DESC",
+      "nll": {
+        "base": 1.00192,
+        "spider_llama8b": 0.87767
+      },
+      "pred": {
+        "base": "",
+        "spider_llama8b": "SELECT name ,  country ,  age FROM singer ORDER BY age DESC"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  country ,  age FROM singer ORDER BY age DESC",
+      "nll": {
+        "base": 0.93125,
+        "spider_llama8b": 0.88235
+      },
+      "pred": {
+        "base": "SELECT Name ,  Country ,  Age FROM singer ORDER BY Age DESC",
+        "spider_llama8b": "SELECT name ,  country ,  age FROM singer ORDER BY age DESC"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  'France'",
+      "nll": {
+        "base": 0.83325,
+        "spider_llama8b": 0.57484
+      },
+      "pred": {
+        "base": "SELECT Age , MIN(Age) , MAX(Age) FROM singer WHERE Country =  \"France\"  GROUP BY Age",
+        "spider_llama8b": "SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  \"France\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  'France'",
+      "nll": {
+        "base": 0.70359,
+        "spider_llama8b": 0.58766
+      },
+      "pred": {
+        "base": "SELECT avg(Age), min(Age), max(Age) FROM singer WHERE Country = \"France\"",
+        "spider_llama8b": "SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  \"France\""
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT song_name ,  song_release_year FROM singer ORDER BY age LIMIT 1",
+      "nll": {
+        "base": 1.25083,
+        "spider_llama8b": 0.88068
+      },
+      "pred": {
+        "base": "SELECT name ,  song_release_year FROM singer WHERE age  =  (SELECT MIN(age) FROM singer)",
+        "spider_llama8b": "SELECT name ,  song_release_year FROM singer ORDER BY age LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT song_name ,  song_release_year FROM singer ORDER BY age LIMIT 1",
+      "nll": {
+        "base": 1.14146,
+        "spider_llama8b": 0.98494
+      },
+      "pred": {
+        "base": "SELECT T2.Name ,  T2.song_release_year FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.Singer_ID  =  T2.Singer_ID WHERE T2.age  =  (SELECT MIN(age) FROM singer)",
+        "spider_llama8b": "SELECT name ,  song_release_year FROM singer ORDER BY age DESC LIMIT 1\nSELECT T1.name ,  T1.song_release_year FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.singer_id  =  T2.singer_id ORDER BY T1.age DESC LIMIT 1\nSELECT T1.name ,  T1.song_release_year FROM singer AS T1 JOIN singer_in_concert A"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT country FROM singer WHERE age  >  20",
+      "nll": {
+        "base": 1.10163,
+        "spider_llama8b": 0.94146
+      },
+      "pred": {
+        "base": "SELECT DISTINCT Country FROM singer WHERE Age  >  20",
+        "spider_llama8b": "SELECT DISTINCT country FROM singer WHERE age  >  20"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT country FROM singer WHERE age  >  20",
+      "nll": {
+        "base": 0.98224,
+        "spider_llama8b": 1.13937
+      },
+      "pred": {
+        "base": "SELECT DISTINCT T2.Country FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.Singer_ID  =  T2.Singer_ID WHERE T2.Age  >  20",
+        "spider_llama8b": "SELECT DISTINCT country FROM singer WHERE age  >  20"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT country ,  count(*) FROM singer GROUP BY country",
+      "nll": {
+        "base": 1.21693,
+        "spider_llama8b": 1.2294
+      },
+      "pred": {
+        "base": "SELECT T2.Country ,  count(*) FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.Singer_ID  =  T2.Singer_ID GROUP BY T2.Country",
+        "spider_llama8b": "SELECT country ,  count(*) FROM singer GROUP BY country"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT country ,  count(*) FROM singer GROUP BY country",
+      "nll": {
+        "base": 1.26422,
+        "spider_llama8b": 1.11493
+      },
+      "pred": {
+        "base": "SELECT count(*) ,  T2.Country FROM singer AS T1 JOIN singer AS T2 ON T1.Country  =  T2.Country GROUP BY T2.Country",
+        "spider_llama8b": "SELECT count(*) ,  country FROM singer GROUP BY country"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT song_name FROM singer WHERE age  >  (SELECT avg(age) FROM singer)",
+      "nll": {
+        "base": 0.76773,
+        "spider_llama8b": 0.8952
+      },
+      "pred": {
+        "base": "SELECT T2.song_name FROM singer AS T1 JOIN singer_in_concert AS T3 ON T1.singer_id = T3.singer_id JOIN concert AS T2 ON T3.concert_id = T2.concert_id WHERE T1.age > (SELECT avg(age) FROM singer) AND T1.is_male = 'others' AND T1.country = 'USA' AND T1.name = 'John' AND T1.song_name = 'Happy' AND T1.s",
+        "spider_llama8b": "SELECT Song_Name FROM singer WHERE Age  >  (SELECT avg(Age) FROM singer)"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT song_name FROM singer WHERE age  >  (SELECT avg(age) FROM singer)",
+      "nll": {
+        "base": 0.75195,
+        "spider_llama8b": 0.65813
+      },
+      "pred": {
+        "base": "SELECT T2.Song_Name FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.Singer_ID  =  T2.Singer_ID JOIN concert AS T3 ON T2.concert_ID  =  T3.concert_ID WHERE T1.Age  >  (SELECT AVG(Age) FROM singer) AND T1.Is_male  =  'others' AND T3.Theme  =  'others' AND T3.Year  =  'others' AND T3.concert_Name ",
+        "spider_llama8b": "SELECT Song_Name FROM singer WHERE Age  >  (SELECT avg(Age) FROM singer)  AND Song_Name != \" \"  AND Song_Name != \" \"  AND Song_Name != \" \"  AND Song_Name != \" \"  AND Song_Name != \" \"  AND Song_Name != \" \"  AND Song_Name != \" \"  AND Song_Name != \" \"  AND Song_Name != \" \"  AND Song_Name != \" \"  AND So"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT LOCATION ,  name FROM stadium WHERE capacity BETWEEN 5000 AND 10000",
+      "nll": {
+        "base": 0.81611,
+        "spider_llama8b": 0.88346
+      },
+      "pred": {
+        "base": "SELECT Location ,  Name FROM stadium WHERE Capacity BETWEEN 5000 AND 10000",
+        "spider_llama8b": "SELECT LOCATION ,  name FROM stadium WHERE capacity BETWEEN 5000 AND 10000"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT LOCATION ,  name FROM stadium WHERE capacity BETWEEN 5000 AND 10000",
+      "nll": {
+        "base": 0.73578,
+        "spider_llama8b": 0.78895
+      },
+      "pred": {
+        "base": "SELECT LOCATION ,  NAME FROM stadium WHERE Capacity BETWEEN 5000 AND 10000",
+        "spider_llama8b": "SELECT LOCATION ,  name FROM stadium WHERE capacity BETWEEN 5000 AND 10000"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "select max(capacity), average from stadium",
+      "nll": {
+        "base": 2.45452,
+        "spider_llama8b": 3.13267
+      },
+      "pred": {
+        "base": "SELECT max(Capacity) ,  avg(Average) FROM stadium",
+        "spider_llama8b": "SELECT max(capacity) ,  avg(capacity) FROM stadium"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select avg(capacity) ,  max(capacity) from stadium",
+      "nll": {
+        "base": 1.60808,
+        "spider_llama8b": 1.24506
+      },
+      "pred": {
+        "base": "SELECT avg(Capacity), max(Capacity) FROM stadium",
+        "spider_llama8b": "SELECT avg(capacity) ,  max(capacity) FROM stadium"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1",
+      "nll": {
+        "base": 0.77121,
+        "spider_llama8b": 0.85032
+      },
+      "pred": {
+        "base": "SELECT Name ,  Capacity FROM stadium ORDER BY Average DESC LIMIT 1",
+        "spider_llama8b": "SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1",
+      "nll": {
+        "base": 0.83402,
+        "spider_llama8b": 0.92557
+      },
+      "pred": {
+        "base": "SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1",
+        "spider_llama8b": "SELECT name ,  capacity FROM stadium ORDER BY average DESC LIMIT 1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015",
+      "nll": {
+        "base": 0.67615,
+        "spider_llama8b": 0.62171
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM concert WHERE YEAR = '2014' OR YEAR = '2015'",
+        "spider_llama8b": "SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015",
+      "nll": {
+        "base": 0.70891,
+        "spider_llama8b": 0.5965
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM concert WHERE YEAR  =  \"2014\" OR YEAR  =  \"2015\"",
+        "spider_llama8b": "SELECT count(*) FROM concert WHERE YEAR  =  2014 OR YEAR  =  2015"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  count(*) FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id GROUP BY T1.stadium_id",
+      "nll": {
+        "base": 0.41964,
+        "spider_llama8b": 0.41419
+      },
+      "pred": {
+        "base": "SELECT T1.Name ,  COUNT(*) FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID GROUP BY T1.Name",
+        "spider_llama8b": "SELECT T1.name ,  count(*) FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id GROUP BY T1.name"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  count(*) FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id GROUP BY T1.stadium_id",
+      "nll": {
+        "base": 0.56804,
+        "spider_llama8b": 0.46063
+      },
+      "pred": {
+        "base": "SELECT count(*) ,  T1.name FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id GROUP BY T2.name",
+        "spider_llama8b": "SELECT count(*) ,  T1.name FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id GROUP BY T2.name"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  T2.capacity FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.year  >=  2014 GROUP BY T2.stadium_id ORDER BY count(*) DESC LIMIT 1",
+      "nll": {
+        "base": 0.36407,
+        "spider_llama8b": 0.32034
+      },
+      "pred": {
+        "base": "SELECT T1.Name ,  T1.Capacity FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.Year  >=  2014 GROUP BY T1.Name ,  T1.Capacity ORDER BY count(*) DESC LIMIT 1",
+        "spider_llama8b": "SELECT T1.name ,  T1.capacity FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  >=  2014 GROUP BY T1.stadium_id ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "select t2.name ,  t2.capacity from concert as t1 join stadium as t2 on t1.stadium_id  =  t2.stadium_id where t1.year  >  2013 group by t2.stadium_id order by count(*) desc limit 1",
+      "nll": {
+        "base": 0.51443,
+        "spider_llama8b": 0.44777
+      },
+      "pred": {
+        "base": "SELECT T1.Name ,  T1.Capacity FROM concert AS T2 JOIN stadium AS T1 ON T2.Stadium_ID  =  T1.Stadium_ID WHERE T2.Year  >  2013 GROUP BY T1.Stadium_ID ORDER BY COUNT(T2.concert_ID) DESC LIMIT 1",
+        "spider_llama8b": "SELECT T1.name ,  T1.capacity FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  >  2013 GROUP BY T1.stadium_id ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1",
+      "nll": {
+        "base": 0.84595,
+        "spider_llama8b": 0.97945
+      },
+      "pred": {
+        "base": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY COUNT(*) DESC LIMIT 1",
+        "spider_llama8b": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1",
+      "nll": {
+        "base": 0.91666,
+        "spider_llama8b": 0.84674
+      },
+      "pred": {
+        "base": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY COUNT(*) DESC LIMIT 1",
+        "spider_llama8b": "SELECT YEAR FROM concert GROUP BY YEAR ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert)",
+      "nll": {
+        "base": 0.83579,
+        "spider_llama8b": 0.89337
+      },
+      "pred": {
+        "base": "SELECT name FROM stadium WHERE stadium_id NOT IN ( SELECT stadium_id FROM concert )",
+        "spider_llama8b": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert)"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert)",
+      "nll": {
+        "base": 0.80373,
+        "spider_llama8b": 0.80497
+      },
+      "pred": {
+        "base": "SELECT Name FROM stadium WHERE concert_id IS NULL",
+        "spider_llama8b": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert)  OR stadium_id IS NULL"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT country FROM singer WHERE age  >  40 INTERSECT SELECT country FROM singer WHERE age  <  30",
+      "nll": {
+        "base": 0.59024,
+        "spider_llama8b": 0.58324
+      },
+      "pred": {
+        "base": "SELECT Country FROM singer WHERE Age  >  40 INTERSECT SELECT Country FROM singer WHERE Age  <  30",
+        "spider_llama8b": "SELECT country FROM singer WHERE age  >  40 INTERSECT SELECT country FROM singer WHERE age  <  30"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT name FROM stadium EXCEPT SELECT T2.name FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.year  =  2014",
+      "nll": {
+        "base": 0.46505,
+        "spider_llama8b": 0.36862
+      },
+      "pred": {
+        "base": "SELECT Name FROM stadium WHERE Year != 2014",
+        "spider_llama8b": "SELECT name FROM stadium EXCEPT SELECT T1.name FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  =  2014"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT name FROM stadium EXCEPT SELECT T2.name FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.year  =  2014",
+      "nll": {
+        "base": 0.45735,
+        "spider_llama8b": 0.36315
+      },
+      "pred": {
+        "base": "SELECT T1.Name FROM stadium AS T1 LEFT JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.concert_Name IS NULL AND T2.Year  =  \"2014\"",
+        "spider_llama8b": "SELECT name FROM stadium WHERE stadium_id NOT IN (SELECT stadium_id FROM concert WHERE YEAR  =  2014)"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.concert_name ,  T2.theme ,  count(*) FROM singer_in_concert AS T1 JOIN concert AS T2 ON T1.concert_id  =  T2.concert_id GROUP BY T2.concert_id",
+      "nll": {
+        "base": 0.3619,
+        "spider_llama8b": 0.407
+      },
+      "pred": {
+        "base": "SELECT T1.concert_Name ,  T1.Theme ,  count(*) FROM concert AS T1 JOIN singer_in_concert AS T2 ON T1.concert_ID  =  T2.concert_ID GROUP BY T1.concert_Name ,  T1.Theme",
+        "spider_llama8b": "SELECT T1.concert_Name ,  T1.theme ,  count(*) FROM concert AS T1 JOIN singer_in_concert AS T2 ON T1.concert_ID  =  T2.concert_ID GROUP BY T1.concert_ID"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "select t2.concert_name ,  t2.theme ,  count(*) from singer_in_concert as t1 join concert as t2 on t1.concert_id  =  t2.concert_id group by t2.concert_id",
+      "nll": {
+        "base": 0.6497,
+        "spider_llama8b": 0.57103
+      },
+      "pred": {
+        "base": "SELECT T1.concert_Name ,  T1.theme ,  count(*) FROM concert AS T1 JOIN singer_in_concert AS T2 ON T1.concert_ID  =  T2.concert_ID GROUP BY T1.concert_Name ,  T1.theme",
+        "spider_llama8b": "SELECT T1.concert_Name ,  T1.theme ,  count(*) ,  T2.name FROM concert AS T1 JOIN singer_in_concert AS T2 ON T1.concert_ID  =  T2.concert_ID GROUP BY T1.concert_Name"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  count(*) FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id GROUP BY T2.singer_id",
+      "nll": {
+        "base": 0.4569,
+        "spider_llama8b": 0.48725
+      },
+      "pred": {
+        "base": "SELECT T1.Name ,  COUNT(*) FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.Singer_ID  =  T2.Singer_ID GROUP BY T1.Singer_ID",
+        "spider_llama8b": "SELECT T1.name ,  count(*) FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.singer_id  =  T2.singer_id GROUP BY T1.name"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  count(*) FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id GROUP BY T2.singer_id",
+      "nll": {
+        "base": 0.43292,
+        "spider_llama8b": 0.46953
+      },
+      "pred": {
+        "base": "SELECT T1.Name ,  count(*) FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.Singer_ID  =  T2.Singer_ID GROUP BY T1.Name",
+        "spider_llama8b": "SELECT T2.name ,  count(*) FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id GROUP BY T2.name"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.name FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id JOIN concert AS T3 ON T1.concert_id  =  T3.concert_id WHERE T3.year  =  2014",
+      "nll": {
+        "base": 0.34934,
+        "spider_llama8b": 0.27767
+      },
+      "pred": {
+        "base": "SELECT T2.Name FROM concert AS T1 JOIN singer_in_concert AS T2 ON T1.concert_ID  =  T2.concert_ID JOIN singer AS T3 ON T2.Singer_ID  =  T3.Singer_ID WHERE T1.Year  =  \"2014\" AND T3.Name  =  T3.Name",
+        "spider_llama8b": "SELECT T1.name FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.singer_id  =  T2.singer_id JOIN concert AS T3 ON T2.concert_id  =  T3.concert_id WHERE T3.year  =  2014"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T2.name FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.singer_id  =  T2.singer_id JOIN concert AS T3 ON T1.concert_id  =  T3.concert_id WHERE T3.year  =  2014",
+      "nll": {
+        "base": 0.35656,
+        "spider_llama8b": 0.24362
+      },
+      "pred": {
+        "base": "SELECT T2.Name FROM concert AS T1 JOIN singer_in_concert AS T2 ON T1.concert_ID  =  T2.concert_ID JOIN singer AS T3 ON T2.Singer_ID  =  T3.Singer_ID WHERE T1.Year  =  '2014' AND T3.Name  =  'Taylor Swift' AND T3.Is_male  =  'Yes' AND T3.Age  =  25",
+        "spider_llama8b": "SELECT T2.name FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.Singer_ID  =  T2.Singer_ID JOIN concert AS T3 ON T1.concert_ID  =  T3.concert_ID WHERE T3.year  =  2014\nSELECT T2.name FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.Singer_ID  =  T2.Singer_ID JOIN concert AS T3 ON T1.concert_"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT name ,  country FROM singer WHERE song_name LIKE '%Hey%'",
+      "nll": {
+        "base": 1.16975,
+        "spider_llama8b": 0.94722
+      },
+      "pred": {
+        "base": "SELECT T2.Name ,  T2.Country FROM singer_in_concert AS T1 JOIN singer AS T2 ON T1.Singer_ID  =  T2.Singer_ID WHERE T2.Name  =  'Hey'",
+        "spider_llama8b": "SELECT T1.name ,  T1.country FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.singer_id  =  T2.singer_id JOIN concert AS T3 ON T2.concert_id  =  T3.concert_id WHERE T3.concert_name LIKE '%Hey%'"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT name ,  country FROM singer WHERE song_name LIKE '%Hey%'",
+      "nll": {
+        "base": 1.12578,
+        "spider_llama8b": 0.9529
+      },
+      "pred": {
+        "base": "SELECT T1.Name ,  T1.Country FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.Singer_ID  =  T2.Singer_ID JOIN concert AS T3 ON T2.concert_ID  =  T3.concert_ID WHERE T3.Theme  =  'Hey' AND T1.Name  =  T3.concert_Name",
+        "spider_llama8b": "SELECT T1.name ,  T1.country FROM singer AS T1 JOIN singer_in_concert AS T2 ON T1.singer_id  =  T2.singer_id JOIN concert AS T3 ON T2.concert_id  =  T3.concert_id JOIN concert AS T4 ON T3.concert_id  =  T4.concert_id WHERE T4.concert_name LIKE '%Hey%'"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2014 INTERSECT SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2015",
+      "nll": {
+        "base": 0.27527,
+        "spider_llama8b": 0.25221
+      },
+      "pred": {
+        "base": "SELECT T1.Location ,  T1.Name FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.Year  =  \"2014\" INTERSECT SELECT T1.Location ,  T1.Name FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.Year  =  \"2015\" INTERSECT SELECT T1.Location ,  T1",
+        "spider_llama8b": "SELECT T1.name ,  T1.location FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  =  2014 INTERSECT SELECT T1.name ,  T1.location FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  =  2015\nSELECT T1.name ,  T1.location FROM sta"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2014 INTERSECT SELECT T2.name ,  T2.location FROM concert AS T1 JOIN stadium AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T1.Year  =  2015",
+      "nll": {
+        "base": 0.2837,
+        "spider_llama8b": 0.25798
+      },
+      "pred": {
+        "base": "SELECT T1.Location ,  T1.Name FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.concert_Name  =  \"2014\" INTERSECT SELECT T1.Location ,  T1.Name FROM stadium AS T1 JOIN concert AS T2 ON T1.Stadium_ID  =  T2.Stadium_ID WHERE T2.concert_Name  =  \"2015\" INTERSECT SELECT T",
+        "spider_llama8b": "SELECT T1.name ,  T1.location FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  =  2014 INTERSECT SELECT T1.name ,  T1.location FROM stadium AS T1 JOIN concert AS T2 ON T1.stadium_id  =  T2.stadium_id WHERE T2.year  =  2015\nSELECT T1.name ,  T1.location FROM sta"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select count(*) from concert where stadium_id = (select stadium_id from stadium order by capacity desc limit 1)",
+      "nll": {
+        "base": 0.86725,
+        "spider_llama8b": 0.93721
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM concert WHERE Stadium_ID IN ( SELECT Stadium_ID FROM stadium ORDER BY Capacity DESC LIMIT 1 )",
+        "spider_llama8b": "SELECT count(*) FROM concert AS t1 JOIN stadium AS t2 ON t1.stadium_id  =  t2.stadium_id ORDER BY t2.capacity DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select count(*) from concert where stadium_id = (select stadium_id from stadium order by capacity desc limit 1)",
+      "nll": {
+        "base": 0.80647,
+        "spider_llama8b": 1.00227
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM concert WHERE Stadium_ID IN (SELECT Stadium_ID FROM stadium ORDER BY Capacity DESC LIMIT 1)",
+        "spider_llama8b": "SELECT count(*) FROM concert WHERE stadium_id  =  (SELECT stadium_id FROM stadium ORDER BY capacity DESC LIMIT 1)"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM pets WHERE weight  >  10",
+      "nll": {
+        "base": 1.14461,
+        "spider_llama8b": 1.14954
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM Pets WHERE weight  >  10",
+        "spider_llama8b": "SELECT count(*) FROM pets WHERE weight  >  10"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM pets WHERE weight  >  10",
+      "nll": {
+        "base": 1.1523,
+        "spider_llama8b": 0.98059
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM Pets WHERE weight > 10",
+        "spider_llama8b": "SELECT count(*) FROM pets WHERE weight  >  10"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT weight FROM pets ORDER BY pet_age LIMIT 1",
+      "nll": {
+        "base": 1.6879,
+        "spider_llama8b": 2.19091
+      },
+      "pred": {
+        "base": "SELECT T2.weight FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  \"dog\" ORDER BY T3.pet_age LIMIT 1",
+        "spider_llama8b": "SELECT weight FROM pets WHERE pet_type  =  'dog' AND pet_age  =  (SELECT min(pet_age) FROM pets WHERE pet_type  =  'dog') \nSELECT weight FROM pets WHERE pet_type  =  'dog' AND pet_age  =  (SELECT min(pet_age) FROM pets WHERE pet_type  =  'dog') \nSELECT weight FROM pets WHERE pet_type  =  'dog' AND p"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT weight FROM pets ORDER BY pet_age LIMIT 1",
+      "nll": {
+        "base": 1.45828,
+        "spider_llama8b": 1.81187
+      },
+      "pred": {
+        "base": "SELECT weight FROM Pets WHERE pet_age  =  ( SELECT MIN ( pet_age ) FROM Pets WHERE PetType  =  'dog' ) AND PetType  =  'dog'",
+        "spider_llama8b": "SELECT weight FROM Pets WHERE pet_type  =  'dog' ORDER BY pet_age ASC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT max(weight) ,  petType FROM pets GROUP BY petType",
+      "nll": {
+        "base": 1.36796,
+        "spider_llama8b": 1.53985
+      },
+      "pred": {
+        "base": "SELECT T1.pet_type, MAX(T1.weight) FROM Pets AS T1 GROUP BY T1.pet_type",
+        "spider_llama8b": "SELECT max(weight) ,  pettype FROM Pets GROUP BY pettype"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT max(weight) ,  petType FROM pets GROUP BY petType",
+      "nll": {
+        "base": 1.49336,
+        "spider_llama8b": 1.37865
+      },
+      "pred": {
+        "base": "SELECT PetType , MAX(weight) , MAX(weight) FROM Pets GROUP BY PetType",
+        "spider_llama8b": "SELECT max(weight) ,  pettype FROM Pets GROUP BY pettype"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.age  >  20",
+      "nll": {
+        "base": 0.5651,
+        "spider_llama8b": 0.61131
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM Pets AS T1 JOIN Has_Pet AS T2 ON T1.PetID  =  T2.PetID JOIN Student AS T3 ON T2.StuID  =  T3.StuID WHERE T3.Age  >  20",
+        "spider_llama8b": "SELECT count(*) FROM has_pet AS T1 JOIN student AS T2 ON T1.StuID  =  T2.StuID WHERE T2.age  >  20"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.age  >  20",
+      "nll": {
+        "base": 0.61035,
+        "spider_llama8b": 0.56313
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM Student WHERE Age > 20",
+        "spider_llama8b": "SELECT count(*) FROM Student WHERE age  >  20 INTERSECT SELECT count(*) FROM Has_Pet GROUP BY StuID HAVING count(*)  >  1 INTERSECT SELECT count(*) FROM Student WHERE age  >  20 INTERSECT SELECT count(*) FROM Has_Pet GROUP BY StuID HAVING count(*)  >  1 INTERSECT SELECT count(*) FROM Student WHERE a"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T1.sex  =  'F' AND T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.32649,
+        "spider_llama8b": 0.32868
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM Student WHERE Sex = 'F' INTERSECT SELECT COUNT(*) FROM Has_Pet JOIN Pets ON Has_Pet.PetID = Pets.PetID WHERE Pets.PetType = 'dog' AND Student.StuID = Has_Pet.StuID",
+        "spider_llama8b": "SELECT count(*) FROM pets AS T1 JOIN has_pet AS T2 ON T1.petid  =  T2.petid JOIN student AS T3 ON T2.stuid  =  T3.stuid WHERE T1.pettype  =  \"dog\" AND T3.sex  =  \"F\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T2.petid  =  T3.petid WHERE T1.sex  =  'F' AND T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.34378,
+        "spider_llama8b": 0.30112
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM Pets AS T1 JOIN Student AS T2 ON T1.PetID = T2.StuID WHERE T2.Sex = 'F' AND T2.Fname = 'Dogs' AND T2.PetType = 'Dog' AND T2.Major = 1",
+        "spider_llama8b": "SELECT count(*) FROM pets AS T1 JOIN Has_Pet AS T2 ON T1.petid  =  T2.petid JOIN student AS T3 ON T2.StuID  =  T3.StuID WHERE T3.sex  =  \"F\" AND T1.pettype  =  \"dog\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(DISTINCT pettype) FROM pets",
+      "nll": {
+        "base": 1.43292,
+        "spider_llama8b": 1.32149
+      },
+      "pred": {
+        "base": "SELECT count(DISTINCT PetType) FROM Pets",
+        "spider_llama8b": "SELECT count(DISTINCT pettype) FROM pets_1 AS T1 JOIN has_pet AS T2 ON T1.petid  =  T2.petid"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT count(DISTINCT pettype) FROM pets",
+      "nll": {
+        "base": 1.47281,
+        "spider_llama8b": 1.00813
+      },
+      "pred": {
+        "base": "SELECT COUNT(DISTINCT PetType) FROM Pets",
+        "spider_llama8b": "SELECT count(DISTINCT pettype) FROM pets_1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat' OR T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.3945,
+        "spider_llama8b": 0.3839
+      },
+      "pred": {
+        "base": "SELECT DISTINCT T1.Fname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID JOIN Pets AS T3 ON T2.PetID = T3.PetID WHERE T3.PetType = 'cat' OR T3.PetType = 'dog' ORDER BY T1.Fname LIMIT 1",
+        "spider_llama8b": "SELECT T1.Fname FROM student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'cat' OR T3.PetType  =  'dog'"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat' OR T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.39536,
+        "spider_llama8b": 0.33793
+      },
+      "pred": {
+        "base": "SELECT T1.Fname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID JOIN Pets AS T3 ON T2.PetID = T3.PetID WHERE T3.PetType = 'cat' OR T3.PetType = 'dog' GROUP BY T1.Fname",
+        "spider_llama8b": "SELECT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.StuID  =  T2.StuID JOIN pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'cat' OR T3.PetType  =  'dog'"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select t1.fname from student as t1 join has_pet as t2 on t1.stuid  =  t2.stuid join pets as t3 on t3.petid  =  t2.petid where t3.pettype  =  'cat' intersect select t1.fname from student as t1 join has_pet as t2 on t1.stuid  =  t2.stuid join pets as t3 on t3.petid  =  t2.petid where t3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.25759,
+        "spider_llama8b": 0.25394
+      },
+      "pred": {
+        "base": "SELECT T1.Fname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'cat' INTERSECT SELECT T1.Fname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'd",
+        "spider_llama8b": "SELECT T1.Fname FROM student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'cat' INTERSECT SELECT T1.Fname FROM student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'd"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat' INTERSECT SELECT T1.Fname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'dog'",
+      "nll": {
+        "base": 0.22964,
+        "spider_llama8b": 0.20854
+      },
+      "pred": {
+        "base": "SELECT T1.Fname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'cat' INTERSECT SELECT T1.Fname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'd",
+        "spider_llama8b": "SELECT T1.fname FROM student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'cat' INTERSECT SELECT T1.fname FROM student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'd"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT major ,  age FROM student WHERE stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",
+      "nll": {
+        "base": 0.4972,
+        "spider_llama8b": 0.39207
+      },
+      "pred": {
+        "base": "SELECT T1.major ,  T1.age FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.stuid  =  T2.stuid WHERE T2.petid NOT IN ( SELECT petid FROM Pets WHERE pettype  =  'cat' )",
+        "spider_llama8b": "SELECT major ,  age FROM Student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet AS T1 JOIN Pets AS T2 ON T1.PetID  =  T2.PetID WHERE T2.pet_type  =  'cat')"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT major ,  age FROM student WHERE stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",
+      "nll": {
+        "base": 0.52741,
+        "spider_llama8b": 0.47166
+      },
+      "pred": {
+        "base": "SELECT T1.Major , T1.Age FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID WHERE T2.PetID NOT IN (SELECT PetID FROM Pets WHERE PetType  =  'cat') AND T2.PetID IS NOT NULL",
+        "spider_llama8b": "SELECT major ,  age FROM student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet AS T1 JOIN Pets AS T2 ON T1.PetID  =  T2.PetID WHERE T2.PetType  =  'cat')"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT stuid FROM student EXCEPT SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat'",
+      "nll": {
+        "base": 0.41957,
+        "spider_llama8b": 0.43711
+      },
+      "pred": {
+        "base": "SELECT StuID FROM Student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE PetType = 'cat'))",
+        "spider_llama8b": "SELECT StuID FROM Student EXCEPT SELECT StuID FROM Has_Pet AS T1 JOIN Pets AS T2 ON T1.PetID  =  T2.PetID WHERE T2.PetType  =  \"cat\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT stuid FROM student EXCEPT SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat'",
+      "nll": {
+        "base": 0.42407,
+        "spider_llama8b": 0.42519
+      },
+      "pred": {
+        "base": "SELECT StuID FROM Has_Pet WHERE PetID NOT IN (SELECT PetID FROM Pets WHERE PetType = 'cat')  SELECT StuID FROM Has_Pet WHERE PetID NOT IN (SELECT PetID FROM Pets WHERE PetType = 'cat')  SELECT StuID FROM Has_Pet WHERE PetID NOT IN (SELECT PetID FROM Pets WHERE PetType = 'cat')  SELECT StuID FROM Has",
+        "spider_llama8b": "SELECT StuID FROM Student EXCEPT SELECT StuID FROM Has_Pet AS T1 JOIN Pets AS T2 ON T1.PetID  =  T2.PetID WHERE T2.PetType  =  \"cat\" \nSELECT StuID FROM Student EXCEPT SELECT StuID FROM Has_Pet AS T1 JOIN Pets AS T2 ON T1.PetID  =  T2.PetID WHERE T2.PetType  =  \"cat\"  LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'dog' AND T1.stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",
+      "nll": {
+        "base": 0.22925,
+        "spider_llama8b": 0.23805
+      },
+      "pred": {
+        "base": "SELECT T1.Fname , T1.Age FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  'dog' AND T3.PetType  !=  'cat'  AND T3.PetType  !=  'cat'  AND T3.PetType  !=  'cat'  AND T3.PetType  !=  'cat'  AND T3.PetType  !=  'cat'  AND T3.Pe",
+        "spider_llama8b": "SELECT T1.Fname ,  T1.age FROM student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.pettype  =  'dog' EXCEPT SELECT T1.Fname ,  T1.age FROM student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN pets AS T3 ON T2.PetID  =  T3.PetID WHERE "
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'dog' AND T1.stuid NOT IN (SELECT T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pettype  =  'cat')",
+      "nll": {
+        "base": 0.3255,
+        "spider_llama8b": 0.33913
+      },
+      "pred": {
+        "base": "SELECT T1.Fname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID WHERE T2.PetID  NOT IN  (SELECT PetID FROM Pets WHERE PetType  =  'cat') INTERSECT SELECT T1.Fname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID WHERE T2.PetID  IN  (SELECT PetID FROM Pets WHERE PetType  ",
+        "spider_llama8b": "SELECT fname FROM student WHERE StuID IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE pettype  =  'dog')) EXCEPT SELECT fname FROM student WHERE StuID IN (SELECT StuID FROM Has_Pet WHERE PetID IN (SELECT PetID FROM Pets WHERE pettype  =  'cat'))"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT pettype ,  weight FROM pets ORDER BY pet_age LIMIT 1",
+      "nll": {
+        "base": 1.2887,
+        "spider_llama8b": 0.91322
+      },
+      "pred": {
+        "base": "SELECT T2.PetType ,  T2.weight FROM Pets AS T2 JOIN Has_Pet AS T1 ON T2.PetID  =  T1.PetID ORDER BY T2.pet_age LIMIT 1",
+        "spider_llama8b": "SELECT pettype ,  weight FROM Pets ORDER BY pet_age LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT pettype ,  weight FROM pets ORDER BY pet_age LIMIT 1",
+      "nll": {
+        "base": 1.3903,
+        "spider_llama8b": 0.85833
+      },
+      "pred": {
+        "base": "SELECT T2.PetType, T2.weight FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID JOIN Pets AS T3 ON T2.PetID = T3.PetID ORDER BY T3.pet_age LIMIT 1",
+        "spider_llama8b": "SELECT pettype ,  weight FROM pets ORDER BY pet_age ASC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT petid ,  weight FROM pets WHERE pet_age  >  1",
+      "nll": {
+        "base": 1.1572,
+        "spider_llama8b": 0.9567
+      },
+      "pred": {
+        "base": "SELECT PetID , weight FROM Pets WHERE pet_age > 1",
+        "spider_llama8b": "SELECT petid ,  weight FROM Pets WHERE pet_age  >  1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT petid ,  weight FROM pets WHERE pet_age  >  1",
+      "nll": {
+        "base": 1.05884,
+        "spider_llama8b": 1.05539
+      },
+      "pred": {
+        "base": "SELECT PetID, weight FROM Pets WHERE pet_age > 1",
+        "spider_llama8b": "SELECT petid ,  weight FROM Pets WHERE pet_age  >  1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(pet_age) ,  max(pet_age) ,  pettype FROM pets GROUP BY pettype",
+      "nll": {
+        "base": 0.71231,
+        "spider_llama8b": 0.66029
+      },
+      "pred": {
+        "base": "SELECT avg(pet_age) , max(pet_age) FROM Pets GROUP BY PetType",
+        "spider_llama8b": "SELECT avg(pet_age) ,  max(pet_age) ,  pettype FROM Pets GROUP BY pettype"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(pet_age) ,  max(pet_age) ,  pettype FROM pets GROUP BY pettype",
+      "nll": {
+        "base": 0.72033,
+        "spider_llama8b": 0.64032
+      },
+      "pred": {
+        "base": "SELECT avg(pet_age), max(pet_age) FROM Pets GROUP BY PetType",
+        "spider_llama8b": "SELECT avg(pet_age) ,  max(pet_age) ,  pettype FROM pets GROUP BY pettype"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(weight) ,  pettype FROM pets GROUP BY pettype",
+      "nll": {
+        "base": 0.96378,
+        "spider_llama8b": 0.96235
+      },
+      "pred": {
+        "base": "SELECT avg(weight) ,  pet_type FROM Pets GROUP BY pet_type",
+        "spider_llama8b": "SELECT avg(weight) ,  pettype FROM Pets GROUP BY pettype"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(weight) ,  pettype FROM pets GROUP BY pettype",
+      "nll": {
+        "base": 1.11404,
+        "spider_llama8b": 0.95314
+      },
+      "pred": {
+        "base": "SELECT avg(weight) , pet_type FROM Pets GROUP BY pet_type",
+        "spider_llama8b": "SELECT avg(weight) ,  pettype FROM pets GROUP BY pettype"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid",
+      "nll": {
+        "base": 0.72313,
+        "spider_llama8b": 0.56769
+      },
+      "pred": {
+        "base": "SELECT T1.Fname ,  T1.Age FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID",
+        "spider_llama8b": "SELECT T1.Fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.StuID  =  T2.StuID ORDER BY T1.age LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.fname ,  T1.age FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid",
+      "nll": {
+        "base": 0.57994,
+        "spider_llama8b": 0.52202
+      },
+      "pred": {
+        "base": "SELECT DISTINCT Fname , Age FROM Student WHERE StuID IN (SELECT StuID FROM Has_Pet)",
+        "spider_llama8b": "SELECT DISTINCT T1.Fname ,  T1.age FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T2.petid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.Lname  =  'Smith'",
+      "nll": {
+        "base": 0.71031,
+        "spider_llama8b": 0.49613
+      },
+      "pred": {
+        "base": "SELECT T2.PetID FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID WHERE T1.LName = 'Smith' AND T1.Fname = 'John' AND T1.Age = 20",
+        "spider_llama8b": "SELECT petid FROM has_pet AS T1 JOIN student AS T2 ON T1.StuID  =  T2.StuID WHERE T2.Lname  =  'Smith'  AND  T2.Fname  =  'John'  AND  T2.age  =  20  AND  T2.sex  =  'M'  AND  T2.major  =  1  AND  T2.advisor  =  1  AND  T2.city_code  =  '1'  AND  T1.petid  =  1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.petid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid WHERE T1.Lname  =  'Smith'",
+      "nll": {
+        "base": 0.71505,
+        "spider_llama8b": 0.55891
+      },
+      "pred": {
+        "base": "SELECT T1.PetID FROM Has_Pet AS T1 JOIN Student AS T2 ON T1.StuID  =  T2.StuID WHERE T2.LName  =  'Smith' LIMIT 1",
+        "spider_llama8b": "SELECT T2.petid FROM student AS T1 JOIN has_pet AS T2 ON T1.StuID  =  T2.StuID WHERE T1.Lname  =  'Smith'  AND T1.Fname  =  'John'  AND T1.age  =  20  AND T1.sex  =  'M'  AND T1.major  =  1  AND T1.advisor  =  1  AND T1.city_code  =  '1'  AND T1.pet_age  =  1  AND T1.weight  =  1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) ,  T1.stuid FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid",
+      "nll": {
+        "base": 0.66859,
+        "spider_llama8b": 0.57476
+      },
+      "pred": {
+        "base": "SELECT count(*) , StuID FROM Has_Pet GROUP BY StuID HAVING count(*)  >  0",
+        "spider_llama8b": "SELECT count(*) ,  StuID FROM Has_Pet GROUP BY StuID HAVING count(*)  >  1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select count(*) ,  t1.stuid from student as t1 join has_pet as t2 on t1.stuid  =  t2.stuid group by t1.stuid",
+      "nll": {
+        "base": 0.99795,
+        "spider_llama8b": 0.66616
+      },
+      "pred": {
+        "base": "SELECT StuID ,  COUNT(*) FROM Has_Pet GROUP BY StuID",
+        "spider_llama8b": "SELECT count(*) ,  StuID FROM Has_Pet GROUP BY StuID"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.fname ,  T1.sex FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid HAVING count(*)  >  1",
+      "nll": {
+        "base": 0.43189,
+        "spider_llama8b": 0.34488
+      },
+      "pred": {
+        "base": "SELECT T1.Fname , T1.Sex FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID GROUP BY T1.StuID HAVING COUNT(*)  >  1",
+        "spider_llama8b": "SELECT T1.Fname ,  T1.sex FROM student AS T1 JOIN Has_pet AS T2 ON T1.StuID  =  T2.StuID GROUP BY T1.StuID HAVING count(*)  >  1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.fname ,  T1.sex FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid GROUP BY T1.stuid HAVING count(*)  >  1",
+      "nll": {
+        "base": 0.48696,
+        "spider_llama8b": 0.4071
+      },
+      "pred": {
+        "base": "SELECT T1.Fname, T1.Sex FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID GROUP BY T1.StuID HAVING COUNT(T2.PetID)  >  1",
+        "spider_llama8b": "SELECT T1.fname ,  T1.sex FROM student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID GROUP BY T1.StuID HAVING count(*)  >  1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.lname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pet_age  =  3 AND T3.pettype  =  'cat'",
+      "nll": {
+        "base": 0.40768,
+        "spider_llama8b": 0.33694
+      },
+      "pred": {
+        "base": "SELECT T1.Lname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID = T2.StuID JOIN Pets AS T3 ON T2.PetID = T3.PetID WHERE T3.pet_age = 3 AND T3.PetType = 'cat' LIMIT 1",
+        "spider_llama8b": "SELECT T1.Lname FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.pet_age  =  3 AND T3.pettype  =  \"cat\""
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.lname FROM student AS T1 JOIN has_pet AS T2 ON T1.stuid  =  T2.stuid JOIN pets AS T3 ON T3.petid  =  T2.petid WHERE T3.pet_age  =  3 AND T3.pettype  =  'cat'",
+      "nll": {
+        "base": 0.40512,
+        "spider_llama8b": 0.34569
+      },
+      "pred": {
+        "base": "SELECT T1.LName FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.pet_age  =  3",
+        "spider_llama8b": "SELECT T1.LName FROM Student AS T1 JOIN Has_Pet AS T2 ON T1.StuID  =  T2.StuID JOIN Pets AS T3 ON T2.PetID  =  T3.PetID WHERE T3.PetType  =  \"cat\" AND T3.pet_age  =  3"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "select avg(age) from student where stuid not in (select stuid from has_pet)",
+      "nll": {
+        "base": 1.19714,
+        "spider_llama8b": 1.40455
+      },
+      "pred": {
+        "base": "SELECT AVG(age) FROM Student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet)",
+        "spider_llama8b": "SELECT avg(age) FROM student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet)"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "select avg(age) from student where stuid not in (select stuid from has_pet)",
+      "nll": {
+        "base": 1.18681,
+        "spider_llama8b": 1.12999
+      },
+      "pred": {
+        "base": "SELECT avg(Age) FROM Student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet)",
+        "spider_llama8b": "SELECT avg(age) FROM student WHERE StuID NOT IN (SELECT StuID FROM Has_Pet)"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CONTINENTS;",
+      "nll": {
+        "base": 1.59836,
+        "spider_llama8b": 2.36415
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM continents",
+        "spider_llama8b": "SELECT count(*) FROM continents"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CONTINENTS;",
+      "nll": {
+        "base": 1.721,
+        "spider_llama8b": 2.24121
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM continents",
+        "spider_llama8b": "SELECT count(*) FROM continents"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.ContId ,  T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId;",
+      "nll": {
+        "base": 0.5359,
+        "spider_llama8b": 0.74157
+      },
+      "pred": {
+        "base": "SELECT T1.Continent ,  COUNT(*) FROM continents AS T1 JOIN countries AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId",
+        "spider_llama8b": "SELECT T1.Continent ,  count(*) ,  T1.ContId FROM continents AS T1 JOIN countries AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.ContId ,  T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId;",
+      "nll": {
+        "base": 0.53348,
+        "spider_llama8b": 0.66795
+      },
+      "pred": {
+        "base": "SELECT T1.ContId ,  T1.Continent ,  count(*) FROM continents AS T1 GROUP BY T1.ContId",
+        "spider_llama8b": "SELECT T1.ContId ,  T1.Continent ,  count(*) FROM continents AS T1 JOIN countries AS T2 ON T1.ContId  =  T2.Continent GROUP BY T1.ContId ,  T1.Continent ORDER BY count(*) DESC LIMIT 3;"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM COUNTRIES;",
+      "nll": {
+        "base": 1.54223,
+        "spider_llama8b": 2.1786
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM countries",
+        "spider_llama8b": "SELECT count(*) FROM countries"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM COUNTRIES;",
+      "nll": {
+        "base": 1.80474,
+        "spider_llama8b": 2.41946
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM countries",
+        "spider_llama8b": "SELECT count(*) FROM countries"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.FullName ,  T1.Id ,  count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id;",
+      "nll": {
+        "base": 0.58587,
+        "spider_llama8b": 0.82798
+      },
+      "pred": {
+        "base": "SELECT T1.FullName ,  T1.Id ,  COUNT(*) FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id = T2.Maker GROUP BY T1.Id",
+        "spider_llama8b": "SELECT T1.FullName ,  T1.id ,  count(*) FROM car_makers AS T1 JOIN model_list AS T2 ON T1.id  =  T2.maker GROUP BY T1.id"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.FullName ,  T1.Id ,  count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id;",
+      "nll": {
+        "base": 0.61489,
+        "spider_llama8b": 0.83976
+      },
+      "pred": {
+        "base": "SELECT Id ,  FullName ,  COUNT(*) FROM car_makers GROUP BY Id ,  FullName",
+        "spider_llama8b": "SELECT T1.FullName ,  T1.Id ,  count(*) FROM car_makers AS T1 JOIN model_list AS T2 ON T1.id  =  T2.maker GROUP BY T1.id"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.horsepower ASC LIMIT 1;",
+      "nll": {
+        "base": 0.87179,
+        "spider_llama8b": 0.85943
+      },
+      "pred": {
+        "base": "SELECT T1.Model FROM car_names AS T1 JOIN model_list AS T1_1 ON T1.MakeId  =  T1_1.ModelId JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Horsepower  =  ( SELECT MIN ( T2_1.Horsepower ) FROM cars_data AS T2_1 )",
+        "spider_llama8b": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.Horsepower LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.horsepower ASC LIMIT 1;",
+      "nll": {
+        "base": 0.74388,
+        "spider_llama8b": 0.88614
+      },
+      "pred": {
+        "base": "SELECT T1.Model FROM car_names AS T1 INNER JOIN cars_data AS T2 ON T1.MakeId = T2.Id ORDER BY T2.Horsepower ASC LIMIT 1",
+        "spider_llama8b": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.Horsepower ASC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM CARS_DATA)",
+      "nll": {
+        "base": 0.82188,
+        "spider_llama8b": 0.76679
+      },
+      "pred": {
+        "base": "SELECT T1.Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.Maker = T2.Id WHERE T2.Weight < ( SELECT AVG(Weight) FROM cars_data )",
+        "spider_llama8b": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM cars_data)"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM CARS_DATA)",
+      "nll": {
+        "base": 0.73338,
+        "spider_llama8b": 0.77297
+      },
+      "pred": {
+        "base": "SELECT T2.Model FROM car_names AS T1 JOIN model_list AS T2 ON T1.MakeId  =  T2.ModelId JOIN cars_data AS T3 ON T1.MakeId  =  T3.Id WHERE T3.Weight  <  ( SELECT AVG(Weight) FROM cars_data )",
+        "spider_llama8b": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  (SELECT avg(Weight) FROM cars_data)"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.Maker FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker JOIN CAR_NAMES AS T3 ON T2.model  =  T3.model JOIN CARS_DATA AS T4 ON T3.MakeId  =  T4.id WHERE T4.year  =  '1970';",
+      "nll": {
+        "base": 0.68761,
+        "spider_llama8b": 0.71631
+      },
+      "pred": {
+        "base": "SELECT T1.Maker FROM car_makers AS T1 JOIN cars_data AS T2 ON T1.Id = T2.MakeId WHERE T2.Year = 1970 GROUP BY T1.Maker HAVING COUNT(*) > 0",
+        "spider_llama8b": "SELECT T1.Maker FROM car_makers AS T1 JOIN cars_data AS T2 ON T1.Id  =  T2.Id WHERE T2.Year  =  1970"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.Maker FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker JOIN CAR_NAMES AS T3 ON T2.model  =  T3.model JOIN CARS_DATA AS T4 ON T3.MakeId  =  T4.id WHERE T4.year  =  '1970';",
+      "nll": {
+        "base": 0.68483,
+        "spider_llama8b": 0.78185
+      },
+      "pred": {
+        "base": "SELECT DISTINCT T1.Maker FROM car_makers AS T1 JOIN cars_data AS T2 ON T1.Id = T2.Id WHERE T2.Year = 1970",
+        "spider_llama8b": "SELECT DISTINCT T1.Maker FROM car_makers AS T1 JOIN cars_data AS T2 ON T1.Id  =  T2.MakeId WHERE T2.year  =  1970"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.Make ,  T1.Year FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Year  =  (SELECT min(YEAR) FROM CARS_DATA);",
+      "nll": {
+        "base": 0.87648,
+        "spider_llama8b": 0.80884
+      },
+      "pred": {
+        "base": "SELECT T1.Model, T1.Make FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId = T2.Id ORDER BY T2.Year ASC LIMIT 1",
+        "spider_llama8b": "SELECT T1.Model ,  T1.Make ,  T2.Year FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.Year LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.Make ,  T1.Year FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Year  =  (SELECT min(YEAR) FROM CARS_DATA);",
+      "nll": {
+        "base": 0.99974,
+        "spider_llama8b": 0.81997
+      },
+      "pred": {
+        "base": "SELECT T1.Maker FROM car_makers AS T1 JOIN cars_data AS T2 ON T1.Id = T2.Id ORDER BY T2.Year ASC LIMIT 1",
+        "spider_llama8b": "SELECT T1.Maker ,  T1.Model ,  T2.Year FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.Year ASC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.model FROM MODEL_LIST AS T1 JOIN CAR_NAMES AS T2 ON T1.model  =  T2.model JOIN CARS_DATA AS T3 ON T2.MakeId  =  T3.id WHERE T3.year  >  1980;",
+      "nll": {
+        "base": 0.76919,
+        "spider_llama8b": 0.88073
+      },
+      "pred": {
+        "base": "SELECT DISTINCT Model FROM model_list WHERE YEAR > 1980",
+        "spider_llama8b": "SELECT DISTINCT T1.Model FROM model_list AS T1 JOIN car_names AS T2 ON T1.Maker  =  T2.MakeId JOIN cars_data AS T3 ON T2.MakeId  =  T3.Id WHERE T3.Year  >  1980"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.model FROM MODEL_LIST AS T1 JOIN CAR_NAMES AS T2 ON T1.model  =  T2.model JOIN CARS_DATA AS T3 ON T2.MakeId  =  T3.id WHERE T3.year  >  1980;",
+      "nll": {
+        "base": 0.72731,
+        "spider_llama8b": 0.86982
+      },
+      "pred": {
+        "base": "SELECT DISTINCT Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.Maker  =  T2.Id WHERE T2.Year  >  1980",
+        "spider_llama8b": "SELECT DISTINCT Model FROM car_names WHERE YEAR  >  1980"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.continent JOIN car_makers AS T3 ON T2.CountryId  =  T3.Country GROUP BY T1.Continent;",
+      "nll": {
+        "base": 0.55382,
+        "spider_llama8b": 0.62132
+      },
+      "pred": {
+        "base": "SELECT T2.Continent ,  COUNT(*) FROM car_makers AS T1 JOIN countries AS T2 ON T1.Country  =  T2.CountryId GROUP BY T2.Continent",
+        "spider_llama8b": "SELECT T1.Continent ,  count(*) FROM continents AS T1 JOIN car_makers AS T2 ON T1.ContId  =  T2.Country GROUP BY T1.Continent"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Continent ,  count(*) FROM CONTINENTS AS T1 JOIN COUNTRIES AS T2 ON T1.ContId  =  T2.continent JOIN car_makers AS T3 ON T2.CountryId  =  T3.Country GROUP BY T1.Continent;",
+      "nll": {
+        "base": 0.64771,
+        "spider_llama8b": 0.63797
+      },
+      "pred": {
+        "base": "SELECT T1.Continent ,  COUNT(*) FROM continents AS T1 JOIN car_makers AS T2 ON T1.ContId  =  T2.Country GROUP BY T1.Continent",
+        "spider_llama8b": "SELECT T1.Continent ,  count(*) FROM continents AS T1 JOIN car_makers AS T2 ON T1.ContId  =  T2.Country GROUP BY T1.Continent"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.CountryName FROM CAR_MAKERS AS T1 JOIN COUNTRIES AS T2 ON T1.Country  =  T2.CountryId GROUP BY T1.Country ORDER BY Count(*) DESC LIMIT 1;",
+      "nll": {
+        "base": 0.65251,
+        "spider_llama8b": 0.73286
+      },
+      "pred": {
+        "base": "",
+        "spider_llama8b": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.CountryName ORDER BY COUNT(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.CountryName FROM CAR_MAKERS AS T1 JOIN COUNTRIES AS T2 ON T1.Country  =  T2.CountryId GROUP BY T1.Country ORDER BY Count(*) DESC LIMIT 1;",
+      "nll": {
+        "base": 0.69417,
+        "spider_llama8b": 0.80453
+      },
+      "pred": {
+        "base": "",
+        "spider_llama8b": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select count(*) ,  t2.fullname from model_list as t1 join car_makers as t2 on t1.maker  =  t2.id group by t2.id;",
+      "nll": {
+        "base": 0.80565,
+        "spider_llama8b": 0.87672
+      },
+      "pred": {
+        "base": "SELECT count(*) ,  T2.FullName FROM model_list AS T1 JOIN car_makers AS T2 ON T1.Maker  =  T2.Id GROUP BY T2.FullName",
+        "spider_llama8b": "SELECT count(*) ,  T1.FullName FROM car_makers AS T1 JOIN model_list AS T2 ON T1.id  =  T2.maker GROUP BY T1.FullName"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT Count(*) ,  T2.FullName ,  T2.id FROM MODEL_LIST AS T1 JOIN CAR_MAKERS AS T2 ON T1.Maker  =  T2.Id GROUP BY T2.id;",
+      "nll": {
+        "base": 0.90499,
+        "spider_llama8b": 0.98215
+      },
+      "pred": {
+        "base": "SELECT count(*) ,  T1.Id ,  T1.FullName FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id",
+        "spider_llama8b": "SELECT count(*) ,  T1.id ,  T1.FullName FROM car_makers AS T1 JOIN model_list AS T2 ON T1.id  =  T2.Maker GROUP BY T1.id"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.Accelerate FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T2.Make  =  'amc hornet sportabout (sw)';",
+      "nll": {
+        "base": 0.66453,
+        "spider_llama8b": 0.77354
+      },
+      "pred": {
+        "base": "SELECT T1.Accelerate FROM cars_data AS T1 INNER JOIN car_names AS T2 ON T1.Id = T2.MakeId INNER JOIN model_list AS T3 ON T2.Model = T3.Model WHERE T3.Model = 'amc hornet sportabout (sw)' AND T2.Make = 'amc hornet sportabout (sw)'",
+        "spider_llama8b": "SELECT T1.accelerate FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id  =  T2.MakeId WHERE T2.Model  =  \"amc hornet sportabout (sw)\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Accelerate FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T2.Make  =  'amc hornet sportabout (sw)';",
+      "nll": {
+        "base": 0.6798,
+        "spider_llama8b": 0.83102
+      },
+      "pred": {
+        "base": "SELECT T1.Accelerate FROM cars_data AS T1 INNER JOIN car_names AS T2 ON T1.Id = T2.MakeId INNER JOIN model_list AS T3 ON T2.Model = T3.Model WHERE T3.Model = 'amc hornet sportabout (sw)'  AND T3.Maker = 1",
+        "spider_llama8b": "SELECT T1.accelerate FROM cars_data AS T1 JOIN car_names AS T2 ON T1.id  =  T2.makeid WHERE T2.model  =  \"amc hornet sportabout (sw)\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CAR_MAKERS AS T1 JOIN COUNTRIES AS T2 ON T1.Country  =  T2.CountryId WHERE T2.CountryName  =  'france';",
+      "nll": {
+        "base": 0.75752,
+        "spider_llama8b": 0.9534
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM car_makers AS T1 JOIN countries AS T2 ON T1.Country  =  T2.CountryName WHERE T2.Continent  =  \"France\"",
+        "spider_llama8b": "SELECT count(*) FROM car_makers AS T1 JOIN countries AS T2 ON T1.Country  =  T2.CountryId WHERE T2.CountryName  =  \"France\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CAR_MAKERS AS T1 JOIN COUNTRIES AS T2 ON T1.Country  =  T2.CountryId WHERE T2.CountryName  =  'france';",
+      "nll": {
+        "base": 0.77579,
+        "spider_llama8b": 1.09143
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM car_makers AS t1 JOIN countries AS t2 ON t1.Country  =  t2.CountryName WHERE t2.Continent  =  'France' AND t1.Maker  =  'care' AND t1.FullName  =  'care' AND t1.Country  =  t2.CountryName",
+        "spider_llama8b": "SELECT count(*) FROM car_makers AS T1 JOIN countries AS T2 ON T1.Country  =  T2.CountryId WHERE T2.Continent  =  \"France\" AND T1.Maker  =  \"care\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM MODEL_LIST AS T1 JOIN CAR_MAKERS AS T2 ON T1.Maker  =  T2.Id JOIN COUNTRIES AS T3 ON T2.Country  =  T3.CountryId WHERE T3.CountryName  =  'usa';",
+      "nll": {
+        "base": 0.55139,
+        "spider_llama8b": 0.74912
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM car_makers AS T1 JOIN countries AS T2 ON T1.Country  =  T2.CountryName WHERE T2.CountryName  =  'usa' AND T1.Maker  =  T1.FullName",
+        "spider_llama8b": "SELECT count(*) FROM car_names AS T1 JOIN countries AS T2 ON T1.Make  =  T2.CountryName WHERE T2.CountryName  =  \"USA\" AND T1.Make  =  T2.CountryName"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM MODEL_LIST AS T1 JOIN CAR_MAKERS AS T2 ON T1.Maker  =  T2.Id JOIN COUNTRIES AS T3 ON T2.Country  =  T3.CountryId WHERE T3.CountryName  =  'usa';",
+      "nll": {
+        "base": 0.67634,
+        "spider_llama8b": 0.89674
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM car_names AS T1 JOIN model_list AS T2 ON T1.MakeId  =  T2.ModelId JOIN car_makers AS T3 ON T2.Maker  =  T3.Id JOIN countries AS T4 ON T3.Country  =  T4.CountryId WHERE T4.CountryName  =  'United States' AND T2.Model  =  'Corolla' AND T3.FullName  =  'Toyota' AND T4.Continent  = ",
+        "spider_llama8b": "SELECT count(*) FROM car_names AS T1 JOIN car_makers AS T2 ON T1.Make  =  T2.Id WHERE T2.Country  =  \"United States\" GROUP BY T1.Model"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT avg(mpg) FROM CARS_DATA WHERE Cylinders  =  4;",
+      "nll": {
+        "base": 1.54079,
+        "spider_llama8b": 1.43854
+      },
+      "pred": {
+        "base": "SELECT AVG(T1.MPG) FROM cars_data AS T1 JOIN car_makers AS T2 ON T1.Id = T2.Id WHERE T1.Cylinders = 4",
+        "spider_llama8b": "SELECT avg(T1.MPG) FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id = T2.MakeId JOIN car_makers AS T3 ON T2.Make = T3.Maker WHERE T1.Cylinders = 4;"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT avg(mpg) FROM CARS_DATA WHERE Cylinders  =  4;",
+      "nll": {
+        "base": 1.49428,
+        "spider_llama8b": 1.45632
+      },
+      "pred": {
+        "base": "SELECT AVG(MPG) FROM cars_data WHERE Cylinders = 4",
+        "spider_llama8b": "SELECT avg(MPG) FROM cars_data WHERE Cylinders  =  4"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "select min(weight) from cars_data where cylinders  =  8 and year  =  1974",
+      "nll": {
+        "base": 0.94291,
+        "spider_llama8b": 0.98892
+      },
+      "pred": {
+        "base": "SELECT MIN(Weight) FROM cars_data WHERE Cylinders = 8 AND Year = 1974",
+        "spider_llama8b": "SELECT min(weight) FROM cars_data WHERE cylinders = 8 AND YEAR = 1974"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "select min(weight) from cars_data where cylinders  =  8 and year  =  1974",
+      "nll": {
+        "base": 0.92483,
+        "spider_llama8b": 1.00946
+      },
+      "pred": {
+        "base": "SELECT MIN(Weight) FROM cars_data WHERE Cylinders = 8 AND YEAR = 1974",
+        "spider_llama8b": "SELECT min(weight) FROM cars_data WHERE cylinders = 8 AND YEAR = 1974"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Maker ,  Model FROM MODEL_LIST;",
+      "nll": {
+        "base": 1.93954,
+        "spider_llama8b": 2.25141
+      },
+      "pred": {
+        "base": "SELECT Maker, Model FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id  =  T2.Maker",
+        "spider_llama8b": "SELECT DISTINCT Maker ,  Model FROM car_names;"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT Maker ,  Model FROM MODEL_LIST;",
+      "nll": {
+        "base": 1.9603,
+        "spider_llama8b": 2.30514
+      },
+      "pred": {
+        "base": "SELECT T1.Maker, T2.Model FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id = T2.Maker",
+        "spider_llama8b": "SELECT Make ,  Model FROM car_names"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.CountryName ,  T1.CountryId FROM COUNTRIES AS T1 JOIN CAR_MAKERS AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.CountryId HAVING count(*)  >=  1;",
+      "nll": {
+        "base": 0.47838,
+        "spider_llama8b": 0.63512
+      },
+      "pred": {
+        "base": "SELECT T1.CountryName , T1.CountryId FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.CountryName HAVING COUNT(T2.Country)  >  0",
+        "spider_llama8b": "SELECT CountryName ,  CountryId FROM countries WHERE CountryId IN (SELECT Country FROM car_makers) GROUP BY CountryId HAVING COUNT(*)  >=  1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.CountryName ,  T1.CountryId FROM COUNTRIES AS T1 JOIN CAR_MAKERS AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.CountryId HAVING count(*)  >=  1;",
+      "nll": {
+        "base": 0.52054,
+        "spider_llama8b": 0.63208
+      },
+      "pred": {
+        "base": "SELECT CountryName , CountryId FROM countries WHERE CountryId IN (SELECT Country FROM car_makers GROUP BY Country HAVING COUNT(*)  >= 1)",
+        "spider_llama8b": "SELECT CountryName ,  CountryId FROM countries WHERE CountryId IN (SELECT Country FROM car_makers) UNION SELECT CountryName ,  CountryId FROM countries WHERE CountryId NOT IN (SELECT Country FROM car_makers) AND CountryId IN (SELECT Country FROM car_makers) UNION SELECT CountryName ,  CountryId FROM"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE horsepower  >  150;",
+      "nll": {
+        "base": 1.56309,
+        "spider_llama8b": 1.48503
+      },
+      "pred": {
+        "base": "SELECT Id FROM cars_data WHERE Horsepower > 150",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE Horsepower  >  150"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE horsepower  >  150;",
+      "nll": {
+        "base": 1.58205,
+        "spider_llama8b": 1.4653
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Horsepower > 150",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE Horsepower  >  150"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(Weight) ,  YEAR FROM CARS_DATA GROUP BY YEAR;",
+      "nll": {
+        "base": 1.45629,
+        "spider_llama8b": 1.59173
+      },
+      "pred": {
+        "base": "SELECT AVG(Weight) FROM cars_data GROUP BY Year",
+        "spider_llama8b": "SELECT avg(weight) ,  YEAR FROM cars_data GROUP BY YEAR"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(Weight) ,  YEAR FROM CARS_DATA GROUP BY YEAR;",
+      "nll": {
+        "base": 1.67344,
+        "spider_llama8b": 1.748
+      },
+      "pred": {
+        "base": "SELECT AVG(Weight) , AVG(Year) FROM cars_data GROUP BY Year",
+        "spider_llama8b": "SELECT avg(weight) ,  avg(year) ,  YEAR FROM cars_data GROUP BY YEAR"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.CountryName FROM COUNTRIES AS T1 JOIN CONTINENTS AS T2 ON T1.Continent  =  T2.ContId JOIN CAR_MAKERS AS T3 ON T1.CountryId  =  T3.Country WHERE T2.Continent  =  'europe' GROUP BY T1.CountryName HAVING count(*)  >=  3;",
+      "nll": {
+        "base": 0.46133,
+        "spider_llama8b": 0.62766
+      },
+      "pred": {
+        "base": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId = T2.Country WHERE T2.FullName LIKE '%Europe%' GROUP BY T1.CountryName HAVING COUNT(*)  >=  3",
+        "spider_llama8b": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country WHERE T1.Continent  =  \"Europe\" GROUP BY T1.CountryName HAVING COUNT(*)  >=  3"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.CountryName FROM COUNTRIES AS T1 JOIN CONTINENTS AS T2 ON T1.Continent  =  T2.ContId JOIN CAR_MAKERS AS T3 ON T1.CountryId  =  T3.Country WHERE T2.Continent  =  'europe' GROUP BY T1.CountryName HAVING count(*)  >=  3;",
+      "nll": {
+        "base": 0.41087,
+        "spider_llama8b": 0.73516
+      },
+      "pred": {
+        "base": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.CountryId HAVING COUNT(*)  >=  3",
+        "spider_llama8b": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country WHERE T1.Continent  =  \"Europe\" GROUP BY T1.CountryName HAVING COUNT(*)  >=  3"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.horsepower ,  T1.Make FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.cylinders  =  3 ORDER BY T2.horsepower DESC LIMIT 1;",
+      "nll": {
+        "base": 0.64451,
+        "spider_llama8b": 0.73348
+      },
+      "pred": {
+        "base": "SELECT T1.Horsepower ,  T2.Model FROM cars_data AS T1 JOIN model_list AS T2 ON T1.Id = T2.ModelId WHERE T1.Cylinders = 3 AND T2.Maker = ( SELECT Id FROM car_makers WHERE FullName = 'Toyota' ) ORDER BY T1.Horsepower DESC LIMIT 1",
+        "spider_llama8b": "SELECT max(T1.Horsepower) ,  T2.Model FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Makeid  =  T2.Makeid WHERE T1.Cylinders  =  3 GROUP BY T2.Model"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.horsepower ,  T1.Make FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.cylinders  =  3 ORDER BY T2.horsepower DESC LIMIT 1;",
+      "nll": {
+        "base": 0.61057,
+        "spider_llama8b": 0.68415
+      },
+      "pred": {
+        "base": "SELECT T1.Horsepower , T1.Make FROM car_names AS T1 JOIN model_list AS T2 ON T1.MakeId  =  T2.ModelId JOIN cars_data AS T3 ON T1.MakeId  =  T3.Id WHERE T3.Cylinders  =  3 ORDER BY T3.Horsepower DESC LIMIT 1",
+        "spider_llama8b": "SELECT T1.Model ,  T1.Make ,  max(T2.Horsepower) FROM car_names AS T1 JOIN cars_data AS T2 ON T1.Makeid  =  T2.id WHERE T2.Cylinders  =  3 GROUP BY T1.Model"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.mpg DESC LIMIT 1;",
+      "nll": {
+        "base": 0.76871,
+        "spider_llama8b": 0.77538
+      },
+      "pred": {
+        "base": "SELECT T1.Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.ModelId = T2.Id ORDER BY T2.MPG DESC LIMIT 1",
+        "spider_llama8b": "SELECT T1.Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.ModelId  =  T2.MakeId ORDER BY T2.MPG DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select t1.model from car_names as t1 join cars_data as t2 on t1.makeid  =  t2.id order by t2.mpg desc limit 1;",
+      "nll": {
+        "base": 0.77937,
+        "spider_llama8b": 0.6362
+      },
+      "pred": {
+        "base": "SELECT T1.Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.MakeId = T2.Id ORDER BY T2.MPG DESC LIMIT 1",
+        "spider_llama8b": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id ORDER BY T2.MPG DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(horsepower) FROM CARS_DATA WHERE YEAR  <  1980;",
+      "nll": {
+        "base": 1.29493,
+        "spider_llama8b": 1.13179
+      },
+      "pred": {
+        "base": "SELECT AVG(Horsepower) FROM cars_data WHERE Year < 1980",
+        "spider_llama8b": "SELECT avg(Horsepower) FROM cars_data WHERE YEAR  <  1980"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "select avg(horsepower) from cars_data where year  <  1980;",
+      "nll": {
+        "base": 1.19544,
+        "spider_llama8b": 1.13082
+      },
+      "pred": {
+        "base": "SELECT AVG(Horsepower) FROM cars_data WHERE YEAR < 1980",
+        "spider_llama8b": "SELECT avg(Horsepower) FROM cars_data WHERE YEAR  <  1980"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT avg(T2.edispl) FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T1.Model  =  'volvo';",
+      "nll": {
+        "base": 0.85646,
+        "spider_llama8b": 0.98857
+      },
+      "pred": {
+        "base": "SELECT AVG(Edispl) FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id = T2.MakeId JOIN model_list AS T3 ON T2.Model = T3.Model WHERE T3.Model = 'Volvo' AND T2.Model = 'Volvo' AND T3.Maker = 1",
+        "spider_llama8b": "SELECT avg(T1.Edispl) FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id  =  T2.MakeId JOIN model_list AS T3 ON T2.Model  =  T3.Model WHERE T3.Model  =  \"Volvo\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT avg(T2.edispl) FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T1.Model  =  'volvo';",
+      "nll": {
+        "base": 1.01874,
+        "spider_llama8b": 1.207
+      },
+      "pred": {
+        "base": "SELECT AVG(Edispl) FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id = T2.MakeId WHERE T2.Make = 'VOLVO' AND T1.MPG = 'mpg' AND T1.Cylinders = 4 AND T1.Horsepower = 'horsepower' AND T1.Weight = 0 AND T1.Accelerate = 0 AND T1.Year = 0",
+        "spider_llama8b": "SELECT avg(edispl) FROM car_makers AS T1 JOIN model_list AS T2 ON T1.id  =  T2.maker WHERE T1.maker  =  \"volvo\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT max(Accelerate) ,  Cylinders FROM CARS_DATA GROUP BY Cylinders;",
+      "nll": {
+        "base": 1.07326,
+        "spider_llama8b": 1.22878
+      },
+      "pred": {
+        "base": "SELECT MAX(accelerate) FROM cars_data WHERE cylinders = 4",
+        "spider_llama8b": "SELECT max(accelerate) ,  cylinders FROM cars_data GROUP BY cylinders"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT max(Accelerate) ,  Cylinders FROM CARS_DATA GROUP BY Cylinders;",
+      "nll": {
+        "base": 1.29793,
+        "spider_llama8b": 1.04305
+      },
+      "pred": {
+        "base": "SELECT MAX(accelerate) FROM cars_data WHERE cylinders = 4 OR cylinders = 6 OR cylinders = 8 OR cylinders = 10 OR cylinders = 12 OR cylinders = 14 OR cylinders = 16 OR cylinders = 18 OR cylinders = 20 OR cylinders = 22 OR cylinders = 24 OR cylinders = 26 OR cylinders = 28 OR cylinders = 30 OR cylinde",
+        "spider_llama8b": "SELECT max(Accelerate) ,  Cylinders FROM cars_data GROUP BY Cylinders\nSELECT max(Accelerate) ,  Cylinders FROM cars_data GROUP BY Cylinders"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Model FROM CAR_NAMES GROUP BY Model ORDER BY count(*) DESC LIMIT 1;",
+      "nll": {
+        "base": 1.37451,
+        "spider_llama8b": 1.44469
+      },
+      "pred": {
+        "base": "SELECT Model FROM model_list GROUP BY Model ORDER BY COUNT(*) DESC LIMIT 1",
+        "spider_llama8b": "SELECT model FROM car_names GROUP BY model ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Model FROM CAR_NAMES GROUP BY Model ORDER BY count(*) DESC LIMIT 1;",
+      "nll": {
+        "base": 1.259,
+        "spider_llama8b": 1.42644
+      },
+      "pred": {
+        "base": "SELECT Model FROM model_list GROUP BY Model ORDER BY COUNT(*) DESC LIMIT 1",
+        "spider_llama8b": "SELECT model FROM car_names GROUP BY model ORDER BY count(*) DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE Cylinders  >  4;",
+      "nll": {
+        "base": 1.21326,
+        "spider_llama8b": 1.12798
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Cylinders > 4",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE cylinders  >  4"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE Cylinders  >  4;",
+      "nll": {
+        "base": 1.24867,
+        "spider_llama8b": 1.30427
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Cylinders > 4",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE cylinders  >  4"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE YEAR  =  1980;",
+      "nll": {
+        "base": 1.07252,
+        "spider_llama8b": 1.2858
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE YEAR = 1980",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE YEAR = 1980"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CARS_DATA WHERE YEAR  =  1980;",
+      "nll": {
+        "base": 1.50959,
+        "spider_llama8b": 1.30695
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE YEAR = 1980",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE YEAR  =  1980"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker WHERE T1.FullName  =  'American Motor Company';",
+      "nll": {
+        "base": 0.69669,
+        "spider_llama8b": 0.92353
+      },
+      "pred": {
+        "base": "SELECT count(*) FROM car_makers AS t1 JOIN model_list AS t2 ON t1.id = t2.maker WHERE t1.fullname = 'American Motor Company'",
+        "spider_llama8b": "SELECT count(*) FROM car_makers AS T1 JOIN model_list AS T2 ON T1.id  =  T2.maker WHERE T1.fullname  =  \"American Motor Company\" GROUP BY T1.id"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker WHERE T1.FullName  =  'American Motor Company';",
+      "nll": {
+        "base": 0.75852,
+        "spider_llama8b": 0.93514
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM car_makers AS t1 JOIN model_list AS t2 ON t1.id  =  t2.maker WHERE t1.fullname  =  \"American Motor Company\" AND t2.model  =  \"AMC Gremlin\" AND t1.country  =  \"United States\" AND t2.maker  =  \"American Motor Company\" AND t1.id  =  t2.maker",
+        "spider_llama8b": "SELECT count(*) FROM car_names AS T1 JOIN car_makers AS T2 ON T1.Make  =  T2.Id WHERE T2.Maker  =  \"American Motors\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.FullName ,  T1.Id FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >  3;",
+      "nll": {
+        "base": 0.50033,
+        "spider_llama8b": 0.62298
+      },
+      "pred": {
+        "base": "SELECT FullName , Id FROM car_makers WHERE COUNT(*)  >  3 GROUP BY Id HAVING COUNT(*)  >  3",
+        "spider_llama8b": "SELECT T1.FullName ,  T1.id FROM car_makers AS T1 JOIN model_list AS T2 ON T1.id  =  T2.maker GROUP BY T1.id HAVING count(*)  >  3"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.FullName ,  T1.Id FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >  3;",
+      "nll": {
+        "base": 0.55799,
+        "spider_llama8b": 0.66678
+      },
+      "pred": {
+        "base": "SELECT Id, FullName FROM car_makers WHERE Maker = ( SELECT Maker FROM model_list GROUP BY Maker HAVING COUNT(*)  >  3 )",
+        "spider_llama8b": "SELECT T1.Maker ,  T1.Id FROM car_makers AS T1 JOIN model_list AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >  3"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T2.Model FROM CAR_NAMES AS T1 JOIN MODEL_LIST AS T2 ON T1.Model  =  T2.Model JOIN CAR_MAKERS AS T3 ON T2.Maker  =  T3.Id JOIN CARS_DATA AS T4 ON T1.MakeId  =  T4.Id WHERE T3.FullName  =  'General Motors' OR T4.weight  >  3500;",
+      "nll": {
+        "base": 0.58546,
+        "spider_llama8b": 0.68091
+      },
+      "pred": {
+        "base": "SELECT DISTINCT Model FROM model_list AS t1 JOIN car_names AS t2 ON t1.ModelId  =  t2.MakeId JOIN car_makers AS t3 ON t1.Maker  =  t3.Id WHERE t3.FullName  =  'General Motors' AND t2.Weight  >  3500",
+        "spider_llama8b": "SELECT DISTINCT T1.Model FROM model_list AS T1 JOIN car_names AS T2 ON T1.ModelId  =  T2.ModelId JOIN cars_data AS T3 ON T2.MakeId  =  T3.Id WHERE T1.Maker  =  (SELECT T2.FullName FROM car_makers AS T2 WHERE T2.Maker  =  \"General Motors\") OR T3.Weight  >  3500"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T2.Model FROM CAR_NAMES AS T1 JOIN MODEL_LIST AS T2 ON T1.Model  =  T2.Model JOIN CAR_MAKERS AS T3 ON T2.Maker  =  T3.Id JOIN CARS_DATA AS T4 ON T1.MakeId  =  T4.Id WHERE T3.FullName  =  'General Motors' OR T4.weight  >  3500;",
+      "nll": {
+        "base": 0.54622,
+        "spider_llama8b": 0.59819
+      },
+      "pred": {
+        "base": "SELECT DISTINCT T1.Model FROM model_list AS T1 JOIN car_makers AS T2 ON T1.Maker  =  T2.Id WHERE T2.FullName  =  \"General Motors\" OR T1.Weight  >  3500",
+        "spider_llama8b": "SELECT DISTINCT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  >  3500 UNION SELECT DISTINCT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id WHERE T1.Make  =  \"General Motors\" ORDER BY T1.Model"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select distinct year from cars_data where weight between 3000 and 4000;",
+      "nll": {
+        "base": 1.26321,
+        "spider_llama8b": 1.41228
+      },
+      "pred": {
+        "base": "SELECT YEAR FROM cars_data WHERE Weight BETWEEN 3000 AND 4000",
+        "spider_llama8b": "SELECT YEAR FROM cars_data WHERE Weight BETWEEN 3000 AND 4000"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select distinct year from cars_data where weight between 3000 and 4000;",
+      "nll": {
+        "base": 1.20949,
+        "spider_llama8b": 1.73295
+      },
+      "pred": {
+        "base": "SELECT DISTINCT YEAR FROM cars_data WHERE Weight  <  4000 INTERSECT SELECT DISTINCT YEAR FROM cars_data WHERE Weight  >  3000",
+        "spider_llama8b": "SELECT DISTINCT YEAR FROM cars_data WHERE Weight  <  4000 INTERSECT SELECT DISTINCT YEAR FROM cars_data WHERE Weight  >  3000"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.horsepower FROM CARS_DATA AS T1 ORDER BY T1.accelerate DESC LIMIT 1;",
+      "nll": {
+        "base": 1.07736,
+        "spider_llama8b": 1.5557
+      },
+      "pred": {
+        "base": "SELECT Horsepower FROM cars_data ORDER BY Accelerate DESC LIMIT 1",
+        "spider_llama8b": "SELECT T1.Horsepower FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id  =  T2.MakeId ORDER BY T1.Accelerate DESC LIMIT 1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.horsepower FROM CARS_DATA AS T1 ORDER BY T1.accelerate DESC LIMIT 1;",
+      "nll": {
+        "base": 0.97573,
+        "spider_llama8b": 1.52949
+      },
+      "pred": {
+        "base": "SELECT T1.Horsepower FROM cars_data AS T1 ORDER BY T1.Accelerate DESC LIMIT 1",
+        "spider_llama8b": "SELECT Horsepower FROM cars_data ORDER BY Accelerate DESC LIMIT 1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.cylinders FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T2.Model  =  'volvo' ORDER BY T1.accelerate ASC LIMIT 1;",
+      "nll": {
+        "base": 0.59948,
+        "spider_llama8b": 0.70413
+      },
+      "pred": {
+        "base": "SELECT T2.Cylinders FROM car_names AS T1 INNER JOIN cars_data AS T2 ON T1.MakeId = T2.Id WHERE T1.Model = 'volvo' ORDER BY T2.Accelerate LIMIT 1",
+        "spider_llama8b": "SELECT cylinders FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id WHERE T1.Model  =  \"volvo\" ORDER BY T2.accelerate LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.cylinders FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T2.Model  =  'volvo' ORDER BY T1.accelerate ASC LIMIT 1;",
+      "nll": {
+        "base": 0.6585,
+        "spider_llama8b": 0.76584
+      },
+      "pred": {
+        "base": "SELECT T1.Cylinders FROM car_makers AS T1 JOIN cars_data AS T2 ON T1.Id = T2.Id JOIN car_names AS T3 ON T2.Id = T3.MakeId WHERE T3.Model = 'Volvo' ORDER BY T2.Accelerate LIMIT 1",
+        "spider_llama8b": "SELECT T1.cylinders FROM cars_data AS T1 JOIN car_names AS T2 ON T1.id  =  T2.makeid JOIN car_makers AS T3 ON T2.make  =  T3.maker WHERE T3.maker  =  \"Volvo\" ORDER BY T1.accelerate LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT COUNT(*) FROM CARS_DATA WHERE Accelerate  >  ( SELECT Accelerate FROM CARS_DATA ORDER BY Horsepower DESC LIMIT 1 );",
+      "nll": {
+        "base": 0.9283,
+        "spider_llama8b": 1.03662
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Accelerate > ( SELECT MAX(Horsepower) FROM cars_data )",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE accelerate  >  (SELECT max(Horsepower) FROM cars_data)"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT COUNT(*) FROM CARS_DATA WHERE Accelerate  >  ( SELECT Accelerate FROM CARS_DATA ORDER BY Horsepower DESC LIMIT 1 );",
+      "nll": {
+        "base": 0.77893,
+        "spider_llama8b": 1.07333
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Accelerate > ( SELECT MAX(Horsepower) FROM cars_data )",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE accelerate  >  (SELECT max(horsepower) FROM cars_data) - 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select count(*) from countries as t1 join car_makers as t2 on t1.countryid  =  t2.country group by t1.countryid having count(*)  >  2",
+      "nll": {
+        "base": 0.67713,
+        "spider_llama8b": 0.69153
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM car_makers AS T1 JOIN countries AS T2 ON T1.Country = T2.CountryName GROUP BY T1.Country HAVING COUNT(*) > 2",
+        "spider_llama8b": "SELECT count(*) FROM car_makers GROUP BY country HAVING count(*)  >  2"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select count(*) from countries as t1 join car_makers as t2 on t1.countryid  =  t2.country group by t1.countryid having count(*)  >  2",
+      "nll": {
+        "base": 0.78719,
+        "spider_llama8b": 0.62832
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM countries WHERE CountryId IN ( SELECT CountryId FROM car_makers GROUP BY CountryId HAVING COUNT(*)  >  2 )",
+        "spider_llama8b": "SELECT count(*) FROM car_makers GROUP BY country HAVING count(*)  >  2"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT COUNT(*) FROM CARS_DATA WHERE Cylinders  >  6;",
+      "nll": {
+        "base": 1.09765,
+        "spider_llama8b": 1.33804
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Cylinders > 6",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE cylinders  >  6"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT COUNT(*) FROM CARS_DATA WHERE Cylinders  >  6;",
+      "nll": {
+        "base": 1.07327,
+        "spider_llama8b": 1.2803
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM cars_data WHERE Cylinders > 6",
+        "spider_llama8b": "SELECT count(*) FROM cars_data WHERE cylinders  >  6"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Cylinders  =  4 ORDER BY T2.horsepower DESC LIMIT 1;",
+      "nll": {
+        "base": 0.6426,
+        "spider_llama8b": 0.62803
+      },
+      "pred": {
+        "base": "SELECT T1.Model FROM car_names AS T1 JOIN model_list AS T2 ON T1.MakeId  =  T2.ModelId JOIN cars_data AS T3 ON T1.MakeId  =  T3.Id WHERE T3.Cylinders  =  4 ORDER BY T3.Horsepower DESC LIMIT 1",
+        "spider_llama8b": "SELECT T1.Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.Makeid  =  T2.Id WHERE T2.Cylinders  =  4 ORDER BY T2.Horsepower DESC LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Model FROM CAR_NAMES AS T1 JOIN CARS_DATA AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Cylinders  =  4 ORDER BY T2.horsepower DESC LIMIT 1;",
+      "nll": {
+        "base": 0.65942,
+        "spider_llama8b": 0.67543
+      },
+      "pred": {
+        "base": "SELECT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId = T2.Id WHERE T2.Cylinders = 4 ORDER BY T2.Horsepower DESC LIMIT 1",
+        "spider_llama8b": "SELECT T1.Model FROM model_list AS T1 JOIN cars_data AS T2 ON T1.MakeId = T2.Id WHERE T2.Cylinders  =  4 ORDER BY T2.Horsepower DESC LIMIT 1"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T2.MakeId ,  T2.Make FROM CARS_DATA AS T1 JOIN CAR_NAMES AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Horsepower  >  (SELECT min(Horsepower) FROM CARS_DATA) AND T1.Cylinders  <=  3;",
+      "nll": {
+        "base": 0.54761,
+        "spider_llama8b": 0.53898
+      },
+      "pred": {
+        "base": "SELECT T1.MakeId, T1.Make FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId = T2.Id WHERE T2.Horsepower > ( SELECT MIN(T2.Horsepower) FROM cars_data AS T2 ) AND T2.Cylinders <= 3",
+        "spider_llama8b": "SELECT makeid ,  make FROM car_names WHERE horsepower  >  (SELECT min(horsepower) FROM cars_data) AND cylinders  <=  3"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select t2.makeid ,  t2.make from cars_data as t1 join car_names as t2 on t1.id  =  t2.makeid where t1.horsepower  >  (select min(horsepower) from cars_data) and t1.cylinders  <  4;",
+      "nll": {
+        "base": 0.61798,
+        "spider_llama8b": 0.5824
+      },
+      "pred": {
+        "base": "SELECT MakeId ,  Model FROM car_names AS t1 JOIN cars_data AS t2 ON t1.MakeId  =  t2.Id WHERE t2.Horsepower  =  'min' AND t2.Cylinders  <  4",
+        "spider_llama8b": "SELECT makeid ,  model FROM car_names WHERE makeid NOT IN (SELECT makeid FROM cars_data WHERE horsepower  =  (SELECT min(horsepower) FROM cars_data)) AND cylinders  <  4"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select max(mpg) from cars_data where cylinders  =  8 or year  <  1980",
+      "nll": {
+        "base": 1.08472,
+        "spider_llama8b": 0.9165
+      },
+      "pred": {
+        "base": "SELECT MAX(MPG) FROM cars_data WHERE Cylinders = 8 OR Year < 1980",
+        "spider_llama8b": "SELECT max(T1.MPG) FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Cylinders  =  8 OR T1.Year  <  1980"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select max(mpg) from cars_data where cylinders  =  8 or year  <  1980",
+      "nll": {
+        "base": 1.02198,
+        "spider_llama8b": 0.96844
+      },
+      "pred": {
+        "base": "SELECT MAX(T1.MPG) FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id = T2.MakeId WHERE T1.Cylinders = 8 OR T1.Year < 1980",
+        "spider_llama8b": "SELECT max(T1.MPG) FROM cars_data AS T1 JOIN car_names AS T2 ON T1.Id  =  T2.MakeId WHERE T1.Cylinders  =  8 OR T1.Year  <  1980"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.model FROM MODEL_LIST AS T1 JOIN CAR_NAMES AS T2 ON T1.Model  =  T2.Model JOIN CARS_DATA AS T3 ON T2.MakeId  =  T3.Id JOIN CAR_MAKERS AS T4 ON T1.Maker  =  T4.Id WHERE T3.weight  <  3500 AND T4.FullName != 'Ford Motor Company';",
+      "nll": {
+        "base": 0.59638,
+        "spider_llama8b": 0.7301
+      },
+      "pred": {
+        "base": "SELECT T1.Model FROM model_list AS T1 JOIN car_makers AS T2 ON T1.Maker = T2.Id WHERE T2.FullName != 'Ford Motor Company' AND T1.Weight < 3500",
+        "spider_llama8b": "SELECT T1.Model FROM model_list AS T1 JOIN car_names AS T2 ON T1.ModelId  =  T2.Model WHERE T2.Make  =  \"Ford Motor Company\" EXCEPT SELECT T1.Model FROM model_list AS T1 JOIN car_names AS T2 ON T1.ModelId  =  T2.Model WHERE T1.Weight  <  3500"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT DISTINCT T1.model FROM MODEL_LIST AS T1 JOIN CAR_NAMES AS T2 ON T1.Model  =  T2.Model JOIN CARS_DATA AS T3 ON T2.MakeId  =  T3.Id JOIN CAR_MAKERS AS T4 ON T1.Maker  =  T4.Id WHERE T3.weight  <  3500 AND T4.FullName != 'Ford Motor Company';",
+      "nll": {
+        "base": 0.56424,
+        "spider_llama8b": 0.65908
+      },
+      "pred": {
+        "base": "SELECT DISTINCT T1.Model FROM model_list AS T1 JOIN car_names AS T2 ON T1.ModelId = T2.MakeId JOIN cars_data AS T3 ON T2.MakeId = T3.Id WHERE T3.Weight < 3500 AND T3.Id != ( SELECT Id FROM car_makers WHERE Maker = 'Ford Motor Company' ) AND T1.Maker != ( SELECT Id FROM car_makers WHERE Maker = 'Ford",
+        "spider_llama8b": "SELECT DISTINCT T1.Model FROM car_names AS T1 JOIN cars_data AS T2 ON T1.MakeId  =  T2.Id WHERE T2.Weight  <  3500 EXCEPT SELECT T1.Model FROM car_names AS T1 JOIN car_makers AS T2 ON T1.Make  =  T2.Maker WHERE T2.FullName  =  \"Ford Motor Company\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT CountryName FROM countries EXCEPT SELECT T1.CountryName FROM countries AS T1 JOIN CAR_MAKERS AS T2 ON T1.countryId  =  T2.Country;",
+      "nll": {
+        "base": 1.14132,
+        "spider_llama8b": 1.39488
+      },
+      "pred": {
+        "base": "SELECT T2.CountryName FROM car_makers AS T1 JOIN countries AS T2 ON T1.Country = T2.CountryId WHERE T1.FullName IS NULL",
+        "spider_llama8b": "SELECT CountryName FROM countries WHERE CountryId NOT IN (SELECT Country FROM car_makers) AND CountryId != 0"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT CountryName FROM countries EXCEPT SELECT T1.CountryName FROM countries AS T1 JOIN CAR_MAKERS AS T2 ON T1.countryId  =  T2.Country;",
+      "nll": {
+        "base": 1.00125,
+        "spider_llama8b": 1.25542
+      },
+      "pred": {
+        "base": "SELECT CountryName FROM countries WHERE CountryId NOT IN (SELECT Country FROM car_makers)",
+        "spider_llama8b": "SELECT CountryName FROM countries WHERE CountryId NOT IN (SELECT Country FROM car_makers) UNION SELECT CountryName FROM countries WHERE CountryId IN (SELECT Country FROM car_makers) GROUP BY CountryName HAVING COUNT(*)  =  (SELECT COUNT(*) FROM car_makers) - 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select t1.id ,  t1.maker from car_makers as t1 join model_list as t2 on t1.id  =  t2.maker group by t1.id having count(*)  >=  2 intersect select t1.id ,  t1.maker from car_makers as t1 join model_list as t2 on t1.id  =  t2.maker join car_names as t3 on t2.model  =  t3.model group by t1.id having count(*)  >  3;",
+      "nll": {
+        "base": 0.42643,
+        "spider_llama8b": 0.32667
+      },
+      "pred": {
+        "base": "SELECT Id FROM car_makers GROUP BY Id HAVING COUNT(*)  >=  2 AND COUNT(*)  >  3",
+        "spider_llama8b": "SELECT id ,  maker FROM car_makers GROUP BY maker HAVING count(*)  >=  2 INTERSECT SELECT id ,  maker FROM car_makers GROUP BY maker HAVING count(*)  >  3\nSELECT id ,  maker FROM car_makers GROUP BY maker HAVING count(*)  >=  2 INTERSECT SELECT id ,  maker FROM car_makers GROUP BY maker HAVING count"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.Id ,  T1.Maker FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker GROUP BY T1.Id HAVING count(*)  >=  2 INTERSECT SELECT T1.Id ,  T1.Maker FROM CAR_MAKERS AS T1 JOIN MODEL_LIST AS T2 ON T1.Id  =  T2.Maker JOIN CAR_NAMES AS T3 ON T2.model  =  T3.model GROUP BY T1.Id HAVING count(*)  >  3;",
+      "nll": {
+        "base": 0.39462,
+        "spider_llama8b": 0.46441
+      },
+      "pred": {
+        "base": "SELECT Id ,  Maker FROM car_makers WHERE Maker  IN ( SELECT Maker FROM model_list GROUP BY Maker HAVING COUNT(*)  >=  2 ) INTERSECT SELECT Id ,  Maker FROM car_makers WHERE Maker  IN ( SELECT Make FROM car_names GROUP BY Make HAVING COUNT(*)  >=  3 )",
+        "spider_llama8b": "SELECT T1.id ,  T1.Maker FROM car_makers AS T1 JOIN model_list AS T2 ON T1.id  =  T2.Maker GROUP BY T1.id HAVING count(*)  >=  2 INTERSECT SELECT T1.id ,  T1.Maker FROM car_makers AS T1 JOIN car_names AS T2 ON T1.id  =  T2.Make GROUP BY T1.id HAVING count(*)  >=  3"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT T1.countryId ,  T1.CountryName FROM Countries AS T1 JOIN CAR_MAKERS AS T2 ON T1.CountryId  =  T2.Country GROUP BY T1.countryId HAVING count(*)  >  3 UNION SELECT T1.countryId ,  T1.CountryName FROM Countries AS T1 JOIN CAR_MAKERS AS T2 ON T1.CountryId  =  T2.Country JOIN MODEL_LIST AS T3 ON T2.Id  =  T3.Maker WHERE T3.Model  =  'fiat';",
+      "nll": {
+        "base": 0.49455,
+        "spider_llama8b": 0.5341
+      },
+      "pred": {
+        "base": "SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country WHERE T2.FullName  =  'fiat' UNION SELECT T1.CountryName FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country WHERE T2.FullName  =  'fiat' GROUP BY T1.CountryId HAVING COUNT(*)  >  3 ",
+        "spider_llama8b": "SELECT countryid ,  countryname FROM countries WHERE countryid IN (SELECT country FROM car_makers GROUP BY country HAVING count(*)  >  3) UNION SELECT countryid ,  countryname FROM countries WHERE countryname IN (SELECT T1.countryname FROM countries AS T1 JOIN car_makers AS T2 ON T1.countryid  =  T2"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "select t1.countryid ,  t1.countryname from countries as t1 join car_makers as t2 on t1.countryid  =  t2.country group by t1.countryid having count(*)  >  3 union select t1.countryid ,  t1.countryname from countries as t1 join car_makers as t2 on t1.countryid  =  t2.country join model_list as t3 on t2.id  =  t3.maker where t3.model  =  'fiat';",
+      "nll": {
+        "base": 0.37142,
+        "spider_llama8b": 0.36045
+      },
+      "pred": {
+        "base": "SELECT CountryId FROM car_makers GROUP BY CountryId HAVING COUNT(*)  >  3 UNION SELECT CountryId FROM car_names AS T1 JOIN model_list AS T2 ON T1.MakeId  =  T2.ModelId JOIN car_makers AS T3 ON T2.Maker  =  T3.Id WHERE T3.FullName  =  'Fiat' GROUP BY CountryId HAVING COUNT(*)  >  0 UNION SELECT Count",
+        "spider_llama8b": "SELECT T1.CountryName ,  T2.CountryId FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country WHERE T2.Maker  =  \"Fiat\" UNION SELECT T1.CountryName ,  T2.CountryId FROM countries AS T1 JOIN car_makers AS T2 ON T1.CountryId  =  T2.Country GROUP BY T2.Country HAVING count(*)  >  3"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": false
+      }
+    },
+    {
+      "gold": "SELECT Country FROM AIRLINES WHERE Airline  =  \"JetBlue Airways\"",
+      "nll": {
+        "base": 1.41255,
+        "spider_llama8b": 1.2331
+      },
+      "pred": {
+        "base": "SELECT T1.Country FROM airlines AS T1 JOIN airports AS T2 ON T1.Airline = T2.AirportCode WHERE T1.Airline = 'JetBlue Airways' AND T2.AirportCode = T1.Airline",
+        "spider_llama8b": "SELECT Country FROM airlines WHERE Airline  =  \"JetBlue Airways\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Country FROM AIRLINES WHERE Airline  =  \"JetBlue Airways\"",
+      "nll": {
+        "base": 1.43807,
+        "spider_llama8b": 1.20449
+      },
+      "pred": {
+        "base": "SELECT T2.Country FROM airlines AS T1 INNER JOIN airports AS T2 ON T1.Airline = T2.AirportCode WHERE T1.Airline = 'Jetblue Airways' AND T2.AirportCode = T1.Airline",
+        "spider_llama8b": "SELECT Country FROM airlines WHERE Airline  =  \"Jetblue Airways\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Abbreviation FROM AIRLINES WHERE Airline  =  \"JetBlue Airways\"",
+      "nll": {
+        "base": 1.24678,
+        "spider_llama8b": 1.11672
+      },
+      "pred": {
+        "base": "SELECT Abbreviation FROM airlines WHERE Airline = \"JetBlue Airways\"  SELECT Abbreviation FROM airlines WHERE Airline = \"JetBlue Airways\"  SELECT Abbreviation FROM airlines WHERE Airline = \"JetBlue Airways\"  SELECT Abbreviation FROM airlines WHERE Airline = \"JetBlue Airways\"  SELECT Abbreviation FROM",
+        "spider_llama8b": "SELECT Abbreviation FROM airlines WHERE Airline  =  \"JetBlue Airways\""
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Abbreviation FROM AIRLINES WHERE Airline  =  \"JetBlue Airways\"",
+      "nll": {
+        "base": 1.24486,
+        "spider_llama8b": 1.24715
+      },
+      "pred": {
+        "base": "",
+        "spider_llama8b": "SELECT Abbreviation FROM airlines WHERE Airline  =  \"Jetblue Airways\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Airline ,  Abbreviation FROM AIRLINES WHERE Country  =  \"USA\"",
+      "nll": {
+        "base": 1.20548,
+        "spider_llama8b": 1.19525
+      },
+      "pred": {
+        "base": "SELECT T1.Airline, T1.Abbreviation FROM airlines AS T1 JOIN airports AS T2 ON T1.Country = T2.Country WHERE T2.Country = 'USA'",
+        "spider_llama8b": "SELECT Airline ,  Abbreviation FROM airlines WHERE Country  =  \"USA\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Airline ,  Abbreviation FROM AIRLINES WHERE Country  =  \"USA\"",
+      "nll": {
+        "base": 1.30688,
+        "spider_llama8b": 1.16886
+      },
+      "pred": {
+        "base": "SELECT Airline, Abbreviation FROM airlines WHERE Country = 'USA'",
+        "spider_llama8b": "SELECT Airline ,  Abbreviation FROM airlines WHERE Country  =  'USA'"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT AirportCode ,  AirportName FROM AIRPORTS WHERE city  =  \"Anthony\"",
+      "nll": {
+        "base": 1.47164,
+        "spider_llama8b": 1.33631
+      },
+      "pred": {
+        "base": "SELECT AirportCode, AirportName FROM airports WHERE City = 'Anthony'",
+        "spider_llama8b": "SELECT airportcode ,  airportname FROM airports WHERE city  =  \"Anthony\""
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT AirportCode ,  AirportName FROM AIRPORTS WHERE city  =  \"Anthony\"",
+      "nll": {
+        "base": 1.49511,
+        "spider_llama8b": 1.23533
+      },
+      "pred": {
+        "base": "SELECT AirportCode, AirportName FROM airports WHERE City = 'Anthony'  -- 1 row  -- 0.001 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 sec  -- 0.000 s",
+        "spider_llama8b": "SELECT AirportCode ,  AirportName FROM airports WHERE City  =  \"Anthony\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRLINES",
+      "nll": {
+        "base": 2.4301,
+        "spider_llama8b": 2.49168
+      },
+      "pred": {
+        "base": "SELECT COUNT(Airline) FROM airlines",
+        "spider_llama8b": "SELECT count(*) FROM airlines"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRLINES",
+      "nll": {
+        "base": 2.39325,
+        "spider_llama8b": 2.57364
+      },
+      "pred": {
+        "base": "SELECT COUNT(uid) FROM airlines",
+        "spider_llama8b": "SELECT count(*) FROM airlines"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRPORTS",
+      "nll": {
+        "base": 2.27865,
+        "spider_llama8b": 2.46349
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM airports",
+        "spider_llama8b": "SELECT count(*) FROM airports"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRPORTS",
+      "nll": {
+        "base": 2.35611,
+        "spider_llama8b": 2.44894
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM airports",
+        "spider_llama8b": "SELECT count(*) FROM airports"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM FLIGHTS",
+      "nll": {
+        "base": 2.404,
+        "spider_llama8b": 2.10111
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM flights",
+        "spider_llama8b": "SELECT count(*) FROM flights"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM FLIGHTS",
+      "nll": {
+        "base": 2.61048,
+        "spider_llama8b": 2.25062
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM flights",
+        "spider_llama8b": "SELECT count(*) FROM Flights"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Airline FROM AIRLINES WHERE Abbreviation  =  \"UAL\"",
+      "nll": {
+        "base": 1.35892,
+        "spider_llama8b": 1.5028
+      },
+      "pred": {
+        "base": "SELECT * FROM airlines WHERE Abbreviation = 'UAL'",
+        "spider_llama8b": "SELECT Airline FROM airlines WHERE Abbreviation  =  'UAL'  LIMIT 1"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT Airline FROM AIRLINES WHERE Abbreviation  =  \"UAL\"",
+      "nll": {
+        "base": 1.39718,
+        "spider_llama8b": 1.47489
+      },
+      "pred": {
+        "base": "SELECT * FROM airlines WHERE Abbreviation = 'UAL'",
+        "spider_llama8b": "SELECT Airline FROM airlines WHERE Abbreviation  =  'UAL'"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRLINES WHERE Country  =  \"USA\"",
+      "nll": {
+        "base": 1.78466,
+        "spider_llama8b": 1.63686
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM airlines WHERE Country = 'USA'",
+        "spider_llama8b": "SELECT count(*) FROM airlines WHERE country  =  'USA'"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT count(*) FROM AIRLINES WHERE Country  =  \"USA\"",
+      "nll": {
+        "base": 1.58447,
+        "spider_llama8b": 1.68381
+      },
+      "pred": {
+        "base": "SELECT COUNT(*) FROM airlines WHERE Country = 'USA'",
+        "spider_llama8b": "SELECT count(*) FROM airlines WHERE country  =  'United States'"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT City ,  Country FROM AIRPORTS WHERE AirportName  =  \"Alton\"",
+      "nll": {
+        "base": 1.46619,
+        "spider_llama8b": 1.20351
+      },
+      "pred": {
+        "base": "SELECT T2.City, T2.Country FROM airports AS T1 INNER JOIN airlines AS T2 ON T1.AirportCode = T2.Airline WHERE T1.AirportName = 'Alton' AND T1.AirportCode = 'ALN' AND T2.Airline = 1",
+        "spider_llama8b": "SELECT city ,  country FROM airports WHERE airportname  =  'Alton'"
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT City ,  Country FROM AIRPORTS WHERE AirportName  =  \"Alton\"",
+      "nll": {
+        "base": 1.32147,
+        "spider_llama8b": 1.11768
+      },
+      "pred": {
+        "base": "SELECT City, Country FROM airports WHERE AirportName = 'Alton' AND CountryAbbrev = 'GB' AND AirportCode = 'ALN'  OR AirportName = 'Alton' AND CountryAbbrev = 'GB' AND AirportCode = 'ATN' OR AirportName = 'Alton' AND CountryAbbrev = 'GB' AND AirportCode = 'ALF' OR AirportName = 'Alton' AND CountryAbb",
+        "spider_llama8b": "SELECT City ,  Country FROM airports WHERE AirportName  =  \"Alton\""
+      },
+      "em": {
+        "base": false,
+        "spider_llama8b": true
+      }
+    },
+    {
+      "gold": "SELECT AirportName FROM AIRPORTS WHERE AirportCode  =  \"AKO\"",
+      "nll": {
+        "base": 1.42485,
+        "spider_llama8b": 1.41818
+      },
+      "pred": {
+        "base": "SELECT AirportName FROM airports WHERE AirportCode = 'AKO'",
+        "spider_llama8b": "SELECT AirportName FROM airports WHERE AirportCode  =  'AKO'"
+      },
+      "em": {
+        "base": true,
+        "spider_llama8b": true
+      }
+    }
+  ]
+}
