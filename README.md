@@ -28,8 +28,8 @@ The blessed install is `pip install -e .` from a clone — the CLI's `serve`/`tr
 subcommands shell out to repo-relative `scripts/`, so it wants the source tree on disk.
 
 ```bash
-git clone https://github.com/NvMayMay/nybbloris
-cd nybbloris
+git clone https://github.com/NvMayMay/nvfp4-lora-spark
+cd nvfp4-lora-spark
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 nybbloris doctor          # environment pre-flight: which train/serve deps are present
@@ -298,6 +298,6 @@ licensing breakdown.
 @software{nybbloris_2026,
   title  = {nybbloris: LoRA fine-tuning and runtime-LoRA serving for NVFP4 MoE on consumer Blackwell},
   year   = {2026},
-  url    = {https://github.com/NvMayMay/nybbloris}
+  url    = {https://github.com/NvMayMay/nvfp4-lora-spark}
 }
 ```

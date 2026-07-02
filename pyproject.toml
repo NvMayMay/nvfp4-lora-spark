@@ -30,7 +30,7 @@ repro = ["datasets>=2.14"]
 nybbloris = "nybbloris.cli:main"
 
 [project.urls]
-Repository = "https://github.com/NvMayMay/nybbloris"
+Repository = "https://github.com/NvMayMay/nvfp4-lora-spark"
 
 [tool.setuptools]
 # The blessed install is `pip install -e .` from a clone. The `nybbloris`
