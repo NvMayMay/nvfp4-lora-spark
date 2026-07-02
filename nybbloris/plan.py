@@ -21,8 +21,7 @@ import struct
 from collections import Counter
 from pathlib import Path
 
-from nvfp4_lora.adapter_keys import REKEYS, adapter_module_path
-from nvfp4_lora.loader import is_fp8_module
+from nvfp4_lora.adapter_keys import REKEYS, adapter_module_path, is_fp8_module
 
 __all__ = ["serve_plan", "render_plan", "adapter_modules", "classify", "REKEYS", "lm_head_status"]
 
@@ -256,6 +255,16 @@ def serve_plan(base_model_dir, adapter_dir):
 
     needs_rekey = resolved > 0 and naive < resolved
     expert_layout = _expert_layout(mods)
+    # A native STACKED expert adapter (`...experts.{gate_up,down}`) does NOT resolve
+    # against the per-expert base index pre-rekey -- those tensors are expected to be
+    # unresolved until rekey_expert_lora_for_vllm.py un-stacks them into vLLM's layout.
+    # So classify that as NEEDS-REKEY (serve --rekey auto handles it), NOT FAIL --
+    # unless something OTHER than the native-expert targets is genuinely unresolved.
+    native_unresolved = [m for m in unresolved
+                         if re.search(r"\.experts\.(gate_up|down)$", m)]
+    other_unresolved = [m for m in unresolved if m not in native_unresolved]
+    native_needs_rekey = (expert_layout == "native" and native_unresolved
+                          and not other_unresolved)
     # NO-OP / NEEDS-REKEY rank ABOVE BLOCKED-ROUTED on purpose: a routed-expert
     # adapter that also needs a re-key (e.g. a fused-3D MoE adapter carrying the flat
     # `model.layers.*` path against a wrapped multimodal base) binds NOTHING as
@@ -271,7 +280,8 @@ def serve_plan(base_model_dir, adapter_dir):
     # cutlass/flashinfer fast kernels. The structured `routed` block below carries the
     # per-backend truth so the CLI can pick a LoRA-capable backend instead of aborting.
     verdict = ("EMPTY" if not mods else
-               "FAIL" if unresolved else
+               "FAIL" if other_unresolved else
+               "NEEDS-REKEY" if native_needs_rekey else
                "NO-OP" if naive == 0 and resolved > 0 else
                "NEEDS-REKEY" if needs_rekey else
                "BLOCKED-ROUTED" if blocked else

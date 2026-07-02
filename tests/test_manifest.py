@@ -66,6 +66,24 @@ def test_check_compat_different_weights_refused(tmp_path):
     assert any("weight_index_sha256" in r for r in reasons)
 
 
+def test_check_compat_same_index_different_shard_bytes_refused(tmp_path):
+    """Same config + index (same tensor layout / shard filenames) but different weight
+    BYTES (a re-downloaded/overwritten/re-quantized revision) must be REFUSED -- the
+    case a matching index hash alone would false-pass."""
+    base, ad, other = tmp_path / "base", tmp_path / "ad", tmp_path / "other"
+    _base(base)
+    (base / "model-00001-of-00001.safetensors").write_bytes(b"\x00" * 4096)
+    _build_adapter(ad, _mods("flat", ATTN))
+    m = build_manifest(base, ad)
+    # `other` has identical config.json + index.json (same _base), so the index hash
+    # matches -- but a differently-sized shard.
+    _base(other)
+    (other / "model-00001-of-00001.safetensors").write_bytes(b"\x00" * 8192)
+    ok, reasons = check_compat(m, other)
+    assert not ok
+    assert any("shard_bytes" in r for r in reasons)
+
+
 def test_check_compat_different_arch_refused(tmp_path):
     base, ad, other = tmp_path / "base", tmp_path / "ad", tmp_path / "other"
     _base(base)

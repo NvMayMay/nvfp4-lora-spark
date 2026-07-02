@@ -10,7 +10,8 @@ from pathlib import Path
 
 from . import __version__
 from .manifest import MANIFEST_NAME, check_compat
-from .plan import lm_head_status, render_plan, serve_plan
+from .plan import (LORA_BLOCKED_MOE_BACKENDS, LORA_CAPABLE_MOE_BACKENDS,
+                   lm_head_status, render_plan, serve_plan)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent  # nvfp4-lora-spark/
 
@@ -208,9 +209,11 @@ def cmd_serve(args):
     #    routed-expert deltas so the vLLM command below forces --moe-backend emulation.
     lora_modules, max_rank = [], 0
     needs_emulation = False
+    base_wrapped = False
     for spec in (args.adapter or []):
         name, path = _parse_adapter(spec)
         plan = serve_plan(base, path)
+        base_wrapped = base_wrapped or bool(plan["base"].get("wrapped"))
         print()
         print(render_plan(plan))
         print()
@@ -294,9 +297,25 @@ def cmd_serve(args):
            "--max-model-len", str(args.max_model_len),
            "--gpu-memory-utilization", str(args.gpu_memory_utilization),
            "--enforce-eager"]
-    # MoE backend: an explicit --moe-backend wins; else force emulation when any
-    # adapter binds routed-expert deltas (the LoRA-capable MoE backend on sm_121;
-    # cutlass/flashinfer report supports_lora=False and would silently no-op them).
+    # A vision-wrapped base (*ForConditionalGeneration, e.g. Qwen3.5-122B) must serve
+    # text-only, else vLLM loads the vision tower (and may need an image processor it
+    # will not find). Serve the decoder alone.
+    if base_wrapped:
+        cmd += ["--language-model-only"]
+    # MoE backend. Guard the silent-no-op trap FIRST: a routed-expert adapter on an
+    # explicitly-chosen LoRA-blocked kernel (cutlass/flashinfer, supports_lora=False)
+    # would load and silently do nothing -- refuse rather than let the explicit
+    # backend win, unless the user passes --unsafe-moe-backend to override.
+    if (needs_emulation and args.moe_backend in LORA_BLOCKED_MOE_BACKENDS
+            and not args.unsafe_moe_backend):
+        print(f"[serve] REFUSING: --moe-backend {args.moe_backend} cannot apply routed-expert "
+              f"LoRA (supports_lora=False) and would silently NO-OP the adapter. Use a "
+              f"LoRA-capable MoE backend ({'/'.join(LORA_CAPABLE_MOE_BACKENDS)}), drop "
+              f"--moe-backend to auto-select emulation, or pass --unsafe-moe-backend if you "
+              f"intend to serve the BASE (no adapter effect).")
+        return 1
+    # An explicit --moe-backend wins; else force emulation when any adapter binds
+    # routed-expert deltas (the LoRA-capable MoE backend on sm_121).
     moe_backend = args.moe_backend or ("emulation" if needs_emulation else None)
     if moe_backend:
         cmd += ["--moe-backend", moe_backend]
@@ -407,6 +426,20 @@ def cmd_train(args):
             print("[train] -> flat keys on a wrapped base; `nybbloris serve --rekey auto` re-keys it for you.")
         elif v in ("FAIL", "EMPTY"):
             print("[train] -> WARNING: does not bind to this base (see UNRESOLVED above).")
+        # Stamp the provenance manifest next to the adapter (and best/ if present) so
+        # the serve-time check_compat gate fires on the normal train -> serve flow,
+        # not only when a manifest was written by hand. Best-effort.
+        try:
+            from .manifest import MANIFEST_NAME, write_manifest
+            stamped = []
+            for cand in {adapter, Path(out_dir), Path(out_dir) / "best"}:
+                if (cand / "adapter_config.json").exists():
+                    write_manifest(model_dir, cand)
+                    stamped.append(str(cand / MANIFEST_NAME))
+            if stamped:
+                print(f"[train] wrote provenance manifest: {', '.join(stamped)}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[train] (manifest stamp skipped: {type(e).__name__}: {e})")
     except Exception as e:  # noqa: BLE001
         print(f"[train] (post-train inspect skipped: {type(e).__name__}: {e})")
     return 0
@@ -518,6 +551,10 @@ def build_parser():
                     help="force a vLLM MoE backend (e.g. emulation/marlin/cutlass); "
                          "default: emulation is auto-selected when an adapter binds "
                          "routed-expert deltas, else vLLM's own default")
+    ps.add_argument("--unsafe-moe-backend", action="store_true",
+                    help="allow an explicit --moe-backend that cannot apply routed-expert "
+                         "LoRA (cutlass/flashinfer); the adapter will NOT affect output "
+                         "(base-only serve). Off by default so the no-op is refused.")
     ps.add_argument("--max-lora-rank", type=int, default=0, help="0 = auto from the adapters (min 16)")
     ps.add_argument("--max-loras", type=int, default=2)
     ps.add_argument("--allow-runtime-lora-updates", action="store_true",

@@ -102,6 +102,32 @@ def test_serve_routed_forces_emulation_backend_not_abort(tmp_path, capsys):
     assert "backend-gated" in out
 
 
+def test_serve_routed_explicit_blocked_backend_refused(tmp_path, capsys):
+    """A routed adapter + explicit --moe-backend cutlass (supports_lora=False) would
+    silently no-op -> REFUSE, rather than let the explicit backend win."""
+    _build_base(tmp_path / "base", arch="Qwen3MoeForCausalLM", model_type="qwen3_moe",
+                quant_method="modelopt", layout="flat", targets=[(r, "nvfp4") for r in ROUTED])
+    _build_adapter(tmp_path / "ad", _m("flat", ROUTED))
+    code = _run(["serve", "--base-model-dir", str(tmp_path / "base"),
+                 "--adapter", f"exp={tmp_path / 'ad'}", "--moe-backend", "cutlass", "--dry-run"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "REFUSING" in out and "cutlass" in out
+
+
+def test_serve_routed_unsafe_backend_override_allowed(tmp_path, capsys):
+    """--unsafe-moe-backend opts into the base-only (no-adapter-effect) serve."""
+    _build_base(tmp_path / "base", arch="Qwen3MoeForCausalLM", model_type="qwen3_moe",
+                quant_method="modelopt", layout="flat", targets=[(r, "nvfp4") for r in ROUTED])
+    _build_adapter(tmp_path / "ad", _m("flat", ROUTED))
+    code = _run(["serve", "--base-model-dir", str(tmp_path / "base"),
+                 "--adapter", f"exp={tmp_path / 'ad'}", "--moe-backend", "cutlass",
+                 "--unsafe-moe-backend", "--dry-run"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "--moe-backend cutlass" in out
+
+
 def test_serve_manifest_mismatch_refuses(tmp_path, capsys):
     """A manifest next to the adapter whose base fingerprint mismatches -> REFUSE."""
     from nybbloris.manifest import write_manifest
@@ -115,6 +141,27 @@ def test_serve_manifest_mismatch_refuses(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 1
     assert "manifest base fingerprint does not match" in out
+
+
+def test_serve_wrapped_base_adds_language_model_only(tmp_path, capsys):
+    """A vision-wrapped base (*ForConditionalGeneration) must serve text-only, else
+    vLLM loads the vision tower. The generated command adds --language-model-only."""
+    _wrapped_nvfp4_base(tmp_path / "base")
+    _build_adapter(tmp_path / "ad", _mods("serve", ATTN))  # binds on the wrapped base
+    code = _run(["serve", "--base-model-dir", str(tmp_path / "base"),
+                 "--adapter", f"a={tmp_path / 'ad'}", "--dry-run"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "--language-model-only" in out
+
+
+def test_serve_flat_base_no_language_model_only(tmp_path, capsys):
+    """A plain causal-LM base must NOT get --language-model-only."""
+    _flat_nvfp4_base(tmp_path / "base")
+    _build_adapter(tmp_path / "ad", _mods("flat", ATTN))
+    _run(["serve", "--base-model-dir", str(tmp_path / "base"),
+          "--adapter", f"a={tmp_path / 'ad'}", "--dry-run"])
+    assert "--language-model-only" not in capsys.readouterr().out
 
 
 def test_serve_manifest_match_allows(tmp_path, capsys):

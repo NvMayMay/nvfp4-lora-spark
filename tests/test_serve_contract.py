@@ -328,15 +328,26 @@ def test_adapter_modules_recognizes_native_expert_keys(tmp_path):
     ]
 
 
-def test_serve_plan_native_expert_adapter_not_empty(tmp_path):
-    """A native expert adapter must NOT inspect as EMPTY (it has real targets)."""
+def test_serve_plan_native_expert_adapter_needs_rekey_not_fail(tmp_path):
+    """A native STACKED expert adapter is NEEDS-REKEY (serve --rekey auto un-stacks it
+    via rekey_expert_lora_for_vllm.py), NOT EMPTY and NOT FAIL. Pre-fix it read FAIL
+    (native experts.{gate_up,down} don't resolve vs the per-expert base index), which
+    made `serve` hard-refuse before the expert rekeyer could run."""
     _build_base(tmp_path / "base", arch="Qwen3MoeForCausalLM", model_type="qwen3_moe",
                 quant_method="modelopt", layout="flat", targets=[(r, "nvfp4") for r in ROUTED])
     _write_native_expert_adapter(tmp_path / "ad")
     plan = serve_plan(tmp_path / "base", tmp_path / "ad")
-    assert plan["verdict"] != "EMPTY"
-    assert plan["adapter"]["n_targets"] == 2
     assert plan["adapter"]["expert_layout"] == "native"
+    assert plan["adapter"]["n_targets"] == 2
+    assert plan["verdict"] == "NEEDS-REKEY"  # not EMPTY, not FAIL -> serve can rekey it
+
+
+def test_serve_plan_genuine_unresolved_still_fails(tmp_path):
+    """The native-expert NEEDS-REKEY carve-out must NOT mask a genuinely bad target."""
+    _build_base(tmp_path / "base", arch="Qwen3MoeForCausalLM", model_type="qwen3_moe",
+                quant_method="modelopt", layout="flat", targets=[("self_attn.q_proj", "nvfp4")])
+    _build_adapter(tmp_path / "ad", ["model.layers.0.self_attn.bogus_proj"])
+    assert serve_plan(tmp_path / "base", tmp_path / "ad")["verdict"] == "FAIL"
 
 
 # --------------------------------------------------------------------------------------

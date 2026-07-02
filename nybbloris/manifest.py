@@ -94,6 +94,19 @@ def base_fingerprint(base_model_dir) -> dict:
         pass
     qcfg = cfg.get("quantization_config") or {}
     idx = base_model_dir / "model.safetensors.index.json"
+    # Per-shard byte sizes: the index hash proves the tensor NAME layout, but two
+    # bases with identical structure and shard filenames but different weight bytes
+    # (a re-downloaded / overwritten / re-quantized revision) share an index hash.
+    # Shard sizes are a cheap content discriminator that differs in nearly all such
+    # cases (different quant/revision -> different bytes). Not a cryptographic content
+    # proof (identical-size-different-bytes is a narrow residual); a --deep byte hash
+    # is a future option. Sorted for stability.
+    shard_bytes = {}
+    for f in sorted(glob.glob(str(base_model_dir / "*.safetensors"))):
+        try:
+            shard_bytes[Path(f).name] = Path(f).stat().st_size
+        except OSError:
+            pass
     return {
         "name": base_model_dir.name,
         "arch": (cfg.get("architectures") or [None])[0],
@@ -101,6 +114,7 @@ def base_fingerprint(base_model_dir) -> dict:
         "quant_method": qcfg.get("quant_method"),
         "config_sha256": _sha256_json(cfg_path),
         "weight_index_sha256": _sha256_json(idx),
+        "shard_bytes": shard_bytes,
     }
 
 
@@ -192,6 +206,13 @@ def check_compat(manifest, base_model_dir) -> tuple[bool, list[str]]:
     if want.get("weight_index_sha256") and got.get("weight_index_sha256"):
         if want["weight_index_sha256"] != got["weight_index_sha256"]:
             reasons.append("weight_index_sha256 mismatch (different base weights)")
+    # Content discriminator: shard byte sizes. Catches a same-structure/same-filenames
+    # base whose weight BYTES differ (re-downloaded/overwritten/re-quantized revision) --
+    # the case a matching index hash alone would false-pass. Compare only when both sides
+    # recorded sizes.
+    if want.get("shard_bytes") and got.get("shard_bytes"):
+        if want["shard_bytes"] != got["shard_bytes"]:
+            reasons.append("shard_bytes mismatch (same tensor layout, different weight bytes/shards)")
     # Structural fields must always agree.
     for f in ("arch", "model_type", "quant_method"):
         if want.get(f) is not None and got.get(f) is not None and want[f] != got[f]:

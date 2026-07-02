@@ -153,3 +153,21 @@ def wrapped_remap_safetensors_key(key: str) -> str:
     if key.startswith(_ST_FLAT_PREFIX):
         return _ST_NEW + key[len(_ST_OLD):]
     return key
+
+
+def is_fp8_module(keys, prefix: str) -> bool:
+    """Torch-free FP8-per-tensor test for a module prefix, from index keys alone.
+
+    An FP8 per-tensor module has ``.weight`` + ``.weight_scale`` but NO
+    ``.weight_scale_2`` (the fp32 per-tensor scale ModelOpt NVFP4 always carries),
+    and is not compressed-tensors (``.weight_packed``). This is the SAME rule as
+    nvfp4_lora.loader.classify_module_storage; it lives here so the pre-flight tools
+    (nybbloris.plan / `inspect` / `doctor`) classify FP8 WITHOUT importing loader.py
+    (which imports torch), keeping those surfaces torch-free. loader keeps its own
+    copy for the shard-loading path; a test asserts the two agree.
+    """
+    if f"{prefix}.weight_packed" in keys:
+        return False
+    return (f"{prefix}.weight" in keys
+            and f"{prefix}.weight_scale" in keys
+            and f"{prefix}.weight_scale_2" not in keys)
