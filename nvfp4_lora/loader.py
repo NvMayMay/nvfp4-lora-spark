@@ -90,18 +90,13 @@ def classify_module_storage(keys: set[str], prefix: str) -> str:
     return "absent"
 
 
-def is_fp8_module(keys: set[str], prefix: str) -> bool:
-    """Canonical FP8-per-tensor test for a module prefix, from index keys alone.
-
-    An FP8 per-tensor module has `.weight` + `.weight_scale` but NO `.weight_scale_2`
-    (the fp32 per-tensor scale that ModelOpt NVFP4 always carries). This is the SAME
-    signal `classify_module_storage` uses; expose it so pre-flight tools
-    (`nybbloris.plan`) label FP8 identically to the loader instead of drifting to a
-    different heuristic (e.g. `.input_scale`, which is an ACTIVATION scale and is not
-    reliably present). Note a compressed-tensors NVFP4 module uses `.weight_packed`,
-    so it never trips this test.
-    """
-    return classify_module_storage(keys, prefix) == "fp8"
+# is_fp8_module has a single implementation in adapter_keys (torch-free, so the
+# pre-flight surfaces -- nybbloris.plan / inspect / doctor -- classify FP8 without
+# importing this module). Re-export it here so the loader and the pre-flight share
+# ONE definition instead of two copies that can silently drift. classify_module_storage
+# above keeps its own fp8 branch (it returns a richer taxonomy); test_fp8_module_agreement
+# pins that branch to agree with the re-exported is_fp8_module across all storage classes.
+from .adapter_keys import is_fp8_module  # noqa: E402  (re-export; see note above)
 
 
 def list_weight_module_prefixes(keys: set[str]) -> set[str]:
