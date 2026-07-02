@@ -35,6 +35,11 @@ Defensive by construction: falls back to the ORIGINAL apply() (correct-but-slow)
 expert-parallel runs (expert_map is not None), when all experts are routed (no gain),
 or on ANY exception. Worst case is the status quo, never a wrong result.
 
+VALIDATED 2026-07-02 on Nemotron-3-Nano-30B-A3B-NVFP4 + expert-LoRA (GB10/sm_121, vLLM 0.22.1):
+bit-exact parity (max|logprob delta|=0, base AND adapter) and 5.0x decode (2.56 -> 12.86 tok/s),
+0 runtime fallbacks. Evidence: results/cross_arch/emulation_speedup/. Bit-exact parity subsumes
+the Spider-EM check (identical logprobs => identical greedy decode). 120B magnitude is a follow-up.
+
 GPU-VALIDATION CHECKLIST (gate before trusting/shipping -- see
 docs/plans/emulation_speedup_impl_plan.md):
   1. PARITY: routed-only output == full-dequant output within tight tol (ideally bit-exact),
