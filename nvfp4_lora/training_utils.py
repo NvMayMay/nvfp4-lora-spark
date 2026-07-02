@@ -1,12 +1,18 @@
-"""Phase 0.4 — Shared training utilities for per-model trainer scripts.
-
-The Nemotron-Super trainer (train/train_super_nvfp4.py) keeps its existing
-in-file implementations for compat. New per-model trainers (Mistral4, Qwen3.5)
-import from here.
+"""Shared, model-agnostic training primitives.
 
 This module deliberately does NOT import or run any model-family-specific code
 (no Mamba patches, no cached-prefix-suffix, no Nemotron-H assumptions). It only
-exposes the model-agnostic primitives that every NVFP4 LoRA trainer needs.
+exposes the model-agnostic primitives that a NVFP4 LoRA trainer might reuse.
+
+Packaging note: this module must import cleanly from an installed wheel, i.e.
+without the repo-only top-level ``train/`` package on ``sys.path``. It therefore
+imports nothing from ``train.*`` at module scope. The shipped trainers each carry
+their own save/load/label-mask implementations (train/train_super_nvfp4.py and
+scripts/train_nvfp4_lora.py), so the historical ``save_adapter`` /
+``load_adapter_weights`` / ``mask_prompt_labels`` re-export shim that forwarded
+into ``train.train_super_nvfp4`` had no callers and has been removed; keeping it
+would have made a packaged ``import nvfp4_lora.training_utils`` an ImportError
+land-mine the moment anything referenced those names.
 """
 from __future__ import annotations
 
@@ -62,42 +68,9 @@ def build_optimizer(
     raise SystemExit(f"unknown optimizer: {optimizer_name}")
 
 
-# --------------------------------------------------------------------------------------
-# Re-exports of model-agnostic helpers from train_super_nvfp4.py
-# (Wrapping the existing implementations keeps Nemotron training unbroken and
-# avoids duplicating ~200 lines. Per-model trainers import via this module so
-# they don't pull in Nemotron-specific helpers as a side effect.)
-# --------------------------------------------------------------------------------------
-def save_adapter(*args, **kwargs):
-    """PEFT-format adapter save — agnostic across model families."""
-    from train.train_super_nvfp4 import save_adapter as _impl
-    return _impl(*args, **kwargs)
-
-
-def load_adapter_weights(*args, **kwargs):
-    """PEFT-format adapter load — agnostic across model families."""
-    from train.train_super_nvfp4 import load_adapter_weights as _impl
-    return _impl(*args, **kwargs)
-
-
-def mask_prompt_labels(*args, **kwargs):
-    """Label masking — agnostic (tokenizer already parameterized).
-
-    Real portability risk per codex round-1 finding is in the chat-template
-    boundary detection (`_assistant_response_start_char`), not in tokenizer
-    ownership. Per-model trainers should smoke-test this against their target
-    chat template.
-    """
-    from train.train_super_nvfp4 import mask_prompt_labels as _impl
-    return _impl(*args, **kwargs)
-
-
 __all__ = [
     "_CURRENT_PHASE",
     "set_current_phase",
     "get_current_phase",
     "build_optimizer",
-    "save_adapter",
-    "load_adapter_weights",
-    "mask_prompt_labels",
 ]

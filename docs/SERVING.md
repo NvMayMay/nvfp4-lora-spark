@@ -1,10 +1,13 @@
 # Serving NVFP4 + runtime-LoRA (the blessed recipe)
 
-Runtime-LoRA is the v1 serve path for dense models and attention / shared-expert
-targets: the NVFP4 base loads once and the LoRA delta is applied live in bf16,
-attaching the adapter at request time. For routed-MoE-on-CUTLASS (where
-request-time LoRA is not available on sm_121) the validated path is
-merge-then-serve - see the README.
+Runtime-LoRA is the v1 serve path: the NVFP4 base loads once and the LoRA delta is
+applied live in bf16, attaching the adapter at request time. Dense and
+attention / shared-expert targets apply on any backend. Routed-expert MoE deltas are
+BACKEND-GATED, not merge-only: they serve live on a LoRA-capable MoE backend
+(`--moe-backend emulation`, or marlin), and are blocked only on the cutlass/flashinfer
+fast kernels (which report `supports_lora=False`). `nybbloris inspect` tells you which
+path an adapter takes, and `nybbloris serve` auto-selects emulation for routed adapters.
+Merge-then-serve remains an option where you do not need request-time adapter swap.
 
 On a DGX Spark / GB10 the **blessed serve path is a host venv**, not a
 container (see runtime table below). The commands here are exact and tested.

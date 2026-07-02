@@ -475,11 +475,23 @@ def evaluate(model, loader, device) -> float:
     for batch in loader:
         batch = {k: v.to(device) for k, v in batch.items()}
         out = model(**batch)
-        n_tok = (batch["labels"] != -100).sum().item()
+        # out.loss is CE over SHIFTED tokens (labels[:, 1:] vs logits[:, :-1]),
+        # so the token-weight must be the shifted supervised-token count, not the
+        # full unshifted (labels != -100) count. Using the unshifted count over-
+        # weights batches by their first label position and biases model selection.
+        n_tok = (batch["labels"][:, 1:] != -100).sum().item()
+        # Skip batches with zero shifted supervised tokens: HF returns nan for an
+        # all-ignored CE, and nan*0 would poison the aggregate. (A row can pass the
+        # dataset's unshifted-count filter yet have its only label at position 0,
+        # which the causal shift drops.)
+        if n_tok == 0:
+            continue
         total_loss += out.loss.item() * n_tok
         total_tokens += n_tok
     model.train()
-    return total_loss / max(1, total_tokens)
+    # No supervised eval tokens at all -> not a valid val loss; signal inf so
+    # best/ selection never treats an empty eval as an improvement.
+    return total_loss / total_tokens if total_tokens else float("inf")
 
 
 def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,

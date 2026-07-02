@@ -33,6 +33,18 @@ nybbloris = "nybbloris.cli:main"
 Repository = "https://github.com/NvMayMay/nybbloris"
 
 [tool.setuptools]
+# The blessed install is `pip install -e .` from a clone. The `nybbloris`
+# console command's serve/train/data-check/contamination subcommands shell out
+# to repo-relative scripts/ files (train_nvfp4_lora.py, fix_nvfp4_lm_head.py,
+# rekey_*_for_vllm.py, serve_apply_check.py, serve_parity_vllm.py, data_check.py,
+# check_contamination.py). The CLI resolves those via REPO_ROOT =
+# Path(nybbloris/cli.py).parent.parent, which is the checkout root for an
+# editable install -- so the scripts are on disk and the subcommands work.
+# `inspect` and `doctor` are pure-library and work from a plain wheel too; the
+# script-backed subcommands need the source checkout (they print a clear
+# "<script> not found at <path>" and exit 1 rather than crashing if run from a
+# bare wheel). We package the two importable libraries; scripts/ is intentionally
+# distributed via the git clone, not vendored as package data.
 packages = ["nvfp4_lora", "nybbloris"]
 
 [tool.pytest.ini_options]

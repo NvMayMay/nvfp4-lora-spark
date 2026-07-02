@@ -21,17 +21,18 @@ import struct
 from collections import Counter
 from pathlib import Path
 
+from nvfp4_lora.adapter_keys import REKEYS, adapter_module_path, is_fp8_module
+
 __all__ = ["serve_plan", "render_plan", "adapter_modules", "classify", "REKEYS", "lm_head_status"]
 
-# Candidate re-key transforms mapping an adapter's module path into the SERVE
-# engine's runtime module tree (extend as new layouts appear). For a multimodal
-# *ForConditionalGeneration wrapper, vLLM exposes the LM as
-# `language_model.model.layers.*`, so a flat `model.layers.*` adapter must be
-# re-keyed to bind -- a naive load otherwise no-ops (MEASURED §7h).
-REKEYS = [
-    ("identity", lambda k: k),
-    ("language_model", lambda k: k.replace("model.layers.", "language_model.model.layers.", 1)),
-]
+# Backends that can APPLY a routed-expert (FusedMoE) LoRA delta at serve, vs the
+# fast NVFP4 MoE kernels that report supports_lora=False (so a routed-expert
+# adapter loads but is a no-op there). MEASURED on sm_121, vLLM 0.22.1: the
+# EMULATION backend applies routed-expert LoRA (GLM-4.5-Air + Qwen3.5-122B proven
+# end-to-end); MARLIN also claims LoRA support but repack-OOMs 120B-class on this
+# 131 GB box. CUTLASS / FLASHINFER are supports_lora=False. See cross_arch_status.md.
+LORA_CAPABLE_MOE_BACKENDS = ("emulation", "marlin")
+LORA_BLOCKED_MOE_BACKENDS = ("cutlass", "flashinfer")
 
 # Minimum-vLLM compatibility, from this project's MEASURED findings (extend as tested).
 ENGINE_NOTES = {
@@ -43,7 +44,13 @@ ENGINE_NOTES = {
 
 
 def adapter_modules(adapter_dir):
-    """Target module paths (lora suffix stripped) from the adapter header."""
+    """Target module paths (PEFT prefix + lora suffix stripped) from the adapter header.
+
+    Recognizes BOTH the PEFT `.lora_{A,B}.weight` form and the native
+    nvfp4-lora-spark EXPERT form `...experts.gate_up.lora_A` (no `.weight` suffix),
+    so a native expert adapter is never mis-read as empty (adapter_keys is the
+    single source of the key schema).
+    """
     adapter_dir = Path(adapter_dir)
     mods = set()
     for f in sorted(glob.glob(str(adapter_dir / "adapter_model*.safetensors"))):
@@ -51,15 +58,21 @@ def adapter_modules(adapter_dir):
             n = struct.unpack("<Q", fh.read(8))[0]
             hdr = json.loads(fh.read(n))
         for k in hdr:
-            if k == "__metadata__" or not re.search(r"\.lora_[AB]\.weight$", k):
-                continue
-            t = k[len("base_model.model."):] if k.startswith("base_model.model.") else k
-            mods.add(re.sub(r"\.lora_[AB]\.weight$", "", t))
+            mod = adapter_module_path(k)
+            if mod is not None:
+                mods.add(mod)
     return sorted(mods)
 
 
 def classify(base_path, base_keys):
-    """None (unbound) or NVFP4 / FP8 / BF16 for a resolved target module."""
+    """None (unbound) or NVFP4 / FP8 / BF16 for a resolved target module.
+
+    The FP8 signal MIRRORS nvfp4_lora.loader (`is_fp8_module`): `.weight` +
+    `.weight_scale` with NO `.weight_scale_2`. Historically this used `.input_scale`
+    (an ACTIVATION scale that is not reliably present), which disagreed with the
+    loader and mislabeled FP8 targets as BF16. compressed-tensors NVFP4 uses
+    `.weight_packed` and `.weight_global_scale`, so it is caught as NVFP4 first.
+    """
     has_w = f"{base_path}.weight" in base_keys
     has_wp = f"{base_path}.weight_packed" in base_keys
     if not (has_w or has_wp):
@@ -68,7 +81,7 @@ def classify(base_path, base_keys):
             or f"{base_path}.weight_global_scale" in base_keys
             or f"{base_path}.weight_scale_2" in base_keys):
         return "NVFP4"
-    if f"{base_path}.input_scale" in base_keys:
+    if is_fp8_module(base_keys, base_path):
         return "FP8"
     return "BF16"
 
@@ -85,6 +98,26 @@ def _kind(path):
     if ".mlp." in path:
         return "mlp"
     return "other"
+
+
+def _expert_layout(mods):
+    """Which serve-rekey path the adapter needs, from its target-module paths.
+
+    - "none"       no routed-expert targets  -> dense rekey (rekey_lora_for_vllm.py)
+    - "native"     native STACKED expert keys (`...experts.{gate_up,down}`) that the
+                   trainer emits -> expert rekey (rekey_expert_lora_for_vllm.py)
+    - "vllm"       already in a vLLM MoE-LoRA layout (per-expert `experts.<i>...` or
+                   fused-3D `...experts[.base_layer]`) -> no expert rekey needed
+
+    The CLI keys off this to pick the CORRECT rekey script (dense vs expert); it
+    previously always ran the dense one, which cannot handle stacked expert tensors.
+    """
+    native = any(re.search(r"\.experts\.(gate_up|down)$", m) for m in mods)
+    if native:
+        return "native"
+    if any(_kind(m) == "routed_expert" for m in mods):
+        return "vllm"
+    return "none"
 
 
 _FUSED_EXPERT_RE = re.compile(r"^(?P<prefix>.+\.experts)(?:\.base_layer)?$")
@@ -221,6 +254,17 @@ def serve_plan(base_model_dir, adapter_dir):
                 fp8_dense += 1
 
     needs_rekey = resolved > 0 and naive < resolved
+    expert_layout = _expert_layout(mods)
+    # A native STACKED expert adapter (`...experts.{gate_up,down}`) does NOT resolve
+    # against the per-expert base index pre-rekey -- those tensors are expected to be
+    # unresolved until rekey_expert_lora_for_vllm.py un-stacks them into vLLM's layout.
+    # So classify that as NEEDS-REKEY (serve --rekey auto handles it), NOT FAIL --
+    # unless something OTHER than the native-expert targets is genuinely unresolved.
+    native_unresolved = [m for m in unresolved
+                         if re.search(r"\.experts\.(gate_up|down)$", m)]
+    other_unresolved = [m for m in unresolved if m not in native_unresolved]
+    native_needs_rekey = (expert_layout == "native" and native_unresolved
+                          and not other_unresolved)
     # NO-OP / NEEDS-REKEY rank ABOVE BLOCKED-ROUTED on purpose: a routed-expert
     # adapter that also needs a re-key (e.g. a fused-3D MoE adapter carrying the flat
     # `model.layers.*` path against a wrapped multimodal base) binds NOTHING as
@@ -229,12 +273,30 @@ def serve_plan(base_model_dir, adapter_dir):
     # the Qwen3.5-122B fused-MoE case: flat keys on a `language_model.`-wrapped base
     # -> naive resolves 0 -> NO-OP, re-key first. (No existing routed case needs a
     # re-key, so this ordering does not change their verdicts.)
+    #
+    # BLOCKED-ROUTED is the top-line verdict for back-compat, but it is really a
+    # BACKEND-GATED state, NOT "merge-only": the routed-expert deltas serve LIVE on a
+    # LoRA-capable MoE backend (emulation/marlin) and are blocked ONLY on the
+    # cutlass/flashinfer fast kernels. The structured `routed` block below carries the
+    # per-backend truth so the CLI can pick a LoRA-capable backend instead of aborting.
     verdict = ("EMPTY" if not mods else
-               "FAIL" if unresolved else
+               "FAIL" if other_unresolved else
+               "NEEDS-REKEY" if native_needs_rekey else
                "NO-OP" if naive == 0 and resolved > 0 else
                "NEEDS-REKEY" if needs_rekey else
                "BLOCKED-ROUTED" if blocked else
                "PASS")
+    routed = {
+        "n": blocked,
+        # Deltas that serve LIVE on a LoRA-capable MoE backend vs blocked on the
+        # fast kernels. `live_on`/`blocked_on` are stated as facts about backends,
+        # not the runtime choice (this static check cannot see --moe-backend).
+        "live_on": list(LORA_CAPABLE_MOE_BACKENDS) if blocked else [],
+        "blocked_on": list(LORA_BLOCKED_MOE_BACKENDS) if blocked else [],
+        "note": ("routed-expert deltas are backend-gated: live on a LoRA-capable MoE "
+                 "backend (emulation/marlin), blocked on cutlass/flashinfer. "
+                 "Not merge-only." if blocked else "no routed-expert targets"),
+    }
     return {
         "base": {"dir": str(base_model_dir), "arch": arch, "model_type": cfg.get("model_type"),
                  "quant_method": quant_method, "wrapped": wrapped,
@@ -243,12 +305,13 @@ def serve_plan(base_model_dir, adapter_dir):
                  "serve_engine_note": ENGINE_NOTES.get(
                      quant_method, "unknown quant method; verify serve compatibility.")},
         "adapter": {"dir": str(adapter_dir), "r": acfg.get("r"), "alpha": acfg.get("lora_alpha"),
-                    "n_targets": len(mods)},
+                    "n_targets": len(mods), "expert_layout": expert_layout},
         "binding": {"rekey": rekey_name, "naive_resolve": naive, "resolved": resolved,
                     "needs_rekey": needs_rekey, "unresolved": unresolved[:10]},
         "targets": {"by_kind": dict(by_kind), "by_quant": dict(by_quant),
                     "live": live, "fp8_dense_live": fp8_dense, "blocked_routed": blocked,
                     "unresolved": len(unresolved)},
+        "routed": routed,
         "verdict": verdict,
     }
 
@@ -272,10 +335,15 @@ def render_plan(plan):
     if t["fp8_dense_live"]:
         live_line += (f"  (incl. {t['fp8_dense_live']} dense-FP8: served live in vLLM; "
                       "frozen only by the eager TRAIN loader)")
+    routed = plan.get("routed", {"n": t["blocked_routed"], "live_on": [], "blocked_on": []})
+    routed_line = f"  ROUTED-MoE (gated)   : {t['blocked_routed']}/{n}"
+    if routed["n"]:
+        routed_line += (f"  (live on {'/'.join(routed['live_on'])}; "
+                        f"blocked on {'/'.join(routed['blocked_on'])})")
     out += [f"kinds   : {t['by_kind']}",
             f"quant   : {t['by_quant']}",
             live_line,
-            f"  BLOCKED (routed-MoE) : {t['blocked_routed']}/{n}",
+            routed_line,
             "",
             f"engine  : {b['serve_engine_note']}",
             ""]
@@ -285,9 +353,9 @@ def render_plan(plan):
                 f"'{bi['rekey']}' layout first (scripts/rekey_lora_for_vllm.py).")
     elif bi["needs_rekey"]:
         tail = f" Requires the '{bi['rekey']}' re-key (else a naive load no-ops)."
-    if t["blocked_routed"]:
-        tail += (f" {t['blocked_routed']} routed-expert deltas BACKEND-GATED: live on a LoRA-capable MoE "
-                 f"backend (emulation/marlin), blocked only on cutlass/flashinfer. Serve --moe-backend "
-                 f"emulation, or merge-for-serve.")
+    if routed["n"]:
+        tail += (f" {routed['n']} routed-expert deltas BACKEND-GATED: live on a LoRA-capable MoE "
+                 f"backend ({'/'.join(routed['live_on'])}), blocked only on "
+                 f"{'/'.join(routed['blocked_on'])}. Serve --moe-backend emulation, or merge-for-serve.")
     out.append(f"PLAN    : runtime-LoRA serves {t['live']}/{n} deltas.{tail}  VERDICT: {plan['verdict']}")
     return "\n".join(out)

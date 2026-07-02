@@ -2,9 +2,11 @@
 
 The end-to-end **runtime-LoRA** flow on a single GB10 (DGX Spark). Runtime-LoRA
 applies the adapter in bf16 at serve time and attaches it to the NVFP4 base at
-request time. It is the path for dense models and attention / shared-expert
-targets; for routed-MoE-on-CUTLASS (where request-time LoRA is not available on
-sm_121), merge-then-serve is the validated path - see the README.
+request time. Dense and attention / shared-expert targets apply on any backend;
+routed-expert MoE deltas are backend-gated (live on `--moe-backend emulation` or
+marlin, blocked on cutlass/flashinfer) rather than merge-only -- `nybbloris serve`
+auto-selects emulation for them. Merge-then-serve remains an option when you do not
+need request-time adapter swap; see the README.
 
 The three commands form a closed loop:
 

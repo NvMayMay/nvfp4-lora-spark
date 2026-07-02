@@ -14,19 +14,13 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import sys
 from pathlib import Path
 
 from safetensors.torch import load_file, save_file
 
-_FLAT_PREFIX = "base_model.model.model.layers."
-_OLD = "base_model.model.model."
-_NEW = "base_model.model.language_model.model."
-
-
-def remap_key(k: str) -> str:
-    if k.startswith(_FLAT_PREFIX):
-        return _NEW + k[len(_OLD):]
-    return k
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from nvfp4_lora.adapter_keys import wrapped_remap_safetensors_key as remap_key  # noqa: E402
 
 
 def main():
