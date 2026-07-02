@@ -9,14 +9,16 @@ repo's own `scripts/eval_retention.py` (exact-set-match + teacher-forced NLL).
 - Base: `Llama-3.1-8B-Instruct-NVFP4` (dense NVFP4, default MoE-free serve path).
 - Adapter: `spider_llama8b_r32` (r=32 LoRA, q/k/v/o + gate/up/down), served as runtime-LoRA
   (not merged) alongside base.
-- Eval: 200 Spider dev rows, greedy, max_new_tokens=256.
+- Eval: full 1034-row Spider dev set (and a 200-row subset), greedy, max_new_tokens=256.
 
-| metric | base | +spider_llama8b_r32 | delta |
+| metric (n=1034 full dev) | base | +spider_llama8b_r32 | delta |
 |---|---|---|---|
-| **exact-set-match** | 0.315 | **0.535** | **+0.220 (~1.7x)** |
-| mean gold NLL | 0.953 | 0.985 | +0.031 |
+| **exact-set-match** | 0.376 | **0.597** | **+0.221 (~1.6x)** |
 
-The fine-tune lifts exact-match from 31.5% to 53.5% (+22 points). NLL is ~flat (marginally
+Subset check (n=200): 0.315 -> 0.535 (+0.220) -- consistent with the full set. Raw per-row output:
+`llama8b_nvfp4_spider_dev_n1034.json` (full) and `llama8b_nvfp4_spider_dev_n200.json` (subset).
+
+The fine-tune lifts exact-match from 37.6% to 59.7% (+22 points) on the full dev set. NLL is ~flat (marginally
 higher) -- the LoRA optimizes task behaviour (valid SQL that set-matches gold), which EM captures
 and teacher-forced gold-NLL does not fully reflect. Raw per-row output: `llama8b_nvfp4_spider_dev_n200.json`.
 
