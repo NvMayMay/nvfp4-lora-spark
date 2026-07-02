@@ -41,6 +41,23 @@ multimodal-tower skip lists, fused-MoE class names) lives in ONE registry:
 
 A `model_type` outside the registry is a hard error naming the registry file.
 
+### Serving routed-expert (MoE) LoRA: backend-gated, not merge-only
+
+Routed-expert deltas serve LIVE at runtime on a LoRA-capable MoE backend
+(`--moe-backend emulation`, or `marlin`); the fast NVFP4 kernels
+(`cutlass`/`flashinfer`) report `supports_lora=False`, so a routed adapter loads
+but no-ops there. `nybbloris inspect` reports this as `BLOCKED-ROUTED` with a
+structured `routed` block (`live_on`/`blocked_on`), and `nybbloris serve`
+auto-selects `--moe-backend emulation` for such adapters rather than aborting.
+GLM-4.5-Air and Qwen3.5-122B expert-LoRA are proven end-to-end via emulation
+(logprob-delta confirmed); see `cross_arch_status.md`.
+
+The adapter key schema and every rekey transform (identity, the `language_model`
+wrapped-model remap, per-expert vs fused-3D expert layout) live in ONE module,
+[`nvfp4_lora/adapter_keys.py`](../nvfp4_lora/adapter_keys.py); the plan, the two
+rekey scripts, and the serve patch all import from it, so the "silent no-op
+adapter" class has a single source of truth.
+
 ## Fused-3D MoE contract
 
 For families using `NVFP4Experts3D`, the checkpoint must satisfy:

@@ -46,10 +46,14 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 import torch
 from safetensors.torch import load_file, save_file
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from nvfp4_lora.adapter_keys import wrapped_remap_safetensors_key  # noqa: E402
 
 
 QWEN35_MODEL_TYPES = {"qwen3_5_moe", "qwen3_5_moe_text"}
@@ -100,9 +104,8 @@ def _resolve_target_format(
 # wrapped base those resolve to a module vLLM never builds, so the adapter loads
 # but silently NO-OPs (the MoE 3D->2D converter finds neither expert key and leaves
 # the stacked buffers zero). This is the same `language_model` re-key the attention
-# path applies in scripts/rekey_lora_for_vllm.py; expert keys need it too.
-_WRAPPED_OLD = "base_model.model.model.layers."
-_WRAPPED_NEW = "base_model.model.language_model.model.layers."
+# path applies in scripts/rekey_lora_for_vllm.py; expert keys need it too. Both use
+# the single source of truth nvfp4_lora.adapter_keys.wrapped_remap_safetensors_key.
 
 
 def _candidate_base_dirs(adapter_cfg: dict, base_model: Path | None) -> list[Path]:
@@ -239,7 +242,7 @@ def rekey(
     if is_wrapped:
         remapped: dict[str, torch.Tensor] = {}
         for k, v in out.items():
-            nk = k.replace(_WRAPPED_OLD, _WRAPPED_NEW) if k.startswith(_WRAPPED_OLD) else k
+            nk = wrapped_remap_safetensors_key(k)
             if nk != k:
                 wrapped_remapped += 1
             remapped[nk] = v

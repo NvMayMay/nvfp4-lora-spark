@@ -17,19 +17,29 @@ sm_121 (Blackwell consumer / DGX Spark). Only `MARLIN`, `EMULATION`, and
 
 ### `ValueError: NvFp4 MoE backend 'VLLM_CUTLASS' does not support the deployment configuration since kernel does not support LoRA`
 
-**Cause**: vLLM 0.21's CUTLASS MoE kernel (`CutlassExpertsFp4`) has
-`supports_lora() = False`. The kernel itself doesn't have a LoRA-aware
-forward path. Same for `FlashInferExperts`. Only `MARLIN` and `EMULATION`
-claim LoRA support, but Marlin OOMs on Spark and EMULATION's LoRA Triton
-kernel has a known bug.
+**Cause**: the CUTLASS MoE kernel (`CutlassExpertsFp4`) has
+`supports_lora() = False`; so does `FlashInferExperts`. The kernel itself
+has no LoRA-aware forward path, so a routed-expert LoRA delta loads but is a
+silent no-op on these backends.
 
-**Fix**: use the merge-then-serve workflow.
-`scripts/merge_lora_into_nvfp4.py` bakes your LoRA into the NVFP4 base
-weights; then serve the merged checkpoint via the CUTLASS recipe. See
-`serve/run_super_ft_merged.sh`.
+**This is BACKEND-GATED, not merge-only.** On vLLM 0.22.1 the `EMULATION`
+backend applies routed-expert LoRA and is the blessed runtime-LoRA path for
+routed-MoE NVFP4 (proven end-to-end for GLM-4.5-Air and Qwen3.5-122B;
+`MARLIN` also claims LoRA support but repack-OOMs 120B-class on the 131 GB
+box). This is exactly the `BLOCKED-ROUTED` inspect verdict: it means "needs
+a LoRA-capable MoE backend", NOT "merge-only". `nybbloris serve` handles it
+by auto-adding `--moe-backend emulation` when an adapter binds routed-expert
+deltas, instead of aborting.
 
-For dynamic adapter swap (no merge), see `docs/PHASE2.md` for the
-upstream-PR work in progress.
+**Fixes, in order of preference:**
+
+1. Serve at runtime on a LoRA-capable backend: `nybbloris serve ...`
+   (auto-emulation), or vLLM directly with `--moe-backend emulation
+   --enable-lora`. Slow single-stream but correct.
+2. Merge-then-serve when you do not need request-time adapter swap and want
+   the fast CUTLASS path: `scripts/merge_lora_into_nvfp4.py` bakes the LoRA
+   into the NVFP4 base weights; serve the merged checkpoint via the CUTLASS
+   recipe (`serve/run_super_ft_merged.sh`).
 
 ### `RuntimeError: Triton Error [CUDA]: an illegal memory access was encountered ... _fused_moe_lora_expand`
 

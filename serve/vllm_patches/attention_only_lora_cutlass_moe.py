@@ -112,6 +112,8 @@ Applying it twice is harmless. Each piece stamps a sentinel attribute.
 from __future__ import annotations
 
 import logging
+import os
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -124,9 +126,24 @@ _BLOCKED_SEGMENTS = frozenset({"experts"})
 # in this deployment; warn loudly instead of raising.
 _WARN_SEGMENTS = frozenset({"shared_expert", "shared_expert_gate", "gate"})
 
-_FLAT_PREFIX = "base_model.model.model.layers."
-_FLAT_OLD = "base_model.model.model."
-_FLAT_NEW = "base_model.model.language_model.model."
+
+def _load_wrapped_remap():
+    """The single-source-of-truth `language_model` wrapped remap from
+    nvfp4_lora.adapter_keys. This patch may run in a bare EngineCore process
+    whose PYTHONPATH is only serve/vllm_patches, so add the repo root
+    (three levels up: serve/vllm_patches/ -> serve/ -> repo) if needed."""
+    try:
+        from nvfp4_lora.adapter_keys import wrapped_remap_safetensors_key
+        return wrapped_remap_safetensors_key
+    except ImportError:
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from nvfp4_lora.adapter_keys import wrapped_remap_safetensors_key
+        return wrapped_remap_safetensors_key
+
+
+_remap_key = _load_wrapped_remap()
 
 
 def _patch_a_fused_moe_config() -> None:
@@ -229,22 +246,6 @@ def _patch_c_wrapper_fence() -> None:
     FusedMoEWithLoRA.can_replace_layer = _never_replace
     FusedMoE3DWithLoRA.can_replace_layer = _never_replace
     setattr(FusedMoEWithLoRA, _SENTINEL, True)
-
-
-def _remap_key(name: str) -> str:
-    """Map flat text-only PEFT keys onto the ConditionalGeneration layout.
-
-    base_model.model.model.layers.N...  (AutoModelForCausalLM training layout)
-      -> base_model.model.language_model.model.layers.N...
-         (vLLM Qwen3_5MoeForConditionalGeneration layout, qwen3_5.py:770-808)
-
-    Keys already in `...model.language_model...` form are left alone; the
-    model's hf_to_vllm_mapper (qwen3_vl.py:1629-1635) handles those inside
-    parse_fine_tuned_lora_name (lora/utils.py:155-196).
-    """
-    if name.startswith(_FLAT_PREFIX):
-        return _FLAT_NEW + name[len(_FLAT_OLD):]
-    return name
 
 
 def _check_and_remap_tensor_names(tensors: dict) -> dict:

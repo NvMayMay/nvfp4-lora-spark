@@ -20,17 +20,21 @@ report supports_lora=False). Slow single-stream but correct.
 ## Per-module expert LoRA (per-expert NVFP4 nn.Linear; ordinary target-modules)
 | family | model | TRAIN | SERVE (runtime-LoRA) | notes |
 |--------|-------|-------|----------------------|-------|
-| nemotron_h | Nemotron-3-Nano-30B-A3B | PASS | **BLOCKED-ROUTED** | trains fine (5920/5934 expert lora_B nonzero, expert-only), but serve is blocked -- see finding |
+| nemotron_h | Nemotron-3-Nano-30B-A3B | PASS | **BACKEND-GATED** (emulation expected) | trains fine (5920/5934 expert lora_B nonzero, expert-only); routed-expert serve is backend-gated (live on emulation/marlin, blocked on cutlass/flashinfer), pending the non-gated rekey + a GPU logprob-delta check -- see finding |
 
 ### T1 binding verdict (2026-06-30): BLOCKED-ROUTED -- but that is CONSERVATIVE, not a merge-only truth
 Binding-contract verdict on the trained adapter:
 - 5934/5934 targets resolve to base modules (identity rekey, keys map cleanly);
 - only 46/5934 LoRA-live at serve (shared-expert MLPs); 5888/5934 marked BLOCKED-ROUTED.
 
-CORRECTION (codex/gpt-5.5 review, grounded in vLLM source): the BLOCKED-ROUTED verdict is a BUG in our
-binding check, not a hard fact. `nybbloris/plan.py` marks EVERY routed-expert target blocked
-UNCONDITIONALLY, without checking the selected serve backend -- so it would wrongly block GLM too, yet we
-SERVE GLM routed-expert LoRA at runtime via the emulation backend. Runtime-LoRA for Nemotron routed
+CORRECTION (codex/gpt-5.5 review, grounded in vLLM source): the flat BLOCKED-ROUTED verdict was a BUG in
+our binding check, not a hard fact -- `nybbloris/plan.py` used to mark EVERY routed-expert target blocked
+UNCONDITIONALLY, without checking the selected serve backend, so it would wrongly block GLM too, yet we
+SERVE GLM routed-expert LoRA at runtime via the emulation backend. **FIXED (2026-07-02):** the plan is now
+backend-aware -- `serve_plan(...)["routed"]` reports `live_on=[emulation, marlin]` /
+`blocked_on=[cutlass, flashinfer]`, and `nybbloris serve` auto-adds `--moe-backend emulation` for
+routed-expert adapters instead of aborting. The top-line `BLOCKED-ROUTED` string is kept for back-compat
+but now MEANS "needs a LoRA-capable MoE backend", not "merge-only". Runtime-LoRA for Nemotron routed
 experts is feasible IN PRINCIPLE:
 - Nemotron-H is NOT a bespoke no-LoRA module at serve: `NemotronHMoE` builds a standard vLLM `FusedMoE`,
   and `NemotronHForCausalLM` declares `SupportsLoRA, MixtureOfExperts, is_non_gated_moe=True`, using the
@@ -43,10 +47,10 @@ experts is feasible IN PRINCIPLE:
   `w13` shards, that is the likely small patch.
 
 REVISED serve status for per-module routed experts: **LIKELY runtime-LoRA-servable via the emulation
-backend (same path as GLM), PENDING three things**: (1) fix the binding check to be backend-aware
-("routed expert => live iff selected FusedMoE backend applies LoRA"); (2) a NON-GATED-aware rekey
-(up_proj->w1, down_proj->w2, no fake gate); (3) a GPU logits-move test forced to moe_backend=emulation.
-NOT proven yet, but NOT merge-only either.
+backend (same path as GLM), PENDING two things** (item 1 is now DONE): (1) ~~fix the binding check to be
+backend-aware~~ DONE 2026-07-02 -- `plan.py` reports `routed.live_on`/`blocked_on` and the CLI serves via
+emulation; (2) a NON-GATED-aware rekey (up_proj->w1, down_proj->w2, no fake gate); (3) a GPU logits-move
+test forced to moe_backend=emulation. NOT proven on GPU yet, but NOT merge-only either.
 
 IMPLICATION for the capability claim: "expert-LoRA across architectures" -- fused-3D families serve at
 runtime via emulation (GLM proven; Qwen3.5/Mistral-4 under test); per-module routed experts (Nemotron)

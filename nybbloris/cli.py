@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .manifest import MANIFEST_NAME, check_compat
 from .plan import lm_head_status, render_plan, serve_plan
 
 REPO_ROOT = Path(__file__).resolve().parent.parent  # nvfp4-lora-spark/
@@ -21,7 +22,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent  # nvfp4-lora-spark/
 #   4  BLOCKED-ROUTED  binds, but targets are routed-expert MoE: served live ONLY on a
 #                      LoRA-capable MoE backend (`--moe-backend emulation`, or marlin),
 #                      NOT on the cutlass/flashinfer fast backends (supports_lora=False).
-#                      Not "merge-only"; pick a LoRA-capable backend or merge-for-serve.
+#                      Not "merge-only"; `serve` handles it by auto-forcing
+#                      --moe-backend emulation rather than aborting.
 VERDICT_EXIT = {"PASS": 0, "FAIL": 1, "EMPTY": 1, "NO-OP": 3, "NEEDS-REKEY": 3, "BLOCKED-ROUTED": 4}
 
 
@@ -200,13 +202,35 @@ def cmd_serve(args):
             return 1
 
     # 2) Binding pre-flight per adapter: refuse no-binds, auto-re-key silent no-ops.
+    #    A routed-expert (MoE) adapter is NOT a hard abort: it serves live on a
+    #    LoRA-capable MoE backend (emulation/marlin), so we pick that backend
+    #    instead of refusing. `needs_emulation` records whether any adapter binds
+    #    routed-expert deltas so the vLLM command below forces --moe-backend emulation.
     lora_modules, max_rank = [], 0
+    needs_emulation = False
     for spec in (args.adapter or []):
         name, path = _parse_adapter(spec)
         plan = serve_plan(base, path)
         print()
         print(render_plan(plan))
         print()
+
+        # 2a) Provenance gate: if a manifest sits next to the adapter, REFUSE when
+        #     its base fingerprint does not match the base we're about to serve on
+        #     (a wrong-base load is the silent-no-op / garbage-output class).
+        manifest = Path(path) / MANIFEST_NAME
+        if manifest.exists():
+            ok, reasons = check_compat(str(manifest), base)
+            if not ok:
+                print(f"[serve] REFUSING '{name}': manifest base fingerprint does not match "
+                      f"the serve base:")
+                for r in reasons:
+                    print(f"          - {r}")
+                print("        Serve the adapter on the base it was trained against, or "
+                      "re-fingerprint if you are sure the bases are equivalent.")
+                return 1
+            print(f"[serve] manifest: base fingerprint matches (compat OK).")
+
         v = plan["verdict"]
         if v in ("FAIL", "EMPTY"):
             print(f"[serve] REFUSING '{name}': verdict {v} (see above).")
@@ -215,16 +239,36 @@ def cmd_serve(args):
             if args.rekey == "off":
                 print(f"[serve] REFUSING '{name}': verdict {v}; re-key it or pass --rekey auto.")
                 return 1
+            # Pick the CORRECT rekey script by adapter layout: expert/fused adapters
+            # carry stacked expert tensors the dense rekey cannot handle; only the
+            # expert rekey un-stacks them into vLLM's per-expert / fused-3D layout.
+            layout = plan["adapter"].get("expert_layout", "none")
             out = path.rstrip("/") + "_vllm_rekey"
-            print(f"[serve] {v}: auto-re-keying '{name}' -> {out}")
-            rekeyer = REPO_ROOT / "scripts" / "rekey_lora_for_vllm.py"
-            if subprocess.call([sys.executable, str(rekeyer), "--in-dir", path, "--out-dir", out]) != 0:
+            if layout == "native":
+                print(f"[serve] {v}: auto-re-keying expert adapter '{name}' -> {out}")
+                rekeyer = REPO_ROOT / "scripts" / "rekey_expert_lora_for_vllm.py"
+                cmd = [sys.executable, str(rekeyer), "--in", path, "--out", out,
+                       "--base-model", str(base)]
+            else:
+                print(f"[serve] {v}: auto-re-keying '{name}' -> {out}")
+                rekeyer = REPO_ROOT / "scripts" / "rekey_lora_for_vllm.py"
+                cmd = [sys.executable, str(rekeyer), "--in-dir", path, "--out-dir", out]
+            if subprocess.call(cmd) != 0:
                 return 1
             plan = serve_plan(base, out)
-            if plan["verdict"] != "PASS":
-                print(f"[serve] re-key did not yield PASS (got {plan['verdict']}); aborting.")
+            # A re-keyed routed-expert adapter lands on BLOCKED-ROUTED (backend-gated),
+            # which is a valid serve state on a LoRA-capable backend -- accept it.
+            if plan["verdict"] not in ("PASS", "BLOCKED-ROUTED"):
+                print(f"[serve] re-key did not bind (got {plan['verdict']}); aborting.")
                 return 1
             path = out
+        # Routed-expert deltas are backend-gated, not merge-only: serve them live on
+        # the LoRA-capable emulation backend instead of aborting.
+        if plan["targets"]["blocked_routed"]:
+            needs_emulation = True
+            live_on = "/".join(plan.get("routed", {}).get("live_on", ["emulation"]))
+            print(f"[serve] '{name}': {plan['targets']['blocked_routed']} routed-expert deltas "
+                  f"are backend-gated -> serving via --moe-backend emulation (live on {live_on}).")
         lora_modules.append((name, path))
         max_rank = max(max_rank, int(plan["adapter"].get("r") or 0))
 
@@ -250,6 +294,12 @@ def cmd_serve(args):
            "--max-model-len", str(args.max_model_len),
            "--gpu-memory-utilization", str(args.gpu_memory_utilization),
            "--enforce-eager"]
+    # MoE backend: an explicit --moe-backend wins; else force emulation when any
+    # adapter binds routed-expert deltas (the LoRA-capable MoE backend on sm_121;
+    # cutlass/flashinfer report supports_lora=False and would silently no-op them).
+    moe_backend = args.moe_backend or ("emulation" if needs_emulation else None)
+    if moe_backend:
+        cmd += ["--moe-backend", moe_backend]
     if lora_modules:
         rank = args.max_lora_rank or max(max_rank, 16)
         cmd += ["--enable-lora", "--max-lora-rank", str(rank),
@@ -440,6 +490,10 @@ def build_parser():
     ps.add_argument("--port", type=int, default=8000)
     ps.add_argument("--max-model-len", type=int, default=8192)
     ps.add_argument("--gpu-memory-utilization", type=float, default=0.6)
+    ps.add_argument("--moe-backend", default=None,
+                    help="force a vLLM MoE backend (e.g. emulation/marlin/cutlass); "
+                         "default: emulation is auto-selected when an adapter binds "
+                         "routed-expert deltas, else vLLM's own default")
     ps.add_argument("--max-lora-rank", type=int, default=0, help="0 = auto from the adapters (min 16)")
     ps.add_argument("--max-loras", type=int, default=2)
     ps.add_argument("--allow-runtime-lora-updates", action="store_true",
