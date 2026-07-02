@@ -456,6 +456,30 @@ def cmd_doctor(args):
     return 1 if n_fail else 0
 
 
+def _passthrough_script(script_name, passthrough):
+    script = REPO_ROOT / "scripts" / script_name
+    if not script.exists():
+        print(f"[{script_name}] not found at {script}")
+        return 1
+    return subprocess.call([sys.executable, str(script), *passthrough])
+
+
+def cmd_data_check(args):
+    """Training-data preflight (mask coverage / truncation drops / length histogram /
+    tokenizer hashes). Forwards to scripts/data_check.py."""
+    return _passthrough_script("data_check.py", args.passthrough)
+
+
+def cmd_contamination(args):
+    """Train<->eval overlap report (exact-match + n-gram + db_id). Forwards to
+    scripts/check_contamination.py."""
+    return _passthrough_script("check_contamination.py", args.passthrough)
+
+
+# Subcommands that forward all remaining args to a script (parsed loosely in main()).
+_PASSTHROUGH_CMDS = {"train", "data-check", "contamination"}
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="nybbloris",
                                 description="NVFP4 LoRA fit / serve on consumer Blackwell (GB10)")
@@ -525,6 +549,17 @@ def build_parser():
     pd = sub.add_parser("doctor", help="environment pre-flight: train/serve deps + versions")
     pd.add_argument("--base-model-dir", default=None, help="also check this base's lm_head serve-compat")
     pd.set_defaults(func=cmd_doctor)
+
+    pdc = sub.add_parser("data-check",
+                         help="training-data preflight (mask coverage, truncation drops, length "
+                              "histogram, tokenizer hashes); forwards to scripts/data_check.py "
+                              "(--data ... --tokenizer ... --max-length ...)")
+    pdc.set_defaults(func=cmd_data_check)
+
+    pcc = sub.add_parser("contamination",
+                         help="train<->eval overlap report (exact-match + n-gram + db_id); forwards "
+                              "to scripts/check_contamination.py (--train ... --eval ...)")
+    pcc.set_defaults(func=cmd_contamination)
     return p
 
 
@@ -534,7 +569,7 @@ def main(argv=None):
     # Other subcommands stay strict.
     parser = build_parser()
     args, extra = parser.parse_known_args(argv)
-    if getattr(args, "cmd", None) == "train":
+    if getattr(args, "cmd", None) in _PASSTHROUGH_CMDS:
         args.passthrough = extra
     elif extra:
         parser.error("unrecognized arguments: " + " ".join(extra))
