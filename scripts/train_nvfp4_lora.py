@@ -855,6 +855,12 @@ def main():
                          "freeze, skip_st_prefixes, st_to_model, meta_allowed_prefixes, "
                          "moe_experts_class). Onboards a model without editing library source; "
                          "wins over the registry and the generic fallback.")
+    ap.add_argument("--train-dequant-cache-gb", type=float, default=0.0,
+                    help="Opt-in: cap (GB) for a train-time bf16 cache of dequantized base weights. "
+                         "0 (default) = the memory-efficient recompute path. For small/mid models "
+                         "with UMA headroom (<=~32B), a cache >= the bf16 weight size keeps the base "
+                         "resident and trains at near-bf16 step time; numerically identical (frozen "
+                         "weight). 120B: leave 0 (recompute) -- it will not fit.")
     ap.add_argument("--permissive-load", action="store_true",
                     help="Bring-up escape hatch: downgrade strict-load errors "
                          "(unmapped on-disk tensors, tensors left on the meta "
@@ -928,6 +934,10 @@ def main():
               f"spec, or --no-allow-unverified-family to fail fast instead.", flush=True)
         print("=" * 72, flush=True)
         log("family_unverified", model_type=model_type, note=family.get("_note"))
+    from nvfp4_lora.linear import set_train_dequant_cache_gb
+    set_train_dequant_cache_gb(args.train_dequant_cache_gb)
+    if args.train_dequant_cache_gb > 0:
+        log("train_dequant_cache", gb=args.train_dequant_cache_gb)
     target_suffixes = [m.strip() for m in args.target_modules.split(",") if m.strip()]
     lora_mode, coverage = detect_lora_mode(
         model_dir, target_suffixes,
