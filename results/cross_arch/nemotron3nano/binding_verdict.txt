@@ -1,0 +1,7 @@
+[binding] adapter targets 5934 modules; base arch NemotronHForCausalLM (causal-LM)
+[binding] vLLM binds against model.layers.* (causal-LM)
+[binding] naive (no re-key): 5934/5934 resolve
+[binding] best re-key 'identity': 5934/5934 resolve
+[quant]   by weight type: {'NVFP4': 5934}
+[quant]   LoRA-LIVE (served): 46/5934  |  BLOCKED routed-MoE: 5888/5934
+[binding] VERDICT: BLOCKED-ROUTED -- 5888/5934 targets are routed-expert FusedMoE (supports_lora=False at serve). Merge-for-serve those, or drop them.
