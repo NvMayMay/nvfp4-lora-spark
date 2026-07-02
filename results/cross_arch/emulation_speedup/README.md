@@ -27,6 +27,23 @@ dequantizes only the routed experts per forward. It must be numerically EXACT an
 Bit-exact logprob parity (delta=0) subsumes the Spider-EM re-run in the patch's checklist:
 identical per-token logprobs imply identical greedy decode by construction.
 
+## 120B scale confirmation (Nemotron-3-Super-120B-A12B-NVFP4, base, patch ON)
+
+The north-star target size. Full-dequant of all experts is ~210GB in bf16 (per
+docs/plans/emulation_speedup_scope.md), which cannot fit the 128GB UMA -- so routed-only
+dequant is what makes the 120B MoE serve on one GB10 at all.
+
+- Loaded 69.5 GiB weights; served with `--moe-backend emulation` + patch ON, single GB10.
+- Base decode: **4.2 tok/s** single-stream (32 tok in 7.6s), 0 runtime fallbacks, coherent output.
+- TIGHT margin: the first attempt (default profiling batch = max-num-batched-tokens 2048) STALLED
+  at the KV-cache warmup forward (a 2048-token profiling batch routes to most experts, so the
+  routed set approx= all experts -> the transient dequant blows the ~5GB free headroom). It came up
+  with `--max-model-len 1024 --max-num-batched-tokens 512 --gpu-memory-utilization 0.90` (KV cache
+  31 GiB). So 120B serving is feasible but needs a small-batch/short-context config on one box.
+- Base-only (no 120B expert-LoRA on hand); the LoRA path is proven bit-exact on Nano (same code
+  path). A full patch-OFF 120B comparison is impossible by design (full-dequant OOMs) -- that IS the
+  motivation for the patch.
+
 ## Notes / honest scope
 
 - Speedup scales with experts/routed ratio (E/k). Nemotron-Nano is A3B (small active set), so
