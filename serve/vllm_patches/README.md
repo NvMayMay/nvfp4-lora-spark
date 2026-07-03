@@ -27,6 +27,23 @@ ensure `marlin_repack_patch.apply_patch()` runs in BOTH the parent APIServer
 process AND in vLLM's spawned `VLLM::EngineCore` subprocess (which uses
 `multiprocessing.spawn` and does NOT inherit monkey-patches from the parent).
 
+### `cohere_tied_embedding_lora.py`
+Opt-in via `VLLM_PATCH_TIED_EMBED_LORA=1`. Makes **tied-embedding** models
+(Cohere / Command-R / Command-A, `tie_word_embeddings`) serveable with
+`--enable-lora`. Those models compute logits THROUGH the input embedding
+(`commandr.py:compute_logits` -> `logits_processor(self.model.embed_tokens, ...)`).
+With LoRA enabled vLLM wraps `embed_tokens` in `VocabParallelEmbeddingWithLoRA`,
+which parks the real layer under `self.base_layer` and does not delegate
+attribute access, so the logits path crashes with
+`AttributeError: 'VocabParallelEmbeddingWithLoRA' object has no attribute 'quant_method'`.
+The patch adds a `__getattr__` that falls back to `base_layer` for any attr the
+wrapper does not define (`quant_method`, `weight`, `shard_indices`, ...), so
+logits compute as correct tied-embedding logits. Repo adapters target only
+attention + MLP (no embedding-LoRA), so no adapter delta is lost. Untied-embedding
+models never take this path and are unaffected. Validated end to end on
+Command-A (cohere2, 111B CT-NVFP4); see
+[../../results/cross_arch/command_a_generic_serve/README.md](../../results/cross_arch/command_a_generic_serve/README.md).
+
 ## Usage
 
 ```bash
