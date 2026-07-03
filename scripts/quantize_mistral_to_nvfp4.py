@@ -33,6 +33,7 @@ from __future__ import annotations
 import gc
 import json
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -40,21 +41,19 @@ import torch
 from safetensors import safe_open
 from safetensors.torch import save_file
 
+# The quantization math now lives in the nvfp4_lora package; this script is a
+# thin CLI wrapper over it (behaviour and output layout unchanged).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from nvfp4_lora.quantize import GROUP_SIZE, quantize_nvfp4_2d
+
 SOURCE_DIR = Path("/home/veritan-spark-01/Veritan/Models/Mistral-Small-4-119B-2603-BF16-HF")
 OUTPUT_DIR = Path("/home/veritan-spark-01/Veritan/Models/Mistral-Small-4-119B-2603-NVFP4-HF")
-
-GROUP_SIZE = 16
-FP4_MAX = 6.0           # E2M1 max value
-FP8_E4M3_MAX = 448.0    # FP8 E4M3 max value
-
-NVFP4_LUT_POSITIVE = torch.tensor(
-    [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0], dtype=torch.float32
-)
 
 # Aim for ~5 GB output shards (HF convention; large enough to keep file count manageable).
 MAX_SHARD_BYTES = 5 * 1024 ** 3
 
-
+# Compute is forced to CUDA when available (GB10 is ~50x faster than CPU for the
+# LUT-search argmin). The package returns CPU tensors regardless.
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -64,72 +63,24 @@ def quantize_to_nvfp4_2d(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Quantize a 2D weight (out, in) -> NVFP4 CT trio.
 
-    Compute is forced to CUDA when available (GB10 is ~50x faster than CPU for the
-    LUT-search argmin). Outputs are moved back to CPU so safetensors save_file sees
-    standard CPU tensors.
+    Thin wrapper over nvfp4_lora.quantize.quantize_nvfp4_2d(layout="ct"); the
+    trio return shape is kept for callers here and in the merge scripts.
 
     `per_tensor_max_override` lets the caller supply an externally-computed
     per-tensor abs-max (used for fused gate_up_proj where gate and up must share a
-    single global scale — the existing loader's NVFP4Experts3D asserts equality).
+    single global scale, so the loader's NVFP4Experts3D equality assert holds).
 
     Returns:
       weight_packed:        uint8, shape (out, in/2), on CPU
       weight_scale_fp8:     float8_e4m3fn, shape (out, in/GROUP_SIZE), on CPU
       weight_global_scale:  float32, shape (1,), on CPU
     """
-    if W.ndim != 2:
-        raise ValueError(f"Expected 2D tensor, got shape {tuple(W.shape)}")
-    out_feat, in_feat = W.shape
-    if in_feat % GROUP_SIZE != 0:
-        raise ValueError(f"in_feat={in_feat} not divisible by group_size={GROUP_SIZE}")
-
-    W_fp32 = W.to(_DEVICE, dtype=torch.float32, non_blocking=True)
-    n_groups = in_feat // GROUP_SIZE
-    W_grouped = W_fp32.reshape(out_feat, n_groups, GROUP_SIZE)
-
-    per_group_max = W_grouped.abs().amax(dim=-1)                  # (out, n_groups)
-    if per_tensor_max_override is not None:
-        per_tensor_max = torch.tensor(per_tensor_max_override, dtype=torch.float32, device=_DEVICE).clamp(min=1e-30)
-    else:
-        per_tensor_max = W_fp32.abs().amax().clamp(min=1e-30)
-
-    # CT NVFP4 convention (see compressed_tensors.compressors.nvfp4.base):
-    #   effective_scale_per_group = per_group_max / FP4_MAX        (true scale)
-    #   scale_fp32 = effective_scale_per_group * global_scale       (storable in fp8)
-    #   global_scale = FP8_MAX / max(effective_scale_per_group)
-    #                = FP8_MAX * FP4_MAX / per_tensor_max
-    # During quant the lib does: q = round(W / (scale / global_scale))
-    global_scale_fp32 = torch.tensor(
-        (FP8_E4M3_MAX * FP4_MAX) / per_tensor_max.item(), dtype=torch.float32, device=_DEVICE,
+    d = quantize_nvfp4_2d(
+        W.to(_DEVICE, non_blocking=True),
+        layout="ct",
+        per_tensor_max_override=per_tensor_max_override,
     )
-    scale_fp32 = per_group_max * (FP8_E4M3_MAX / per_tensor_max)   # (out, n_groups), ≤ FP8_MAX
-    scale_fp32 = scale_fp32.clamp(min=1e-30)
-
-    # Cast scale to fp8 for storage (lossy); recompute the post-cast effective scale
-    # so the rounding sees the same effective_scale a future dequant will see.
-    scale_fp8 = scale_fp32.to(torch.float8_e4m3fn)
-    effective_scale = scale_fp8.to(torch.float32) / global_scale_fp32  # (out, n_groups)
-    effective_scale = effective_scale.clamp(min=1e-30)
-    effective_scale_full = effective_scale.unsqueeze(-1)              # (out, n_groups, 1)
-
-    W_scaled = W_grouped / effective_scale_full                      # (out, n_groups, GROUP_SIZE)
-    W_scaled = W_scaled.clamp(-FP4_MAX, FP4_MAX)
-
-    # Map each value to its nearest E2M1 LUT entry, then OR the sign bit (bit 3) on.
-    lut = NVFP4_LUT_POSITIVE.to(W_scaled.device)
-    abs_vals = W_scaled.abs()
-    # (out, n_groups, GROUP_SIZE, 8)
-    abs_diff = (abs_vals.unsqueeze(-1) - lut).abs()
-    abs_indices = abs_diff.argmin(dim=-1)                            # in [0, 7]
-    sign = W_scaled.signbit().long() << 3                            # bit 3
-    indices = abs_indices + sign                                     # in [0, 15]
-
-    # Pack pairs of nibbles (low first) into uint8 along the input axis.
-    indices_flat = indices.reshape(out_feat, in_feat)
-    indices_pairs = indices_flat.reshape(out_feat, in_feat // 2, 2)
-    packed = (indices_pairs[..., 0] | (indices_pairs[..., 1] << 4)).to(torch.uint8)
-
-    return packed.cpu(), scale_fp8.cpu(), global_scale_fp32.reshape(1).cpu()
+    return d["weight_packed"], d["weight_scale"], d["weight_global_scale"]
 
 
 def quantize_to_nvfp4_3d_per_slice(

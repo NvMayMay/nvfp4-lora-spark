@@ -235,18 +235,17 @@ def get_nvfp4_dequant_then_merge(
 
 
 def requantize_to_nvfp4(merged_bf16: torch.Tensor):
-    """Requantize merged bf16 back to NVFP4 packed + scales."""
-    from modelopt.torch.quantization.qtensor.nvfp4_tensor import NVFP4QTensor
+    """Requantize merged bf16 back to NVFP4 packed + scales (ModelOpt layout).
 
-    qt_out, gs_out, pts_out = NVFP4QTensor.quantize(merged_bf16, block_size=16)
-    # qt_out is an NVFP4QTensor; get its packed bytes
-    packed_out = qt_out._quantized_data
-    # qt.quantize returns weight_scaling_factor in float32 form; vLLM expects fp8_e4m3fn
-    if gs_out.dtype != torch.float8_e4m3fn:
-        gs_out = gs_out.to(torch.float8_e4m3fn)
-    if pts_out.dtype != torch.float32:
-        pts_out = pts_out.to(torch.float32)
-    return packed_out, gs_out, pts_out
+    Thin wrapper over nvfp4_lora.quantize.quantize_nvfp4_2d(layout="modelopt");
+    the pure-torch port is bit-exact with the modelopt NVFP4QTensor.quantize it
+    replaced. Returns (weight uint8, weight_scale fp8_e4m3fn, weight_scale_2 fp32),
+    computed on the input tensor's device and returned on CPU.
+    """
+    from nvfp4_lora.quantize import quantize_nvfp4_2d
+
+    d = quantize_nvfp4_2d(merged_bf16, layout="modelopt")
+    return d["weight"], d["weight_scale"], d["weight_scale_2"]
 
 
 # ---------------------------------------------------------------------------
