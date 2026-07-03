@@ -19,6 +19,11 @@ Patches:
     VLLM_PATCH_ROUTED_DEQUANT=1 is set. Dequantizes only the routed experts per
     forward on the NVFP4 emulation MoE backend (the only LoRA-capable NVFP4 MoE
     path on sm_121). Defensive: falls back to full dequant on any exception.
+  - cohere_tied_embedding_lora: applied only when
+    VLLM_PATCH_TIED_EMBED_LORA=1 is set. Delegates missing attrs on the
+    LoRA-wrapped vocab embedding to base_layer so tied-embedding models
+    (Cohere/Command-R/Command-A) can serve with --enable-lora (their logits
+    compute through embed_tokens). Harmless for untied-embedding models.
 """
 
 import os
@@ -104,6 +109,35 @@ def _try_apply_routed_dequant_patch():
         )
 
 
+def _try_apply_cohere_tied_embedding_lora_patch():
+    # Delegate missing attrs on the LoRA-wrapped vocab embedding to base_layer so
+    # tied-embedding models (Cohere/Command-R/Command-A) serve with --enable-lora.
+    # Opt-in via env var; harmless for untied-embedding models.
+    if os.environ.get("VLLM_PATCH_TIED_EMBED_LORA") != "1":
+        return
+    try:
+        import cohere_tied_embedding_lora
+
+        cohere_tied_embedding_lora.apply_patch()
+        sys.stderr.write(
+            f"[sitecustomize pid={os.getpid()}] applied "
+            "cohere_tied_embedding_lora patch\n"
+        )
+    except ImportError as e:
+        sys.stderr.write(
+            "WARNING: sitecustomize could not import "
+            f"cohere_tied_embedding_lora ({e}); tied-embedding models will NOT "
+            "serve with --enable-lora. Verify PYTHONPATH includes the "
+            "serve/vllm_patches directory.\n"
+        )
+    except Exception as e:
+        sys.stderr.write(
+            f"[sitecustomize pid={os.getpid()}] "
+            f"cohere_tied_embedding_lora failed: {e!r}\n"
+        )
+
+
 _try_apply_marlin_patch()
 _try_apply_attn_only_lora_cutlass_moe_patch()
 _try_apply_routed_dequant_patch()
+_try_apply_cohere_tied_embedding_lora_patch()
