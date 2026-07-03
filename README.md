@@ -32,6 +32,8 @@ runtime-LoRA with the adapter provably applied (teacher-forced summed log-prob o
 SQL over its answer span moves **-28.8 -> -17.4, +11.4 nats** base vs adapter). Writeup:
 [results/cross_arch/command_a_generic_serve/](results/cross_arch/command_a_generic_serve/).
 
+![Fine-tune any NVFP4 model from 8B to 122B on one GB10; Command-A is the unregistered generic-fallback case](plots/reach_map.png)
+
 ## Install
 
 The blessed install is `pip install -e .` from a clone — the CLI's `serve`/`train`
@@ -107,6 +109,8 @@ dataset** with a deterministic metric:
 > exact-set-match **36.8% → 52.0%** (+15.3 pp; 2 epochs, full 1034-row dev, deterministic,
 > no DB execution). The absolute score is scorer-dependent; **the delta is the signal.**
 
+![The same recipe lifts Spider exact-set-match across Llama-8B, Mistral-24B, and Qwen3-32B](plots/spider_lift.png)
+
 Follow **[REPRODUCE_SPIDER.md](REPRODUCE_SPIDER.md)** — one command trains, `nybbloris serve
 --verify` serves and proves the adapter applied, `eval_retention.py` scores the before/after.
 The exact eval JSON for every quoted number is committed under
@@ -127,6 +131,8 @@ should run it. The 128 GB unified pool is an advantage for **batched** serving: 
 concurrent requests fits inside the same memory the weights already live in. Nano-30B-FT
 aggregate throughput scales from ~30 tok/s single-stream up to **~339 tok/s at concurrency 8**
 (short-prompt / long-output). Frame it as batch, not single-stream.
+
+![Nemotron-Nano-30B FT aggregate throughput scales from ~30 tok/s single-stream to 339 tok/s at concurrency 8](plots/concurrency.png)
 
 Measured on GB10 → **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)** (training memory / long-context
 fits / throughput / concurrency tables, with the committed eval JSON). The frontier long-context
@@ -213,6 +219,8 @@ against real NVFP4 checkpoints on a single GB10:
 
 The exact checkpoint-layout contract is [docs/SUPPORTED_TOPOLOGIES.md](docs/SUPPORTED_TOPOLOGIES.md).
 
+![NVFP4 LoRA training fits a 120B model on one 128 GB box, with headroom to 262K context](plots/fits_on_box.png)
+
 ### Any other NVFP4 model (generic fallback)
 
 The table above is what has been certified, not a whitelist. An unregistered flat causal-LM
@@ -229,6 +237,8 @@ base vs adapter). Tied-embedding families (Cohere / Command-R, which compute log
 the input embedding) need the opt-in `VLLM_PATCH_TIED_EMBED_LORA=1` serve patch; untied ones
 need nothing. Full writeup:
 [results/cross_arch/command_a_generic_serve/](results/cross_arch/command_a_generic_serve/).
+
+![On unregistered Command-A, the served LoRA raises the gold-SQL log-prob from -28.8 to -17.4 (+11.4 nats)](plots/command_a_applied.png)
 
 ### Known issues on GB10 (DGX Spark)
 
