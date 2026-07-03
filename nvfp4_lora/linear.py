@@ -34,6 +34,26 @@ import os as _os
 _EVAL_CACHE_LIMIT_BYTES = int(float(_os.environ.get("NVFP4_EVAL_CACHE_GB", "30")) * 1024**3)
 _EVAL_CACHE_BYTES_RESERVED = 0
 
+# Process-wide budget for the OPT-IN train-mode bf16 weight cache (P1-3). Off by default (0):
+# training uses the memory-efficient recompute path (_DequantLinear re-dequantizes every step).
+# When enabled via --train-dequant-cache-gb / NVFP4_TRAIN_CACHE_GB (small/mid models with UMA
+# headroom), the dequantized base weight is materialized ONCE per module and reused across steps
+# with a plain F.linear -> near-bf16 step time. The base weight is frozen, so autograd still gives
+# dx = dy @ W and no gradient to W: numerically identical to the recompute path, just faster. Once
+# the budget is exhausted, remaining modules fall back to recompute (so a 120B stays memory-safe).
+_TRAIN_CACHE_LIMIT_BYTES = int(float(_os.environ.get("NVFP4_TRAIN_CACHE_GB", "0")) * 1024**3)
+_TRAIN_CACHE_BYTES_RESERVED = 0
+
+
+def set_train_dequant_cache_gb(gb: float) -> None:
+    """Set the process-wide train-time bf16 dequant cache budget in GB (0 disables it).
+
+    Call once before the training loop. Resets the running reservation so a re-entry starts fresh.
+    """
+    global _TRAIN_CACHE_LIMIT_BYTES, _TRAIN_CACHE_BYTES_RESERVED
+    _TRAIN_CACHE_LIMIT_BYTES = int(float(gb) * 1024**3)
+    _TRAIN_CACHE_BYTES_RESERVED = 0
+
 
 class _DequantLinear(torch.autograd.Function):
     """Custom autograd that dequants on every forward and recomputes on every backward.
@@ -167,22 +187,36 @@ class NVFP4LoRALinear(nn.Module):
         self._eval_weight: Optional[torch.Tensor] = None
         self._eval_weight_bytes = 0
         self._eval_cache_warned = False
+        # Opt-in train-mode bf16 weight cache (P1-3); persists across steps, budget-capped.
+        self._train_weight: Optional[torch.Tensor] = None
+        self._train_weight_bytes = 0
+        self._train_cache_warned = False
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Base path: training uses custom autograd (dequant recomputed in backward, no bf16 shadow saved);
         # eval uses a lazily-materialized bf16 weight cache for fast `F.linear`.
         if self.training:
-            if self.w_bf16_workspace is None:
-                raise RuntimeError(
-                    "NVFP4LoRALinear.w_bf16_workspace is not set; "
-                    "load the module through the NVFP4 loader so the dequant workspace pool is assigned."
+            cached = self._train_cached_weight(x.dtype)
+            if cached is not None:
+                # Frozen resident bf16 weight: autograd gives dx = dy @ W and no grad to W,
+                # identical to _DequantLinear but without re-dequantizing each step.
+                y = F.linear(x, cached, bias=None)
+            else:
+                if self.w_bf16_workspace is None:
+                    raise RuntimeError(
+                        "NVFP4LoRALinear.w_bf16_workspace is not set; "
+                        "load the module through the NVFP4 loader so the dequant workspace pool is assigned."
+                    )
+                y = _DequantLinear.apply(
+                    x, self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32,
+                    self.group_size, self.w_bf16_workspace, self.nvfp4_format,
                 )
-            y = _DequantLinear.apply(
-                x, self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32,
-                self.group_size, self.w_bf16_workspace, self.nvfp4_format,
-            )
         else:
-            if self._eval_weight is None or self._eval_weight.dtype != x.dtype:
+            if self._train_weight is not None and self._train_weight.dtype == x.dtype:
+                # Reuse the train cache if it is resident, so eval during a train loop does not
+                # build a second bf16 shadow of the same weight.
+                base_weight = self._train_weight
+            elif self._eval_weight is None or self._eval_weight.dtype != x.dtype:
                 global _EVAL_CACHE_BYTES_RESERVED
                 if self._eval_weight is not None:
                     _EVAL_CACHE_BYTES_RESERVED = max(0, _EVAL_CACHE_BYTES_RESERVED - self._eval_weight_bytes)
@@ -235,6 +269,42 @@ class NVFP4LoRALinear(nn.Module):
             self._eval_weight = None
             self._eval_weight_bytes = 0
         return super().train(mode)
+
+    def _train_cached_weight(self, dtype) -> Optional[torch.Tensor]:
+        """Resident bf16 base weight for the training forward, or None to use recompute.
+
+        Populated lazily under the process-wide budget (_TRAIN_CACHE_LIMIT_BYTES); returns None
+        once the budget is exhausted so the remaining modules fall back to the memory-efficient
+        recompute path. The cached weight is frozen (requires_grad_(False)); F.linear(x, w) then
+        yields the same forward and the same dx = dy @ w as _DequantLinear, with no grad to w.
+        """
+        if _TRAIN_CACHE_LIMIT_BYTES <= 0:
+            return None
+        if self._train_weight is not None and self._train_weight.dtype == dtype:
+            return self._train_weight
+        global _TRAIN_CACHE_BYTES_RESERVED
+        if self._train_weight is not None:  # dtype changed -> release and re-reserve
+            _TRAIN_CACHE_BYTES_RESERVED = max(0, _TRAIN_CACHE_BYTES_RESERVED - self._train_weight_bytes)
+            self._train_weight = None
+            self._train_weight_bytes = 0
+        est = self.out_features * self.in_features * 2
+        if _TRAIN_CACHE_BYTES_RESERVED + est <= _TRAIN_CACHE_LIMIT_BYTES:
+            w = dequantize_nvfp4_weight(
+                self.weight_uint8, self.weight_scale_fp8, self.weight_scale_2_fp32,
+                group_size=self.group_size, out_dtype=dtype, format=self.nvfp4_format,
+            ).requires_grad_(False)
+            self._train_weight = w
+            self._train_weight_bytes = est
+            _TRAIN_CACHE_BYTES_RESERVED += est
+            return w
+        if not self._train_cache_warned:
+            warnings.warn(
+                "train dequant cache budget exhausted; this module recomputes its dequant each "
+                "step. Raise --train-dequant-cache-gb, or accept the slower recompute path.",
+                RuntimeWarning, stacklevel=2,
+            )
+            self._train_cache_warned = True
+        return None
 
     @property
     def weight(self) -> torch.Tensor:

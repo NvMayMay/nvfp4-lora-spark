@@ -30,3 +30,16 @@ plots/eval_results.json
 
 # machine-local serve configuration (copy from serve/local_env.example.sh)
 serve/local_env.sh
+
+# running local lab notebook: internal notes, may reference private context
+docs/notebook.md
+
+# private data + private-data trainers: NEVER public. Spider is pulled at repro
+# time by scripts/prep_spider.py, so committed copies under data/ are byproducts.
+# The RH/ICH trainers reference private clinical datasets and stay local-only.
+data/
+scripts/*_ich*.py
+scripts/*_rh*.py
+# private-domain eval outputs + a plan doc that names the private clinical domain
+results/**/*ich*
+docs/plans/mistral_bf16_to_nvfp4_quant.md

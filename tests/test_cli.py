@@ -9,8 +9,18 @@ import json
 
 import pytest
 
-from nybbloris.cli import VERDICT_EXIT, _derive_probe_prompt, main
+from nybbloris.cli import VERDICT_EXIT, _derive_probe_prompt, _require_script, main
 from test_serve_contract import ATTN, _build_adapter, _build_base, _mods
+
+
+def test_require_script_missing_is_clean_false(tmp_path, capsys):
+    # A missing shell-out helper must fail cleanly (False + a clear message), not with an
+    # opaque `python: can't open file` when run from a bare wheel.
+    assert _require_script(tmp_path / "nope.py") is False
+    assert "not found" in capsys.readouterr().out
+    present = tmp_path / "there.py"
+    present.write_text("x = 1\n")
+    assert _require_script(present) is True
 
 
 def _run(argv):

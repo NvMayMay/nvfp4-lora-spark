@@ -66,11 +66,13 @@ def test_nemotron_resolves(train_mod, fixtures_dir):
 
 def test_unsupported_model_type_raises_systemexit(train_mod, fixtures_dir):
     # `gpt2` is a model_type transformers recognizes (so AutoConfig.from_pretrained
-    # succeeds) but which is NOT in FAMILIES. This is the path resolve_family is meant
-    # to guard: it must raise SystemExit with the helpful "Add a FAMILIES entry" message.
+    # succeeds) but which is NOT in FAMILIES. With no opt-in (allow_generic=False, no
+    # family_config), resolve_family preserves the strict fail-fast: SystemExit whose
+    # message names all three porting affordances.
     with pytest.raises(SystemExit) as exc:
         train_mod.resolve_family(fixtures_dir / "unsupported_family")
     msg = str(exc.value)
     assert "Unsupported model_type='gpt2'" in msg
     assert "FAMILIES entry" in msg
-    assert "make_key_translator" in msg
+    assert "--family-config" in msg
+    assert "--allow-unverified-family" in msg

@@ -15,6 +15,10 @@ Patches:
     VLLM_PATCH_ATTN_ONLY_LORA_CUTLASS_MOE=1 is set, so launchers that share
     this PYTHONPATH but do not want dynamic LoRA are unaffected. Env vars
     propagate into the spawned EngineCore process.
+  - nvfp4_emulation_routed_dequant: applied only when
+    VLLM_PATCH_ROUTED_DEQUANT=1 is set. Dequantizes only the routed experts per
+    forward on the NVFP4 emulation MoE backend (the only LoRA-capable NVFP4 MoE
+    path on sm_121). Defensive: falls back to full dequant on any exception.
 """
 
 import os
@@ -73,5 +77,33 @@ def _try_apply_attn_only_lora_cutlass_moe_patch():
         )
 
 
+def _try_apply_routed_dequant_patch():
+    # Routed-only dequant for the NVFP4 emulation MoE backend. Opt-in via env var
+    # so launchers sharing this PYTHONPATH but not using the emulation MoE path are
+    # unaffected. Env vars propagate into the spawned EngineCore process.
+    if os.environ.get("VLLM_PATCH_ROUTED_DEQUANT") != "1":
+        return
+    try:
+        import nvfp4_emulation_routed_dequant
+
+        nvfp4_emulation_routed_dequant.apply_patch()
+        sys.stderr.write(
+            f"[sitecustomize pid={os.getpid()}] applied "
+            "nvfp4_emulation_routed_dequant patch\n"
+        )
+    except ImportError as e:
+        sys.stderr.write(
+            "WARNING: sitecustomize could not import "
+            f"nvfp4_emulation_routed_dequant ({e}); routed-only dequant will NOT "
+            "be active. Verify PYTHONPATH includes the serve/vllm_patches directory.\n"
+        )
+    except Exception as e:
+        sys.stderr.write(
+            f"[sitecustomize pid={os.getpid()}] "
+            f"nvfp4_emulation_routed_dequant failed: {e!r}\n"
+        )
+
+
 _try_apply_marlin_patch()
 _try_apply_attn_only_lora_cutlass_moe_patch()
+_try_apply_routed_dequant_patch()
