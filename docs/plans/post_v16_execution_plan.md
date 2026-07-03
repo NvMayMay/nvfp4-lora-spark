@@ -159,13 +159,13 @@ Cheap facts that de-risk the rest. Run before touching anything:
 
 ### P2 - credibility + distribution (parallel, mixed effort)
 
-#### P2-1  Firm the ~78% quality claim on public data
+#### P2-1  Firm the NVFP4 quality claim on public data
 - **Tier A. GPU.** Dependency: none. Gate: CP3/CP4.
-- Re-run the NVFP4-vs-bf16-LoRA ablation on the public Spider harness for 2 bases where bf16 fits on-box
-  (e.g. Llama-8B, Mistral-24B). Then cheap gap-closers: make `--mask-prompt-labels` default, rank/alpha
-  sweep; one LoftQ-style quant-error-init experiment on a <=32B base (needs bf16 base, feasible there).
-- **Acceptance:** committed Spider eval JSON for both bases; a recovery-% number backed by public data
-  (not just the single private ICH run); any default change gated behind a passing ablation.
+- Measure the NVFP4-native-LoRA-vs-base lift on the public Spider harness (does the fine-tune improve
+  the quantized model on a real task). Then cheap gap-closers: make `--mask-prompt-labels` default,
+  rank/alpha sweep.
+- **Acceptance:** committed Spider eval JSON; the NVFP4 quality lift backed by public data; any default
+  change gated behind a passing ablation.
 
 #### P2-2  Upstream the vLLM patches (un-pin from 0.22.1)
 - **Tier B/C.** Dependency: P0-3 (routed dequant proven). Prep is tier A; a PR to vLLM is tier C.

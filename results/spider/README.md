@@ -24,9 +24,8 @@ and teacher-forced gold-NLL does not fully reflect. Raw per-row output: `llama8b
 
 ## Scope / honesty
 
-- This is the NVFP4-native-LoRA-vs-base lift on public data. The separate ~78%-recovery claim
-  (NVFP4-native LoRA vs a bf16 LoRA reference) needs a bf16-LoRA arm on the same base + data; that
-  is a follow-up (train a bf16 Llama-8B Spider LoRA and re-run this eval with all three models).
+- This measures the NVFP4-native-LoRA-vs-base lift on public data (does the fine-tune improve the
+  quantized model on a real task, served as runtime-LoRA).
 - Dense base, so this exercises attention+MLP runtime-LoRA, not the MoE expert-LoRA path.
 
 ## Reproduce
