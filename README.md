@@ -22,6 +22,16 @@ forward pass at runtime.
 > or marlin) — routed is *backend-gated, not merge-only*. `nybbloris inspect` tells you
 > which path a given base+adapter takes.
 
+**Any NVFP4 checkpoint, even one nybbloris has never seen.** A registered family loads from
+a one-line registry entry, but an *unregistered* flat causal-LM does not need one: a generic
+fallback synthesizes a best-effort family from the checkpoint and the same loop trains and
+serves it, with the strict-load and target-coverage gates catching a layout mismatch so an
+unverified run fails loud, not silent. Proven end to end on **Command-A** (`cohere2`, 111B,
+compressed-tensors NVFP4, no registry entry): trained via the generic fallback and served
+runtime-LoRA with the adapter provably applied (teacher-forced summed log-prob of the gold
+SQL over its answer span moves **-28.8 -> -17.4, +11.4 nats** base vs adapter). Writeup:
+[results/cross_arch/command_a_generic_serve/](results/cross_arch/command_a_generic_serve/).
+
 ## Install
 
 The blessed install is `pip install -e .` from a clone — the CLI's `serve`/`train`
@@ -202,6 +212,23 @@ against real NVFP4 checkpoints on a single GB10:
 | Qwen3-32B (`qwen3` dense) | NVFP4 | Dense family added as ONE registry entry — the binding contract needed zero changes. |
 
 The exact checkpoint-layout contract is [docs/SUPPORTED_TOPOLOGIES.md](docs/SUPPORTED_TOPOLOGIES.md).
+
+### Any other NVFP4 model (generic fallback)
+
+The table above is what has been certified, not a whitelist. An unregistered flat causal-LM
+trains via `--allow-unverified-family` (or `--family-config` for an exact spec): the trainer
+synthesizes a best-effort family from the checkpoint, prints an UNVERIFIED banner, and relies
+on the strict-load + target-coverage gates to catch a layout mismatch. It refuses multimodal
+`*ForConditionalGeneration` wrappers rather than guess at a vision stack.
+
+Validated end to end on an arch with no registry entry: **Command-A-Reasoning** (`cohere2`,
+111B, compressed-tensors `nvfp4-pack-quantized`). The generic fallback trained it (448 modules
+wrapped, native LoRA, clean strict-load, every target classified `nvfp4_ct` across all 64
+layers) and it served runtime-LoRA with the adapter applied (gold-SQL log-prob +11.4 nats,
+base vs adapter). Tied-embedding families (Cohere / Command-R, which compute logits through
+the input embedding) need the opt-in `VLLM_PATCH_TIED_EMBED_LORA=1` serve patch; untied ones
+need nothing. Full writeup:
+[results/cross_arch/command_a_generic_serve/](results/cross_arch/command_a_generic_serve/).
 
 ### Known issues on GB10 (DGX Spark)
 
