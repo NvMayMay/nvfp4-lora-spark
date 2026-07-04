@@ -40,6 +40,7 @@ jobs:
             accelerate==1.13.0 \
             safetensors==0.7.0 \
             peft==0.19.1 \
+            pillow \
             pytest
 
       - name: Syntax checks (compileall + bash -n)
