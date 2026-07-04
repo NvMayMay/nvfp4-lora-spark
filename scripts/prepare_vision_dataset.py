@@ -62,13 +62,28 @@ def _row(question: str, answer: str, image_rel: str) -> dict:
     }
 
 
+def _downscale(img, max_edge: int):
+    """Cap the longest edge to `max_edge` (preserve aspect), so a high-res scan does
+    not blow past `--max-length` once Pixtral patchifies it (a 1000-px image is ~1300
+    image tokens; the mm_data collator fail-loud-refuses to truncate a mid-image run).
+    `max_edge=0` disables. No-op when the image already fits."""
+    if not max_edge:
+        return img
+    w, h = img.size
+    if max(w, h) <= max_edge:
+        return img
+    from PIL import Image
+    scale = max_edge / max(w, h)
+    return img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+
+
 def _prepare_split(ds, split_tag: str, cap: int, out_dir: Path, images_dir: Path,
-                   sample_shown: list) -> int:
+                   sample_shown: list, max_edge: int) -> int:
     n = min(cap, len(ds)) if cap else len(ds)
     rows = []
     for i in range(n):
         ex = ds[i]
-        img = ex["image"].convert("RGB")
+        img = _downscale(ex["image"].convert("RGB"), max_edge)
         image_rel = f"images/vqarad_{split_tag}_{i:06d}.png"
         img.save(images_dir / f"vqarad_{split_tag}_{i:06d}.png")
         row = _row(ex["question"], str(ex["answer"]), image_rel)
@@ -96,6 +111,9 @@ def main() -> int:
     ap.add_argument("--val-split", default="test")
     ap.add_argument("--n", type=int, default=300, help="cap train rows (0 = all)")
     ap.add_argument("--val-n", type=int, default=60, help="cap val rows (0 = all)")
+    ap.add_argument("--max-image-edge", type=int, default=768,
+                    help="downscale longest image edge to this many px so examples fit "
+                         "under --max-length 2048 (0 = keep native resolution)")
     args = ap.parse_args()
 
     from datasets import load_dataset
@@ -111,7 +129,7 @@ def main() -> int:
     ):
         ds = load_dataset(args.dataset, split=split)
         print(f"[load] {args.dataset}:{split} = {len(ds)} rows", flush=True)
-        _prepare_split(ds, tag, cap, out_dir, images_dir, sample_shown)
+        _prepare_split(ds, tag, cap, out_dir, images_dir, sample_shown, args.max_image_edge)
 
     print(
         f"\n[done] wrote {out_dir}/train.jsonl + {out_dir}/val.jsonl + {images_dir}/*.png\n"
