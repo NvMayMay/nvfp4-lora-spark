@@ -111,9 +111,16 @@ def list_weight_module_prefixes(keys: set[str]) -> set[str]:
 
 
 _LAYER_RE_TEXT = r"\.layers\.(\d+)\."
+# Vision-tower layer index for the `--train-target vision` coverage inventory. Both
+# Pixtral (`vision_tower...transformer.layers.N`) and Llama-4 (`vision_model...layers.N`)
+# nest their encoder blocks under a `layers.N`; anchoring to the tower prefix keeps the
+# projector (which has no `layers.N`) in its own bucket. No leading `.`: the inventory
+# runs over on-disk keys, which START with `vision_tower.` / `vision_model.`.
+_LAYER_RE_VISION = r"(?:vision_tower|vision_model)\..*?\.layers\.(\d+)\."
 
 
-def build_target_inventory(model_dir: str | Path, target_suffixes: Sequence[str]) -> dict:
+def build_target_inventory(model_dir: str | Path, target_suffixes: Sequence[str],
+                           family: dict | None = None) -> dict:
     """Full per-module inventory for each requested LoRA target suffix.
 
     For every suffix, enumerates every module in the safetensors index whose
@@ -126,6 +133,14 @@ def build_target_inventory(model_dir: str | Path, target_suffixes: Sequence[str]
     counts reflect what would actually train. A checkpoint whose family is not
     in the registry is inventoried in full (no skip-list known).
 
+    `family` is the EFFECTIVE per-run view (families.family_view). When it is a
+    vision view (`_train_target == "vision"`), the inventory is RESTRICTED to the
+    tower + projector (`vision_st_prefixes`) and uses the vision layer regex, so
+    the coverage gate reports the tower/projector Linears instead of silently
+    counting zero (a text q_proj never matches, but a shared suffix like gate_proj
+    would otherwise pick up the frozen NVFP4 text experts). `family=None` (the
+    default, every existing caller) preserves the text behaviour byte-for-byte.
+
     Returns a JSON-able dict:
       {suffix: {"counts": {class: n, ...},
                 "examples": {class: [up to 3 module names], ...},
@@ -135,17 +150,29 @@ def build_target_inventory(model_dir: str | Path, target_suffixes: Sequence[str]
 
     keys = set(_load_weight_map(model_dir).keys())
     prefixes = list_weight_module_prefixes(keys)
-    # Drop modules outside the training graph (e.g. nemotron_h `mtp.*`,
-    # multimodal towers) so they cannot inflate trainable-target counts.
-    try:
-        _, fam = families.resolve_family(model_dir)
-        skip = tuple(fam.get("skip_st_prefixes", ()))
-    except (SystemExit, OSError, ValueError):
-        # Unknown family / missing or unreadable config.json -> no skip-list;
-        # inventory the checkpoint in full (the inspector runs on these too).
-        skip = ()
-    if skip:
-        prefixes = {p for p in prefixes if not p.startswith(skip)}
+    vision_mode = family is not None and family.get("_train_target") == "vision"
+    if vision_mode:
+        # Restrict to the tower + projector on-disk prefixes; everything else
+        # (the frozen NVFP4 text backbone) is not a vision target.
+        keep = tuple(family.get("vision_st_prefixes", ()))
+        prefixes = {p for p in prefixes if keep and p.startswith(keep)}
+        layer_re = _LAYER_RE_VISION
+    else:
+        # Drop modules outside the training graph (e.g. nemotron_h `mtp.*`,
+        # multimodal towers) so they cannot inflate trainable-target counts.
+        if family is not None:
+            skip = tuple(family.get("skip_st_prefixes", ()))
+        else:
+            try:
+                _, fam = families.resolve_family(model_dir)
+                skip = tuple(fam.get("skip_st_prefixes", ()))
+            except (SystemExit, OSError, ValueError):
+                # Unknown family / missing or unreadable config.json -> no skip-list;
+                # inventory the checkpoint in full (the inspector runs on these too).
+                skip = ()
+        if skip:
+            prefixes = {p for p in prefixes if not p.startswith(skip)}
+        layer_re = _LAYER_RE_TEXT
     inventory: dict[str, dict] = {}
     for suffix in target_suffixes:
         matches = sorted(p for p in prefixes if p.rsplit(".", 1)[-1] == suffix)
@@ -158,7 +185,7 @@ def build_target_inventory(model_dir: str | Path, target_suffixes: Sequence[str]
             examples.setdefault(cls, [])
             if len(examples[cls]) < 3:
                 examples[cls].append(p)
-            m = re.search(_LAYER_RE_TEXT, p)
+            m = re.search(layer_re, p)
             if m:
                 layers.setdefault(cls, [])
                 idx = int(m.group(1))
@@ -177,6 +204,7 @@ def decide_lora_mode(
     target_suffixes: Sequence[str],
     *,
     allow_partial_targets: bool = False,
+    family: dict | None = None,
 ) -> tuple[str, dict]:
     """Decide native-NVFP4 vs PEFT LoRA from a full module inventory, fail-fast.
 
@@ -197,8 +225,14 @@ def decide_lora_mode(
 
     Returns (mode, coverage) where mode is "native" or "peft" and coverage is
     a JSON-able report worth persisting next to the adapter.
+
+    `family` is the effective per-run view (families.family_view); when it is a
+    vision view the inventory is restricted to the tower + projector. Vision
+    targets are unquantized bf16, so this returns mode="peft"; the trainer forces
+    the native BF16LoRALinear path for a vision run (see train_nvfp4_lora). The
+    default `family=None` is unchanged for every text caller.
     """
-    inventory = build_target_inventory(model_dir, target_suffixes)
+    inventory = build_target_inventory(model_dir, target_suffixes, family=family)
     problems: list[str] = []
     tot_nvfp4 = tot_fp8 = tot_bf16 = 0
     bf16_suffixes: list[str] = []
@@ -243,7 +277,7 @@ def decide_lora_mode(
     return mode, coverage
 
 
-def make_key_translator(model: nn.Module, model_dir: str | Path):
+def make_key_translator(model: nn.Module, model_dir: str | Path, family: dict | None = None):
     """Build a function that maps a safetensors key to the corresponding model attribute path.
 
     Per-family prefix-map architecture (Phase 0.2 redesign). The old single-level
@@ -260,6 +294,18 @@ def make_key_translator(model: nn.Module, model_dir: str | Path):
     """
     cfg = getattr(model, "config", None)
     model_type = getattr(cfg, "model_type", None)
+
+    # ----- Effective per-run view (families.family_view) -----
+    # When the caller threads an explicit family/view carrying a static
+    # st_to_model (a `--train-target vision` view adds the tower/projector rewrite
+    # rules and un-skips their prefixes), use it verbatim. For a registered text
+    # family this view IS the registry entry, so the translator is identical to the
+    # registry-lookup path below (zero behaviour change). `family=None` (every
+    # pre-vision caller) falls straight through to the registry lookup.
+    if family is not None and family.get("st_to_model") is not None:
+        translate = families.make_family_translator(family)
+        st_prefix, model_prefix = families.translator_log_prefixes(family)
+        return translate, st_prefix, model_prefix
 
     # ----- Registry-driven families (Qwen3.5 MoE, Mistral3/4) -----
     # Skip prefixes and st->model rewrite rules live in nvfp4_lora/families.py
@@ -403,6 +449,7 @@ def _collect_quantized_linear_records(
     model: nn.Module,
     model_dir: Path,
     target_lora_suffixes: Sequence[str],
+    family: dict | None = None,
 ) -> tuple[list[_QuantizedLinearRecord], dict[str, int]]:
     nvfp4_module_names_st = list_quantized_modules(model_dir)
     idx = json.loads((model_dir / "model.safetensors.index.json").read_text())
@@ -410,7 +457,7 @@ def _collect_quantized_linear_records(
     keys = set(wm.keys())
     target_set = set(target_lora_suffixes)
 
-    translate, st_prefix, model_prefix = make_key_translator(model, model_dir)
+    translate, st_prefix, model_prefix = make_key_translator(model, model_dir, family=family)
     model_to_st: dict[str, str] = {}
     for st_name in nvfp4_module_names_st:
         m_name = translate(st_name)
@@ -567,6 +614,7 @@ def replace_nvfp4_modules(
     lora_dropout: float = 0.0,
     device: torch.device = torch.device("cuda"),
     dtype: torch.dtype = torch.bfloat16,
+    family: dict | None = None,
 ) -> dict[str, int]:
     """Replace every NVFP4 nn.Linear in `model` with an `NVFP4LoRALinear` instance.
 
@@ -574,6 +622,10 @@ def replace_nvfp4_modules(
       requested rank (trainable).
     - Other NVFP4 modules get r=0 (frozen-only) but still as NVFP4LoRALinear so the
       dequant happens through our path (not via uninitialized memory).
+
+    `family` is the effective per-run view threaded to `make_key_translator` (a
+    `--train-target vision` view un-skips the tower keys). `family=None` is the
+    unchanged registry-lookup path.
 
     Returns: dict with counts {"lora": N_lora, "frozen": N_frozen}.
     """
@@ -584,7 +636,7 @@ def replace_nvfp4_modules(
     target_set = set(target_lora_suffixes)
 
     # Translate safetensors keys -> model attribute paths (handles Nano `backbone.` vs Super `model.`)
-    translate, st_prefix, model_prefix = make_key_translator(model, model_dir)
+    translate, st_prefix, model_prefix = make_key_translator(model, model_dir, family=family)
     # Map model-side path -> safetensors-side name, so we can look up tensors via safetensors keys
     model_to_st: dict[str, str] = {}
     for st_name in nvfp4_module_names_st:
@@ -744,6 +796,7 @@ def replace_nvfp4_modules_pooled(
     lora_dropout: float = 0.0,
     device: torch.device = torch.device("cuda"),
     dtype: torch.dtype = torch.bfloat16,
+    family: dict | None = None,
 ) -> dict[str, int]:
     """Pooled-storage variant of `replace_nvfp4_modules`.
 
@@ -761,7 +814,8 @@ def replace_nvfp4_modules_pooled(
     model_dir = Path(model_dir)
     idx = json.loads((model_dir / "model.safetensors.index.json").read_text())
     wm = idx["weight_map"]
-    records, counts = _collect_quantized_linear_records(model, model_dir, target_lora_suffixes)
+    records, counts = _collect_quantized_linear_records(
+        model, model_dir, target_lora_suffixes, family=family)
 
     nvfp4_records = [rec for rec in records if rec.weight_dtype == torch.uint8]
     fp8_records = [rec for rec in records if rec.weight_dtype == torch.float8_e4m3fn]
@@ -995,6 +1049,7 @@ def load_non_nvfp4_weights(
     device: torch.device = torch.device("cuda"),
     dtype: torch.dtype = torch.bfloat16,
     strict: bool = True,
+    family: dict | None = None,
 ) -> int:
     """Load all on-disk tensors that are NOT part of an NVFP4 module's storage.
 
@@ -1016,8 +1071,10 @@ def load_non_nvfp4_weights(
     idx = json.loads((model_dir / "model.safetensors.index.json").read_text())
     wm = idx["weight_map"]
 
-    # Translate safetensors keys -> model attribute paths
-    translate, st_prefix, model_prefix = make_key_translator(model, model_dir)
+    # Translate safetensors keys -> model attribute paths. `family` (the effective
+    # per-run view) makes a vision run load + materialize the tower/projector bf16
+    # weights that text mode skips; None keeps the registry-lookup path unchanged.
+    translate, st_prefix, model_prefix = make_key_translator(model, model_dir, family=family)
 
     # Which modules in the model were swapped in by `replace_nvfp4_modules` (so their on-disk
     # NVFP4 / FP8 storage tensors must NOT be re-loaded here). Both NVFP4LoRALinear and the
