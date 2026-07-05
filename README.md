@@ -240,6 +240,31 @@ need nothing. Full writeup:
 
 ![On unregistered Command-A, the served LoRA raises the gold-SQL log-prob from -28.8 to -17.4 (+11.4 nats)](plots/command_a_applied.png)
 
+### Fine-tune the vision tower of a VLM (`--train-target vision`)
+
+In the NVFP4 VLMs checked, the vision tower + projector are bf16 and only the LLM
+backbone is NVFP4. `--train-target vision` freezes the 4-bit backbone and LoRA-trains
+the bf16 tower + projector instead (the default `text` mode is byte-for-byte unchanged).
+No new kernels: vision targets are bf16, so they ride the existing bf16-LoRA path.
+
+GPU-validated on two vision-stack architectures, **at different depths**:
+
+- **Pixtral** (Mistral-Small-3.2-24B) -- **end to end**: gradients flow through the frozen
+  4-bit LLM into the tower LoRA (first-backward grad gate); merge into the bf16 tower
+  (`scripts/merge_vision_lora.py`, NVFP4 backbone preserved byte-for-byte); serve the
+  **merged** VLM via vLLM. On public **vqa-rad**, normalized exact-match rose
+  **0.450 -> 0.490 (+4.0 pts, n=451)**, merged vs base -- a deadline-capped ~half-epoch
+  adapter on one dataset (an observed result, not a tuned ceiling). Writeup:
+  [results/vision_vqa_serve/](results/vision_vqa_serve/).
+- **Llama-4 vision** (Scout-109B) -- **training-path validated only**: the vision tower
+  LoRA attaches and the first-backward grad gate passes (gradients flow through the frozen
+  4-bit 109B MoE backbone into the tower), ~73 GB. Merge / serve / eval are **not yet
+  exercised**, and the Llama-4-specific dense expert forward added to load it is checked by
+  grad-flow + finite loss, **not** a numerical-parity test vs the reference forward.
+
+Vision adapters have **no vLLM runtime-LoRA path** (vLLM applies LoRA to the LLM backbone
+only), so the vision serve story is merge-to-bf16-base.
+
 ### Known issues on GB10 (DGX Spark)
 
 Consolidated in [`nvfp4_lora/gb10_prep.py`](nvfp4_lora/gb10_prep.py):
