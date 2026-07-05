@@ -93,3 +93,47 @@ Static `inspect` proves an adapter BINDS; `--verify` proves it CHANGED behavior
 at runtime (low char-prefix agreement vs base = diverged = applied; ~identical =
 a possible silent no-op). `--verify-only` exits non-zero on a WARN, so it works
 as a CI gate.
+
+## 6. Vision-LoRA serving (merge-to-base only, no runtime path)
+
+**Runtime-LoRA does NOT apply a vision-tower adapter.** vLLM's runtime-LoRA
+targets the LLM BACKBONE's Linears; a `--train-target vision` adapter targets the
+bf16 vision tower + multimodal projector, which the runtime-LoRA path never
+touches. So `--enable-lora --lora-modules myvision=<adapter>` on a VLM base loads
+the adapter but leaves the vision stack unchanged -- there is no runtime path for
+a vision fine-tune. Do not claim runtime-LoRA vision serving.
+
+**The supported path is merge-to-bf16-base.** The tower/projector are unquantized
+in every reference NVFP4 VLM, so the merge is a plain `W += (alpha/r)·B·A` into
+bf16 -- no dequant/requant, and the frozen 4-bit LLM backbone is preserved
+byte-for-byte:
+
+```
+python scripts/merge_vision_lora.py \
+  --base-model-dir <Mistral-Small-3.2-24B-NVFP4> \
+  --adapter-dir <vision-adapter> \
+  --out-dir <...-vision-merged>
+```
+
+Only the shard(s) holding a tower/projector weight are rewritten (NVFP4 tensors in
+those shards are read through verbatim); every other shard, plus the index /
+config / processor / tokenizer files, is copied unchanged. Then serve the merged
+dir as a plain multimodal VLM (no `--enable-lora`):
+
+```
+serve/run_mistral24b_vision_merged.sh   # MERGED_DIR=<...-vision-merged>
+```
+
+Base-vs-merged is scored with `scripts/eval_vision_retention.py` (normalized VQA
+exact-match over vqa-rad val, images inlined as base64 data URLs), the vision
+analog of `eval_retention.py`.
+
+**Runtime-LoRA-vision probe (GPU-run-later, to CONFIRM the gap).** The honest
+claim above is a design fact, not yet a measured probe on this stack. To confirm
+it, serve the base with the vision adapter as a runtime `--lora-modules` and run
+`scripts/serve_apply_check.py --base-model <base> --adapter-model <vision-lora>`
+with a prompt that includes an image: it echoes the same prompt under base vs
+adapter and reports whether the forward pass changed. Expect `NO-OP` (identical
+logprobs) -- the runtime path does not reach the tower. Record the verdict here
+once run; any runtime-vision claim is gated on a PASSING (`APPLIES`) probe, which
+is not expected.

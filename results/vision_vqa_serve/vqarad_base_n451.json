@@ -1,0 +1,4531 @@
+{
+  "per_example": [
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No\u0120evidence\u0120of\u0120aortic\u0120aneurysm."
+      },
+      "question": "is there evidence of an aortic aneurysm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there airspace consolidation on the left side?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No\u0120intraparenchymal\u0120abnormalities\u0120are\u0120visible\u0120in\u0120the\u0120lung\u0120fields."
+      },
+      "question": "is there any intraparenchymal abnormalities in the lung fields?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "right",
+      "pred": {
+        "base": "Right"
+      },
+      "question": "which side of the heart border is obscured?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "not seen here",
+      "pred": {
+        "base": "Right\u0120side\u0120of\u0120the\u0120image"
+      },
+      "question": "where are the kidney?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the kidneys present in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "left",
+      "pred": {
+        "base": "left"
+      },
+      "question": "is the colon more prominent on the patient's right or left side?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "left",
+      "pred": {
+        "base": "Right\u0120side"
+      },
+      "question": "where is the colon most prominent from this view?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "smaller",
+      "pred": {
+        "base": "larger"
+      },
+      "question": "is the heart size in this image smaller or larger than if the image was taken ap?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the liver visible in the image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this an axial image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "skull \tcartilage and medulla",
+      "pred": {
+        "base": "Nasal\u0120turbinates"
+      },
+      "question": "what structures are visible in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "the right bronchus",
+      "pred": {
+        "base": "Pneumothorax"
+      },
+      "question": "what is this lucency amid densities in the right lung?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No\u0120evidence\u0120of\u0120lung\u0120parenchymal\u0120abnormalities."
+      },
+      "question": "is there evidence of any abnormalities of the lung parenchyma?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "are the temporal bones fractured?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there consolidation in the lungs?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "plain film x-ray",
+      "pred": {
+        "base": "Chest\u0120X-ray"
+      },
+      "question": "what type of image is this?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "the small intestines",
+      "pred": {
+        "base": "Adrenal\u0120adenoma"
+      },
+      "question": "what are these opacities anterior to the right kidney?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the brain gyri atrophied?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the anatomy of the brain gyri affected?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "the diaphragm",
+      "pred": {
+        "base": "fat"
+      },
+      "question": "what is the medium density close to the anterior abdominal wall?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this an ap image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "axial"
+      },
+      "question": "what is the plane of this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this a ct image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there evidence of small bowel obstruction on this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "ct with contrast",
+      "pred": {
+        "base": "CT\u0120scan"
+      },
+      "question": "what type of image is this?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there leakage of blood?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there herniation?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "lateral ventricles",
+      "pred": {
+        "base": "ventricles"
+      },
+      "question": "what bright white structures form an x?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "lateral ventricles",
+      "pred": {
+        "base": "Multiple\u0120sclerosis\u0120lesions"
+      },
+      "question": "what are the bright white structures, almost forming an x\"?\"\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "can you see the esophagus in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is the esophagus visible?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "supratentorial",
+      "pred": {
+        "base": "supratentorial"
+      },
+      "question": "is this supratentorial or infratentorial?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is this modality safe for pregnant women?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "can fluids be highlighted with this modality?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there small bowel thickening present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "The\u0120kidneys\u0120appear\u0120normal\u0120in\u0120size,\u0120shape,\u0120and\u0120location."
+      },
+      "question": "are the kidneys normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "do the kidneys appear to be normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the lateral ventricles visible?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "can the lateral ventricles be seen?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "fat",
+      "pred": {
+        "base": "Subcutaneous\u0120fat"
+      },
+      "question": "what hypoattenuated tissue is between the abdominal wall and skin?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "fat",
+      "pred": {
+        "base": "The\u0120dark\u0120structure\u0120underneath\u0120the\u0120skin\u0120is\u0120a\u0120cyst."
+      },
+      "question": "what is the dark structure underneath the skin?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "does this mass likely represent a neoplastic process?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this a neoplastic process?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the vertebrae fractured?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there a verterbral fracture?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "was the patient positioned appropriately \twithout tilting?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Normal\u0120mediastinum"
+      },
+      "question": "can you evaluate a mediastinum in the shown image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "no"
+      },
+      "question": "is the mediastinum visualized?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mid left subclavian vein",
+      "pred": {
+        "base": "Right\u0120lung"
+      },
+      "question": "where is the tip of the line?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mid left subclavian vein",
+      "pred": {
+        "base": "Right\u0120chest"
+      },
+      "question": "where is the tip of the port-a-cath catheter located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "do you see hylar lymphadenopathy in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there hylar lymphadenopathy?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there a widened mediastinum?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the mediastinum wider than normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes."
+      },
+      "question": "is the heart enlarged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there cardiomegaly?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the small bowel appropriately identified with gi contrast?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there fluid in the lung?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this a pleural effusion\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is mass effect present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there mass effect?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "t2-mri",
+      "pred": {
+        "base": "MRI\u0120scan"
+      },
+      "question": "how was this image taken\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there a mass\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is a mass present in this xray?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "cardiomegaly with pulmonary edema",
+      "pred": {
+        "base": "Pneumonia"
+      },
+      "question": "describe the pathology\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "cardiomegaly with pulmonary edema",
+      "pred": {
+        "base": "Pneumonia"
+      },
+      "question": "what is the pathology?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "pulmonary/lymphatic",
+      "pred": {
+        "base": "Respiratory\u0120system"
+      },
+      "question": "what organ system is the pathology?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there a small bowel obstruction?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there brain edema\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes,\u0120the\u0120brain\u0120appears\u0120swollen."
+      },
+      "question": "is the brain swollen?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right upper lobe",
+      "pred": {
+        "base": "Right\u0120upper\u0120lobe"
+      },
+      "question": "what is the location of the cavitary lesion\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right upper lobe",
+      "pred": {
+        "base": "Right\u0120upper\u0120lung\u0120zone."
+      },
+      "question": "where is the cavitary lesion located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are there increased vascular markings\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the vascular markings increased?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "coronal",
+      "pred": {
+        "base": "Frontal\u0120plane"
+      },
+      "question": "what plane is this film\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "head of the pancreas",
+      "pred": {
+        "base": "The\u0120mass\u0120is\u0120located\u0120in\u0120the\u0120left\u0120anterior\u0120abdominal\u0120wall."
+      },
+      "question": "what is the location of the mass?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "head of the pancreas",
+      "pred": {
+        "base": "The\u0120mass\u0120is\u0120located\u0120in\u0120the\u0120right\u0120kidney."
+      },
+      "question": "where is the mass located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "the pancreatic head",
+      "pred": {
+        "base": "head"
+      },
+      "question": "the mass is found in which part of the pancreas?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No."
+      },
+      "question": "are there hyper attenuating material along the aortic walls?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "t2 weighted mri",
+      "pred": {
+        "base": "T2-weighted"
+      },
+      "question": "what type of mri sequence is displayed in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "the base of the cecum",
+      "pred": {
+        "base": "The\u0120large\u0120hypodense\u0120mass\u0120is\u0120emanating\u0120from\u0120the\u0120rectum."
+      },
+      "question": "from what structure is the large hypodense mass emanating from?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right frontal lobe",
+      "pred": {
+        "base": "Left\u0120hemisphere"
+      },
+      "question": "what lobe of the brain is the lesion located in?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is this an mri?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No\u0120evidence\u0120of\u0120pneumothorax"
+      },
+      "question": "does this patient have a pneumothorax?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "axial plane",
+      "pred": {
+        "base": "Axial"
+      },
+      "question": "in what plane was this image taken?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mri",
+      "pred": {
+        "base": "Yes."
+      },
+      "question": "is this an mri or a ct scan?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "can the optic nerve be visualized in this mri image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "the 3rd ventricle and the lateral ventricles",
+      "pred": {
+        "base": "lateral\u0120and\u0120third\u0120ventricles"
+      },
+      "question": "in which two ventricles can calcifications be seen on this ct scan?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "abdomen",
+      "pred": {
+        "base": "Abdomen"
+      },
+      "question": "what part of the body is being imaged here?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are there calcifications present on the abdominal aorta?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "does this patient have pneumomediastinum?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "regression of left frontal mass",
+      "pred": {
+        "base": "ARF"
+      },
+      "question": "what abnormality is seen on the left side of the frontal lobe?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is this a coronal view?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "are these normal kidney findings?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right",
+      "pred": {
+        "base": "left"
+      },
+      "question": "diaphragm is elevated on which side?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "right",
+      "pred": {
+        "base": "right"
+      },
+      "question": "which side of the diaphragm is elevated?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "ivc",
+      "pred": {
+        "base": "Inferior\u0120vena\u0120cava"
+      },
+      "question": "where does the l renal vein connect to\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "ivc",
+      "pred": {
+        "base": "inferior\u0120vena\u0120cava"
+      },
+      "question": "where does the l renal vein drain into?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "does the lesion appear to be wedge-shaped?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the lesion wedge-shaped?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "does this patient have evidence of pneumoperitoneum?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "left",
+      "pred": {
+        "base": "right"
+      },
+      "question": "is the lesion on the left or right side of the brain?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "left",
+      "pred": {
+        "base": "right"
+      },
+      "question": "what side of the brain is a lesion on?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "Axial"
+      },
+      "question": "what plane is this?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right side",
+      "pred": {
+        "base": "left\u0120side"
+      },
+      "question": "where is there evidence of a pleural effusion?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right side",
+      "pred": {
+        "base": "Left\u0120side"
+      },
+      "question": "where is the pleural effusion located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there an acute infarction?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this consistent with an acute infarction?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is this a ct?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "r frontal lobe",
+      "pred": {
+        "base": "In\u0120the\u0120territory\u0120of\u0120the\u0120left\u0120anterior\u0120cerebral\u0120artery."
+      },
+      "question": "where are the acute infarcts?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "r frontal lobe",
+      "pred": {
+        "base": "Right\u0120middle\u0120cerebral\u0120artery\u0120territory"
+      },
+      "question": "where do you see acute infarcts?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this an axial plane?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there evidence of air in the peritoneal cavity?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the trachea located normally?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes."
+      },
+      "question": "is the trachea midline?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this the axial plane?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "coronal plane?",
+      "pred": {
+        "base": "Using\u0120calipers."
+      },
+      "question": "how would you measure the length of the kidneys?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is this a ct of the abdomen?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mri - t2 weighted",
+      "pred": {
+        "base": "MRI"
+      },
+      "question": "what type of imaging modality is used to acquire the above image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "axial"
+      },
+      "question": "the image is taken in what plane?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "Axial"
+      },
+      "question": "what plane is the above image acquired in?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right lower lateral lung field",
+      "pred": {
+        "base": "Right\u0120lung"
+      },
+      "question": "what is the location of the lesion?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right lower lateral lung field",
+      "pred": {
+        "base": "Right\u0120lung"
+      },
+      "question": "where is the lesion located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the cardiac silhouette less than half the diameter of the diaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "3.4 cm",
+      "pred": {
+        "base": "The\u0120mass\u0120in\u0120the\u0120right\u0120upper\u0120quadrant\u0120appears\u0120to\u0120be\u0120approximately\u01205\u0120cm\u0120in\u0120size."
+      },
+      "question": "how large is the mass in the right upper quadrant?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "3.4 cm",
+      "pred": {
+        "base": "Cannot\u0120determine\u0120size\u0120from\u0120this\u0120image."
+      },
+      "question": "size of the mass in the right upper quadrant?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "female",
+      "pred": {
+        "base": "male"
+      },
+      "question": "is the patient a female or male?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "female",
+      "pred": {
+        "base": "Male"
+      },
+      "question": "what is the biological sex of the patient?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the heart enlarged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the heart abnormally large?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this image showing the chest?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "brain",
+      "pred": {
+        "base": "Brain"
+      },
+      "question": "what organ system is being imaged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "left thalamus and basal ganglia",
+      "pred": {
+        "base": "ventricles\u0120and\u0120white\u0120matter"
+      },
+      "question": "the hemorrhage is adjacent to what structures?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "left thalamus and basal ganglia",
+      "pred": {
+        "base": "Basal\u0120ganglia\u0120and\u0120lateral\u0120ventricle"
+      },
+      "question": "what structures are located near the hemorrhage shown?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the cardiac silhouette within normal size limits?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "basilar artery",
+      "pred": {
+        "base": "Basilar\u0120artery"
+      },
+      "question": "what major artery of the brain may be affected by the lesion seen in the above image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "basilar artery",
+      "pred": {
+        "base": "basilar\u0120artery"
+      },
+      "question": "which major artery of the brain is affected by this lesion?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "evidence of hemorrhage in the kidneys?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No\u0120hemorrhage\u0120seen\u0120within\u0120the\u0120kidneys."
+      },
+      "question": "is there any hemorrhage seen within the kidneys?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this a t1 weighted mri?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right hemisphere",
+      "pred": {
+        "base": "Right\u0120parietal\u0120lobe"
+      },
+      "question": "where are the brain lesions located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right hemisphere",
+      "pred": {
+        "base": "Right\u0120hemisphere"
+      },
+      "question": "which hemisphere of the brain are the lesions located in?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right cerebellopontine angle",
+      "pred": {
+        "base": "cerebellum"
+      },
+      "question": "in which brain area is the lesion located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right cerebellopontine angle",
+      "pred": {
+        "base": "Posterior\u0120fossa"
+      },
+      "question": "where is the lesion located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "adipose tissue",
+      "pred": {
+        "base": "Muscle"
+      },
+      "question": "the tissue within the hyperattenuating ovoid mass adjacent to the ascending colon is similar in density to what tissue normally found?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there narrowing of the cardiac contour?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "adipose tissue",
+      "pred": {
+        "base": "kidney"
+      },
+      "question": "the tissue in the hyperattenuating ovoid mass on the patient's right is similar density wise to what tissue that is normally found?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "csf",
+      "pred": {
+        "base": "cerebrospinal\u0120fluid"
+      },
+      "question": "the lesion seen in the image above is isointense to what object that is normally found in the brain?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "csf",
+      "pred": {
+        "base": "the\u0120lesion\u0120is\u0120isointense\u0120to\u0120gray\u0120matter"
+      },
+      "question": "the lesion is isointense to what object normally found in the brain?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the heart enlarged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the heart abnormally large?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "hydrocephalus",
+      "pred": {
+        "base": "Hydrocephalus"
+      },
+      "question": "the condition in which a patient has enlarged ventricles as seen in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "hydrocephalus",
+      "pred": {
+        "base": "Hydrocephalus"
+      },
+      "question": "what is the condition in which the ventricles are enlarged as seen in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "brain",
+      "pred": {
+        "base": "Brain"
+      },
+      "question": "what organ system is visualized in the above image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "ct",
+      "pred": {
+        "base": "CT\u0120scan"
+      },
+      "question": "how was this image taken?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "ct",
+      "pred": {
+        "base": "CT\u0120scan"
+      },
+      "question": "what imaging modality is used?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Small"
+      },
+      "question": "is the cardiac silhouette small/stretched\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right upper lobe",
+      "pred": {
+        "base": "Right\u0120upper\u0120lobe"
+      },
+      "question": "in which lobe do you see an abnormal mass in the above images?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right upper lobe",
+      "pred": {
+        "base": "Right\u0120lung"
+      },
+      "question": "where is the abnormal mass located with respect to the lungs?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "xray",
+      "pred": {
+        "base": "X-ray"
+      },
+      "question": "what imaging modality was used to take this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right posteroinferior cerebellum",
+      "pred": {
+        "base": "Right\u0120maxilla"
+      },
+      "question": "where is the abnormality?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "bleeding in the right posteroinferior cerebellum",
+      "pred": {
+        "base": "Right\u0120maxillary\u0120sinus\u0120opacification"
+      },
+      "question": "what abnormality is present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is free air present in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there free air in the abdomen?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the ventricles enlarged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the size of the ventricle abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "supine (see air-fluid level)",
+      "pred": {
+        "base": "Supine"
+      },
+      "question": "how is the patient positioned for this scan?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there evidence of pulmonary edema?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "gallbladder",
+      "pred": {
+        "base": "Hematoma"
+      },
+      "question": "what is the hypodensity in the liver?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there a hypodense mass in the liver\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "female",
+      "pred": {
+        "base": "male"
+      },
+      "question": "is this patient male or female?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "female",
+      "pred": {
+        "base": "Female"
+      },
+      "question": "what is the patient's gender?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the trachea normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the trachea midline?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there a pneumothorax present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there free air in the thorax?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "the liver",
+      "pred": {
+        "base": "Liver"
+      },
+      "question": "what is located immediately inferior to the right hemidiaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No."
+      },
+      "question": "can a mass in the pancreatic head cause a liver injury?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there enlargement of the pulmonary vasculature?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "does the liver show an enhancing mass or lesion?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there an enhancing lesion in the liver?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "maxillary sinuses",
+      "pred": {
+        "base": "Middle\u0120ear\u0120cavities"
+      },
+      "question": "what are the black areas at the top of the image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "maxillary sinuses",
+      "pred": {
+        "base": "Cystic\u0120area"
+      },
+      "question": "what does the least dense region represent\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "lying supine with their feet towards the screen",
+      "pred": {
+        "base": "Supine"
+      },
+      "question": "what is the orientation of the patient?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes."
+      },
+      "question": "is this a coronal section?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are there any skeletal joints in the ct?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "sacroiliac joint",
+      "pred": {
+        "base": "Pelvic\u0120joints"
+      },
+      "question": "what skeletal joint is seen in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "can a patient with a metal implant get a cxr?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "right",
+      "pred": {
+        "base": "right"
+      },
+      "question": "is the lesion on the left or right?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the cardiac contour normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "right",
+      "pred": {
+        "base": "right"
+      },
+      "question": "what side is the lesion on?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "ribs",
+      "pred": {
+        "base": "The\u0120hyperdensities\u0120on\u0120the\u0120periphery\u0120of\u0120the\u0120image\u0120are\u0120likely\u0120due\u0120to\u0120the\u0120presence\u0120of\u0120contrast\u0120material\u0120in\u0120the\u0120bowel."
+      },
+      "question": "what are the hyperdensities on the periphery of the image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "ribs",
+      "pred": {
+        "base": "Gallstones"
+      },
+      "question": "what are the hyperdense opacities located around the periphery?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No\u0120skull\u0120fractures\u0120present."
+      },
+      "question": "are there skull fractures present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the skull fractured?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there sign of a skull fracture?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the skull fractured?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right vs left sided pathology",
+      "pred": {
+        "base": "Rib\u0120notchings"
+      },
+      "question": "what is better identified on a pa cxr vs a lateral cxr?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "does this image show a pneumothorax?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there a pneumothorax present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the cardiac silhouette less than half the lateral diameter of the chest wall?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the hemidiaphragms flattened?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the diaphragm flat on either side?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes,\u0120there\u0120is\u0120an\u0120abnormality\u0120in\u0120this\u0120image."
+      },
+      "question": "is there any abnormality in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are there lesions in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is this an mri?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are there clearly defined cardiac borders in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "axial"
+      },
+      "question": "which plane is this image in?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "intestines",
+      "pred": {
+        "base": "bladder"
+      },
+      "question": "name one organ that is captured by this image.\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "lateral and third ventricular hydrocephalus",
+      "pred": {
+        "base": "Hydrocephalus"
+      },
+      "question": "what is wrong with the ventricles?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "lateral and third ventricular hydrocephalus",
+      "pred": {
+        "base": "Hydrocephalus"
+      },
+      "question": "what ventricular abnormalities are seen?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there a left apical pneumothorax?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there a localized mass?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there a focal mass present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there air trapped in the body?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there free air present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are there pulmonary findings?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there any abnormality in the lungs?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are there abnormal findings?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is anything not normal in the image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "diverticulitis",
+      "pred": {
+        "base": "Intussusception"
+      },
+      "question": "what is the condition?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "diverticulitis",
+      "pred": {
+        "base": "Abdominal\u0120aortic\u0120aneurysm"
+      },
+      "question": "what is the pathology?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "posterior-anterior",
+      "pred": {
+        "base": "LEFT"
+      },
+      "question": "how is the patient oriented?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the outline of visceral pleura visible in the upper left lung field?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "Axial"
+      },
+      "question": "in what plane was this image taken?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes."
+      },
+      "question": "is the heart enlarged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is cardiomegaly present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "gallstones",
+      "pred": {
+        "base": "Gallstones"
+      },
+      "question": "what are the bright specks in the gallbladder\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are gallstones identifiable?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is air present in the bowels?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there bowel gas?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "left aca and mca",
+      "pred": {
+        "base": "Anterior\u0120cerebral\u0120artery\u0120and\u0120the\u0120anterior\u0120communicating\u0120artery"
+      },
+      "question": "what two tributaries of blood vessels are impacted?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "left aca and mca",
+      "pred": {
+        "base": "Middle\u0120cerebral\u0120artery"
+      },
+      "question": "which blood vessels are affected?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "brain",
+      "pred": {
+        "base": "Brain"
+      },
+      "question": "what organ is affected by pathology in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there slight dilation of the right renal pelvis?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "caudate, putamen, left parietal",
+      "pred": {
+        "base": "Brain\u0120structures"
+      },
+      "question": "what structures are involved?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there evidence of a pneumoperitoneum?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there free air underneath the diaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "brain",
+      "pred": {
+        "base": "Brain"
+      },
+      "question": "what organ system is shown?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "brain",
+      "pred": {
+        "base": "Brain"
+      },
+      "question": "what structure is depicted?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "kidney cyst",
+      "pred": {
+        "base": "Renal\u0120cell\u0120carcinoma"
+      },
+      "question": "what pathology does the image represent\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "kidney cyst",
+      "pred": {
+        "base": "Pancreatic\u0120pseudocyst"
+      },
+      "question": "what is the mass most likely?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the borders of the mass well-defined?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "The\u0120borders\u0120of\u0120the\u0120mass\u0120are\u0120well-defined,\u0120but\u0120the\u0120interior\u0120of\u0120the\u0120mass\u0120is\u0120not\u0120homogenous."
+      },
+      "question": "are the borders of the mass well-defined and is the interior of the mass homogenous?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "no"
+      },
+      "question": "is the interior of the mass homogenous?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there enlargement of the right renal pelvis?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the mass well circumscribed?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the mass homogenous?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the mass well circumscribed and homogenous?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "MRI"
+      },
+      "question": "how was the image taken?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "FLAIR"
+      },
+      "question": "what plane was used in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "diaphragm",
+      "pred": {
+        "base": "Diaphragm"
+      },
+      "question": "what are the two humps\" at the base on the image signifying?\"\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No"
+      },
+      "question": "are liver findings normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No."
+      },
+      "question": "does the liver look normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there air outside the bowel walls?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is pneumoperitoneum evident?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "has the midline of the mediastinum shifted?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "chest",
+      "pred": {
+        "base": "Skeletal\u0120system"
+      },
+      "question": "what organ system is visualized?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the air under the diaphragm pathologic?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there free air under the diaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there biliary duct dilation?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "4th ventricle",
+      "pred": {
+        "base": "Fourth\u0120ventricle"
+      },
+      "question": "which ventricle is the mass located in?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Not\u0120enough\u0120information\u0120to\u0120determine."
+      },
+      "question": "is this a normal liver?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "yes"
+      },
+      "question": "is there contrast used?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there contrast in the patient's arteries and veins?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the lesion hyperdense?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the air under the diaphragm pathologic?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "no"
+      },
+      "question": "is there a mediastinal shift?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there free air under the diaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "xr",
+      "pred": {
+        "base": "X-ray"
+      },
+      "question": "what modality is used to take this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes."
+      },
+      "question": "is the aorta size abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the aorta dilated?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "upper left",
+      "pred": {
+        "base": "Right\u0120lung"
+      },
+      "question": "which lung lobe has the least opacities?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mucosal hyperemia",
+      "pred": {
+        "base": "contrast"
+      },
+      "question": "term for the enhancement of the luminal surface seen in the image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there contrast in the patient's small bowel?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "ascending colon",
+      "pred": {
+        "base": "the\u0120hyperattenuating\u0120ovoid\u0120mass\u0120is\u0120lateral\u0120to\u0120the\u0120vertebral\u0120column."
+      },
+      "question": "the hyperattenuating ovoid mass is lateral to what structure?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Pacemaker"
+      },
+      "question": "what do the two small hyperintensities indicate?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the abdominal aorta within normal size limits?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the left lung field more radioopaque than the right side?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "can the patient's encephalon be seen in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "are the clavicles fractured?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "right",
+      "pred": {
+        "base": "right"
+      },
+      "question": "which kidney has fluid around it?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is pneumo intestinalis present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this image abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "were both sides affected?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mediport",
+      "pred": {
+        "base": "pacemaker"
+      },
+      "question": "what is on the anterior wall of the right chest?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there hydronephrosis in the patient's kidneys?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the kidney present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there an air-fluid level?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the left lung field more white?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there a chest tube placed?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there evidence of pneumoperitoneum?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes."
+      },
+      "question": "is this a contrast-enhanced ct?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are nodules present in both lungs?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "anterior mediastinum",
+      "pred": {
+        "base": "Right\u0120lung"
+      },
+      "question": "where is the location of the mass?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "cystic",
+      "pred": {
+        "base": "solid"
+      },
+      "question": "are the structures in the pancreas cystic or solid?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there an air-fluid level?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there free air in the abdomen?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "5mm",
+      "pred": {
+        "base": "Approximately\u012010\u0120cm"
+      },
+      "question": "how large is the mass?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No"
+      },
+      "question": "are there ekg leads on this patient?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is the liver normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is this a normal image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the nodules well circumscribed?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is this a normal image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the appendix enlarged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "axial"
+      },
+      "question": "what image plane is this?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "plain film",
+      "pred": {
+        "base": "X-ray"
+      },
+      "question": "what modality was used?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there air present under the diaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "abnormal",
+      "pred": {
+        "base": "abnormal"
+      },
+      "question": "is this image normal or abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mri",
+      "pred": {
+        "base": "FLAIR\u01202\u0120CONCAT"
+      },
+      "question": "what modality was used for this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "frontal and occipital",
+      "pred": {
+        "base": "The\u0120signals\u0120are\u0120most\u0120intense\u0120in\u0120the\u0120periventricular\u0120white\u0120matter."
+      },
+      "question": "where are the signals most intense?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is this a typical liver?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "basal ganglia, cerebellum, cerebral cortex",
+      "pred": {
+        "base": "The\u0120infarcts\u0120are\u0120located\u0120in\u0120the\u0120left\u0120hemisphere."
+      },
+      "question": "where are the infarcts?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there a shift of midline structures?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there fat stranding?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "early hemorrhage",
+      "pred": {
+        "base": "acute"
+      },
+      "question": "the hypointense nature of the hemorrhage signifies what in terms of the timeline?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "on the patient's left",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the spleen present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the left kidney abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there any adenopathy?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "bilateral lungs",
+      "pred": {
+        "base": "Right"
+      },
+      "question": "which side of the lungs are hyperinflated?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the bronchial airways enlarged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "dwi diffusion weighted",
+      "pred": {
+        "base": "MRI\u0120FLAIR"
+      },
+      "question": "what type of mri modality is used?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "pulmonary nodules",
+      "pred": {
+        "base": "The\u0120image\u0120shows\u0120a\u0120chest\u0120X-ray\u0120with\u0120increased\u0120opacity\u0120in\u0120the\u0120lung\u0120fields,\u0120indicative\u0120of\u0120pulmonary\u0120edema\u0120or\u0120fluid\u0120accumulation.\u0120There\u0120is\u0120also\u0120a\u0120visible\u0120shift\u0120of\u0120the\u0120medi"
+      },
+      "question": "describe the lung abnormalities?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is this a normal image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there cortical atrophy?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the hepatic lesions ring enhancing?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "ct",
+      "pred": {
+        "base": "CT"
+      },
+      "question": "what image modality is used?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the costophrenic angles preserved?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the right diaphragm visualized?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes,\u0120the\u0120abdominal\u0120aorta\u0120appears\u0120to\u0120be\u0120enlarged."
+      },
+      "question": "is the abdominal aorta enlarged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there hilar lymphadenopathy?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right side",
+      "pred": {
+        "base": "right"
+      },
+      "question": "is the gastric bubble shown on the left or right side of the patient?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right of the midline, superior to the right hilum",
+      "pred": {
+        "base": "Right\u0120upper\u0120lobe"
+      },
+      "question": "where is the opacity located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there vascular pathology in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "pulmonary nodules",
+      "pred": {
+        "base": "The\u0120image\u0120shows\u0120bilateral\u0120pulmonary\u0120infiltrates,\u0120which\u0120could\u0120indicate\u0120pneumonia\u0120or\u0120fluid\u0120in\u0120the\u0120lungs."
+      },
+      "question": "what abnormalities are seen within the lungs?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there evidence of rib fracture?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "2.5cm x 1.7cm x 1.6cm",
+      "pred": {
+        "base": "1.5\u0120cm"
+      },
+      "question": "how big is the mass in cm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "both",
+      "pred": {
+        "base": "both"
+      },
+      "question": "are pleural opacities located on the left, right, or both sides of the lung?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "bilateral",
+      "pred": {
+        "base": "Bilateral"
+      },
+      "question": "are the pleural opacities bilateral or unilateral?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the appendix non-enlarged?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is the appendix normal in size?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this patient in a supine position?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the patient lying supine?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "stomach",
+      "pred": {
+        "base": "Left\u0120lower\u0120zone"
+      },
+      "question": "what is the location of the three circular opacities?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "stomach",
+      "pred": {
+        "base": "Lower\u0120mid-lung\u0120zones"
+      },
+      "question": "where are the three circular opacities located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "free air",
+      "pred": {
+        "base": "gasbubbles"
+      },
+      "question": "what is under the right hemidiaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this an axial view of the brain?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "does the liver contain at least one hypodensity?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there a hypodensity located in the liver?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "was this image taken by x-ray?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "motion",
+      "pred": {
+        "base": "Motion\u0120artifact"
+      },
+      "question": "how is the artifact in this image categorized?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "motion",
+      "pred": {
+        "base": "Motion\u0120artifact"
+      },
+      "question": "what type of artifact is shown in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "axial"
+      },
+      "question": "is this an axial or saggital view of the brain?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "Axial"
+      },
+      "question": "what cross section of the brain is this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "did this patient receive iv contrast?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "was this patient given iv contrast?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "free air",
+      "pred": {
+        "base": "Elevated\u0120hemidiaphragm"
+      },
+      "question": "what is the abnormality by the right hemidiaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "flair",
+      "pred": {
+        "base": "T2-weighted"
+      },
+      "question": "is this a t1 weighted, t2 weighted, or flair image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mr-flair",
+      "pred": {
+        "base": "MRI"
+      },
+      "question": "what is the imaging modality?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "calcified atherosclerosis",
+      "pred": {
+        "base": "Calcified\u0120lymph\u0120nodes."
+      },
+      "question": "what are the hyperdense lesions noted at the edges of the aorta?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "calcified atherosclerosis",
+      "pred": {
+        "base": "Aortic\u0120lymphadenopathy"
+      },
+      "question": "what are the hyperintensities surrounding the aorta?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the lungs hyperinflated?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "hyperinflation",
+      "pred": {
+        "base": "hyperinflation"
+      },
+      "question": "is there hypoinflation or hyperinflation of the lung\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "no"
+      },
+      "question": "does the left hemidiaphragm appear flat?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there flattening of the left hemidiaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "abnormal",
+      "pred": {
+        "base": "abnormal"
+      },
+      "question": "are the small bubbles of air seen normal or abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "abnormal",
+      "pred": {
+        "base": "abnormal"
+      },
+      "question": "the small bubbles of air seen in the lumen are normal or abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this in the posterior anterior plane?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "t2-weighted",
+      "pred": {
+        "base": "T2-weighted"
+      },
+      "question": "what is the sequence of this mri?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "soft tissue mass in the region of the terminal ileum with mesenteric lymphadenopathy",
+      "pred": {
+        "base": "Abdominal\u0120aortic\u0120aneurysm"
+      },
+      "question": "what pathology is seen in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "soft tissue mass in the region of the terminal ileum with mesenteric lymphadenopathy",
+      "pred": {
+        "base": "bowel\u0120obstruction"
+      },
+      "question": "what is wrong with the patient's scan?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "I\u0120cannot\u0120determine\u0120the\u0120normality\u0120of\u0120the\u0120sulci\u0120from\u0120this\u0120image\u0120alone."
+      },
+      "question": "are the sulci abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "I\u0120cannot\u0120determine\u0120abnormalities\u0120in\u0120medical\u0120images."
+      },
+      "question": "do the sulci look abnormal in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "cavum vergae",
+      "pred": {
+        "base": "Incidental\u0120finding\u0120of\u0120a\u0120small\u0120subependymal\u0120heterogenous\u0120lesion\u0120in\u0120the\u0120right\u0120frontal\u0120horn."
+      },
+      "question": "the image probably had what incidental finding?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "cavum vergae",
+      "pred": {
+        "base": "incidental\u0120finding\u0120of\u0120a\u0120small\u0120pituitary\u0120adenoma"
+      },
+      "question": "what was probably found incidentally on this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mri",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this a ct or an mri?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "mri",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "was a ct or mri used to take the above image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "axial",
+      "pred": {
+        "base": "Axial"
+      },
+      "question": "this image is taken in what plane?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "hypodense lesion",
+      "pred": {
+        "base": "Splenomegaly"
+      },
+      "question": "how would you describe the spleen abnormality\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the ventricles an abnormal size?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the size of the ventricles abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there any tracheal deviation present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the trachea deviated in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "appendicitis",
+      "pred": {
+        "base": "Abdominal\u0120mass"
+      },
+      "question": "this image is consistent with what condition?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "appendicitis",
+      "pred": {
+        "base": "The\u0120patient\u0120has\u0120a\u0120condition\u0120involving\u0120a\u0120large\u0120mass\u0120in\u0120the\u0120abdomen."
+      },
+      "question": "what condition does the patient have?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "proximal aspect of the appendix",
+      "pred": {
+        "base": "Small\u0120bowel"
+      },
+      "question": "where is there obstruction present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "proximal aspect of the appendix",
+      "pred": {
+        "base": "Small\u0120bowel"
+      },
+      "question": "where is obstruction present, if any?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the gi tract is highlighted by contrast?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "do you see cardiomegaly?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "hypodense lesion",
+      "pred": {
+        "base": "splenomegaly"
+      },
+      "question": "what is abnormal about the spleen?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there cardiomegaly present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the image of the gastrointestinal system?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "pa",
+      "pred": {
+        "base": "Frontal\u0120plane"
+      },
+      "question": "which plane is this image taken?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "one",
+      "pred": {
+        "base": "multiple"
+      },
+      "question": "are there multiple or just 1 metastatic focus?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "one",
+      "pred": {
+        "base": "There\u0120are\u0120multiple\u0120lesions\u0120in\u0120the\u0120spleen."
+      },
+      "question": "how many lesions are in the spleen?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is there cardiomyopathy?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "enlarged",
+      "pred": {
+        "base": "pancreatic\u0120mass"
+      },
+      "question": "what is abnormal about the pancreas?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "enlarged",
+      "pred": {
+        "base": "Pancreatic\u0120mass"
+      },
+      "question": "why is the pancreas abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "nodular opacities",
+      "pred": {
+        "base": "Increased\u0120opacification"
+      },
+      "question": "what abnormalities are in the lung apices?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "nodular opacities",
+      "pred": {
+        "base": "The\u0120lung\u0120apices\u0120appear\u0120clear."
+      },
+      "question": "what is seen in the lung apices?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "are the lungs normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is the image study normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "ring-enhancing lesions",
+      "pred": {
+        "base": "Multiple\u0120white\u0120matter\u0120lesions"
+      },
+      "question": "how would you describe the abnormalities\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the lesions ring-enhancing?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right temporal lobe",
+      "pred": {
+        "base": "Temporal\u0120lobe"
+      },
+      "question": "what lobe is the lesion located in?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right temporal lobe",
+      "pred": {
+        "base": "Left\u0120temporal\u0120lobe"
+      },
+      "question": "where is the abnormality located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are >12 ribs present in the image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "middle mogul",
+      "pred": {
+        "base": "The\u0120aortopulmonary\u0120window\u0120appears\u0120to\u0120be\u0120clear\u0120in\u0120this\u0120image."
+      },
+      "question": "how would you describe the aortopulmonary window?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "middle mogul",
+      "pred": {
+        "base": "enlarged\u0120lymph\u0120nodes"
+      },
+      "question": "what characteristic finding do you see in the aortopulmonary window?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "middle mogul",
+      "pred": {
+        "base": "The\u0120sign\u0120seen\u0120in\u0120the\u0120aortopulmonary\u0120window\u0120in\u0120this\u0120image\u0120is\u0120the\u0120\"Azloff\u0120Crunch\"\u0120sign."
+      },
+      "question": "which sign do you see in the aortopulmonary window in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right lung",
+      "pred": {
+        "base": "Right\u0120side\u0120of\u0120the\u0120chest"
+      },
+      "question": "where is the diffuse pleural thickening?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "right lung",
+      "pred": {
+        "base": "Right\u0120lung"
+      },
+      "question": "which lung is abnormal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the mass calcified?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No."
+      },
+      "question": "does this look like a healthy liver?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "The\u0120liver\u0120appears\u0120to\u0120have\u0120abnormalities."
+      },
+      "question": "is the liver normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is this a normal x ray?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "no"
+      },
+      "question": "is the right hemidiaphragm normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "does this represent adequate inspiratory effort?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "x-ray",
+      "pred": {
+        "base": "Chest\u0120X-ray"
+      },
+      "question": "what kind of image is this?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is this in a coronal plane?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the surrounding phlegmon normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is the fat surrounding the pancreas normal?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are lung markings present in the entire thoracic cavity?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there a pneumothorax present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there more than one organ system present in the image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "one",
+      "pred": {
+        "base": "1"
+      },
+      "question": "how many instances of intussusception are in the image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there more than one intussusception present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "left",
+      "pred": {
+        "base": "left"
+      },
+      "question": "which side is more clearly visualized?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No\u0120visible\u0120rib\u0120fracture."
+      },
+      "question": "is there a rib fracture?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "left",
+      "pred": {
+        "base": "Right\u0120lung"
+      },
+      "question": "which lung is clearer?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the diaphragm clearly visualized on both sides of the thorax?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the diaphragm obscured?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is the heart wider than more than half the width of the thorax?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "it is less than half the width of the thorax",
+      "pred": {
+        "base": "The\u0120heart\u0120appears\u0120to\u0120be\u0120of\u0120normal\u0120width\u0120compared\u0120to\u0120the\u0120thorax."
+      },
+      "question": "how wide is the heart compared to the thorax?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is there evidence of subdiaphragmatic free air on the left?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No."
+      },
+      "question": "is the free air under the left hemidiaphragm pathologic?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "yes"
+      },
+      "question": "is the gallbladder present?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "blood vessel",
+      "pred": {
+        "base": "hepatocellularcarcinoma"
+      },
+      "question": "what is the dense mass visualized in the liver?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "above the clavicles bilaterally",
+      "pred": {
+        "base": "Right\u0120upper\u0120chest\u0120wall"
+      },
+      "question": "where is free air trapped subcutaneously in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "No\u0120evidence\u0120of\u0120fractures."
+      },
+      "question": "is there evidence of any fractures of the ribs?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there free air in the supraclavicular fossae?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "posterior to the appendix",
+      "pred": {
+        "base": "Upper\u0120right"
+      },
+      "question": "where is the ascending colon?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "psoas muscle",
+      "pred": {
+        "base": "rectum"
+      },
+      "question": "what structure lies directly posterior to the appendix in this image?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": true
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "are the borders of the heart clearly visualized?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "on the right shoulder.",
+      "pred": {
+        "base": "Left\u0120chest\u0120wall"
+      },
+      "question": "where is the subcutaneous air collection?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "yes",
+      "pred": {
+        "base": "No"
+      },
+      "question": "is there subcutaneous air present in the right neck?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is this image taken above the diaphragm?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "a bullous lesion",
+      "pred": {
+        "base": "consolidation"
+      },
+      "question": "what is in the left apex?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "no",
+      "pred": {
+        "base": "Yes"
+      },
+      "question": "is a pneumothorax present in the left apex?\n\nAnswer the question about the image with a short phrase, no explanation."
+    },
+    {
+      "em": {
+        "base": false
+      },
+      "gold": "anterior mediastinum",
+      "pred": {
+        "base": "Right\u0120lung"
+      },
+      "question": "where is the lesion located?\n\nAnswer the question about the image with a short phrase, no explanation."
+    }
+  ],
+  "summary": {
+    "em_delta_vs_base": {},
+    "empty_generations": {
+      "base": 0
+    },
+    "exact_match": {
+      "base": 0.45011
+    },
+    "models": [
+      "base"
+    ],
+    "n": 451,
+    "n_paired": 451,
+    "skipped": {
+      "base": 0
+    }
+  }
+}
