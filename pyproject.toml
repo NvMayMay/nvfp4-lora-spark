@@ -22,9 +22,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
+test = ["pytest>=8", "pillow>=10"]
 # Public reproduction (REPRODUCE_SPIDER.md): scripts/prep_spider.py pulls Spider via HF datasets.
 repro = ["datasets>=2.14"]
+# Vision-LoRA (--train-target vision): the multimodal data path decodes images with Pillow.
+# The vqa-rad on-ramp (scripts/prepare_vision_dataset.py) additionally needs `datasets` (see `repro`).
+vision = ["pillow>=10"]
 
 [project.scripts]
 nybbloris = "nybbloris.cli:main"

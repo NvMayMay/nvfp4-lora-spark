@@ -39,10 +39,38 @@ Registry fields, per `config.json` `model_type`:
   moe_experts_class     HF module class name of the fused-3D routed-experts
                         block this family uses (replaced by NVFP4Experts3D),
                         or None if the family has no supported fused-3D MoE
+
+Optional VLM (vision-LoRA) fields — present ONLY on families that support
+`--train-target vision`; every text-only family and the generic fallback omit
+them, so text runs are byte-for-byte unaffected (`_REQUIRED_FAMILY_KEYS`
+unchanged). The presence of `vision_peft_scope` is the capability flag: a family
+without it refuses `--train-target vision`. `family_view(fam, target)` derives
+the EFFECTIVE per-run family from these; the loader/trainer consume that view, so
+the toggle is one conditional at the top, not N scattered across loader bodies.
+
+  vision_peft_scope     regex anchoring the LoRA target scope to the vision
+                        tower (so a bare q_proj in the tower matches while the
+                        text backbone never does)
+  vision_target_suffixes default projection suffixes for the tower + projector
+  projector_modules     multimodal-connector submodule name(s) that straddle
+                        text<->vision; a default vision-mode LoRA target,
+                        NEVER a text-mode target, and never left on meta in
+                        vision mode
+  vision_st_prefixes    on-disk safetensors prefixes of the tower + projector.
+                        In vision mode these are SUBTRACTED from skip_st_prefixes
+                        (their bf16 weights must load) and drive the coverage
+                        inventory's vision restriction.
+  vision_st_to_model    extra (st_prefix, model_prefix) rewrite rules that map
+                        the tower/projector on-disk keys to their in-memory
+                        attribute paths (in text mode the tower is skipped, so
+                        the base st_to_model omits them)
+  vision_freeze         submodules of model.model that make up the TEXT backbone;
+                        frozen in vision mode (the inverse of `freeze`)
 """
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 FAMILIES: dict[str, dict] = {
@@ -68,6 +96,21 @@ FAMILIES: dict[str, dict] = {
         ),
         "meta_allowed_prefixes": ("model.vision_tower.", "model.multi_modal_projector."),
         "moe_experts_class": "Mistral4NaiveMoe",
+        # --- VLM vision-LoRA (Pixtral tower + multimodal projector; both bf16) ---
+        # Vision targets are unquantized bf16, so vision-LoRA rides the existing
+        # BF16LoRALinear path (zero new kernels). See family_view() for how these
+        # invert the tower's skip/meta/freeze treatment for a vision run.
+        "vision_peft_scope": r"^model\.vision_tower\.",
+        "vision_target_suffixes": ("q_proj", "k_proj", "v_proj", "o_proj",
+                                   "gate_proj", "up_proj", "down_proj",
+                                   "linear_1", "linear_2", "merging_layer"),
+        "projector_modules": ("multi_modal_projector",),
+        "vision_st_prefixes": ("vision_tower.", "multi_modal_projector."),
+        "vision_st_to_model": (
+            ("vision_tower.", "model.vision_tower."),
+            ("multi_modal_projector.", "model.multi_modal_projector."),
+        ),
+        "vision_freeze": ("language_model",),
     },
     # Nemotron-3 Nano/Super (the original v1.0 family). Routed experts are
     # per-expert NVFP4 nn.Linear modules (no fused-3D container), so
@@ -139,6 +182,39 @@ FAMILIES: dict[str, dict] = {
         "st_to_model": None,
         "meta_allowed_prefixes": (),
         "moe_experts_class": None,
+    },
+    # Llama-4 Scout (109B-A17B, Llama4ForConditionalGeneration). Early-fusion VLM:
+    # a `llama4_vision_model` tower + `multi_modal_projector.linear_1`, both bf16
+    # (207 vision Linears in the quant `ignore`), over a per-expert-NVFP4 MoE text
+    # backbone whose attention q/k/v/o + router are ALSO bf16. Registered here for
+    # the `--train-target vision` capability + contract tests (Phase V1); the
+    # single-box GPU proof is deferred (Scout re-rated TIGHT on one Spark). The
+    # TEXT side (st_to_model, expert layout) mirrors the mistral3 wrapper and is
+    # UNVERIFIED against a live Scout checkpoint — no on-disk fixture exists yet —
+    # so confirm it before a text run; the VISION side is what this cycle exercises.
+    "llama4": {
+        "auto_class": "image_text_to_text",
+        "expert_prefix": None,
+        "peft_scope": r"^model\.language_model\.",
+        "freeze": ("vision_model", "multi_modal_projector"),
+        "skip_st_prefixes": ("vision_model.", "multi_modal_projector."),
+        "st_to_model": (
+            ("language_model.model.", "model.language_model."),
+            ("language_model.lm_head.", "lm_head."),
+        ),
+        "meta_allowed_prefixes": ("model.vision_model.", "model.multi_modal_projector."),
+        "moe_experts_class": None,
+        # --- VLM vision-LoRA (llama4_vision_model tower + projector; both bf16) ---
+        "vision_peft_scope": r"^model\.vision_model\.",
+        "vision_target_suffixes": ("q_proj", "k_proj", "v_proj", "o_proj",
+                                   "fc1", "fc2", "linear_1"),
+        "projector_modules": ("multi_modal_projector",),
+        "vision_st_prefixes": ("vision_model.", "multi_modal_projector."),
+        "vision_st_to_model": (
+            ("vision_model.", "model.vision_model."),
+            ("multi_modal_projector.", "model.multi_modal_projector."),
+        ),
+        "vision_freeze": ("language_model",),
     },
 }
 
@@ -240,6 +316,15 @@ def load_family_config(path: str | Path) -> dict:
         obj["st_to_model"] = tuple(tuple(r) for r in obj["st_to_model"])
     if obj["expert_prefix"] is not None:
         obj["expert_prefix"] = tuple(obj["expert_prefix"])
+    # Optional VLM vision-LoRA fields: absent = a text-only family (back-compatible
+    # with every family.json in the wild). Coerce the list fields to tuples when
+    # present so family_view / the loader see the same types as a registry entry.
+    for k in ("vision_target_suffixes", "projector_modules", "vision_st_prefixes",
+              "vision_freeze"):
+        if obj.get(k) is not None:
+            obj[k] = tuple(obj[k])
+    if obj.get("vision_st_to_model") is not None:
+        obj["vision_st_to_model"] = tuple(tuple(r) for r in obj["vision_st_to_model"])
     obj["_source"] = str(path)
     return obj
 
@@ -268,6 +353,95 @@ def resolve_family(model_dir: str | Path, *, allow_generic: bool = False,
         f"(guarded by the strict-load / coverage gates). Run "
         f"scripts/inspect_nvfp4_checkpoint.py on the checkpoint first to see its layout."
     )
+
+
+def family_supports_vision(fam: dict) -> bool:
+    """A family supports `--train-target vision` iff it declares a vision scope."""
+    return bool(fam.get("vision_peft_scope"))
+
+
+def _vision_projector_scopes(fam: dict) -> tuple[str, ...]:
+    """Anchored regexes matching the projector modules in memory (`model.<name>.`).
+
+    Derived from `projector_modules` + the memory prefix carried by
+    `vision_st_to_model` (the rewrite target), so a family whose wrapper prefix is
+    not `model.` still gets the right anchor.
+    """
+    mem_prefix = "model."
+    for _st, _mem in fam.get("vision_st_to_model", ()):  # e.g. ("vision_tower.", "model.vision_tower.")
+        head = _mem.split(".", 1)[0]
+        if head:
+            mem_prefix = head + "."
+            break
+    return tuple(r"^" + re.escape(mem_prefix + name) + r"\." for name in fam.get("projector_modules", ()))
+
+
+def family_view(fam: dict, train_target: str = "text", *, include_projector: bool = True) -> dict:
+    """Return the EFFECTIVE per-run family for a `--train-target` value.
+
+    `text` (default) returns `fam` UNCHANGED (identity — the same object), so a
+    text run is byte-for-byte today's behaviour and every view-aware consumer takes
+    its text branch. `vision` returns a NEW dict that inverts the tower's
+    skip/meta/freeze treatment and re-scopes LoRA to the vision tower + projector:
+
+      * `skip_st_prefixes`   := entry value MINUS `vision_st_prefixes` (the tower's
+                                bf16 weights must now LOAD, not be skipped)
+      * `st_to_model`        := entry rules PLUS `vision_st_to_model` (so the tower
+                                on-disk keys translate to their in-memory paths)
+      * `meta_allowed_prefixes` := entry value MINUS the tower's in-memory prefixes
+                                (the tower MUST be materialized — you cannot LoRA a
+                                meta tensor; `assert_no_meta_tensors` then enforces it)
+      * `freeze`             := `vision_freeze` (the TEXT backbone submodules)
+      * `peft_scope`         := the vision tower scope, ORed with the projector
+                                scope when `include_projector` (so the same
+                                `replace_bf16_targets` / target-suffix matching that
+                                text mode uses now selects the tower + projector)
+
+    A `_train_target="vision"` tag lets the loader's inventory/translator take the
+    vision branch. Refuses (SystemExit, porting hint) a family that declares no
+    `vision_peft_scope`, mirroring the unsupported-family message style.
+    """
+    if train_target == "text":
+        return fam
+    if train_target != "vision":
+        raise ValueError(f"train_target must be 'text' or 'vision', got {train_target!r}")
+    if not family_supports_vision(fam):
+        raise SystemExit(
+            f"--train-target vision is not supported for this family "
+            f"(model_type has no `vision_peft_scope`). Known vision families: "
+            f"{sorted(k for k, v in FAMILIES.items() if family_supports_vision(v))}. "
+            f"To port a VLM, add `vision_peft_scope` / `vision_target_suffixes` / "
+            f"`projector_modules` / `vision_st_prefixes` / `vision_st_to_model` / "
+            f"`vision_freeze` to its FAMILIES entry (see mistral3), or supply them "
+            f"via --family-config."
+        )
+    vision_st_prefixes = tuple(fam.get("vision_st_prefixes", ()))
+    # In-memory prefixes of the tower/projector, from the vision_st_to_model targets
+    # (e.g. "model.vision_tower.", "model.multi_modal_projector."). These are what
+    # meta_allowed_prefixes uses, so subtracting them un-allows a meta tower.
+    vision_mem_prefixes = tuple(mem for _st, mem in fam.get("vision_st_to_model", ()))
+
+    base_scope = fam["vision_peft_scope"]
+    scopes = [base_scope]
+    if include_projector:
+        scopes.extend(_vision_projector_scopes(fam))
+    effective_scope = "|".join(scopes)
+
+    view = dict(fam)
+    view["_train_target"] = "vision"
+    view["_include_projector"] = include_projector
+    view["skip_st_prefixes"] = tuple(
+        p for p in fam.get("skip_st_prefixes", ()) if p not in vision_st_prefixes
+    )
+    view["meta_allowed_prefixes"] = tuple(
+        p for p in fam.get("meta_allowed_prefixes", ()) if p not in vision_mem_prefixes
+    )
+    base_rules = tuple(fam["st_to_model"]) if fam.get("st_to_model") is not None else ()
+    view["st_to_model"] = base_rules + tuple(fam.get("vision_st_to_model", ()))
+    view["freeze"] = tuple(fam.get("vision_freeze", ()))
+    view["peft_scope"] = effective_scope
+    view["vision_st_prefixes"] = vision_st_prefixes
+    return view
 
 
 def make_family_translator(fam: dict):
