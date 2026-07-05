@@ -220,7 +220,7 @@ def test_d_mistral3_tower_key_maps(merge):
 
 def test_d_mistral3_projector_key_maps(merge):
     pairs = _pairs(merge, "mistral3")
-    akey = "base_model.model.model.multi_modal_projector.linear_1.lora_B.weight"
+    akey = "base_model.model.multi_modal_projector.linear_1.lora_B.weight"
     assert merge.adapter_key_to_base_key(akey, pairs) == \
         "multi_modal_projector.linear_1.weight"
     assert merge.adapter_side(akey) == "B"
@@ -228,10 +228,10 @@ def test_d_mistral3_projector_key_maps(merge):
 
 def test_d_llama4_tower_and_projector_keys_map(merge):
     pairs = _pairs(merge, "llama4")
-    tower = "base_model.model.model.vision_model.model.layers.0.self_attn.o_proj.lora_A.weight"
+    tower = "base_model.model.vision_model.model.layers.0.self_attn.o_proj.lora_A.weight"
     assert merge.adapter_key_to_base_key(tower, pairs) == \
         "vision_model.model.layers.0.self_attn.o_proj.weight"
-    proj = "base_model.model.model.multi_modal_projector.linear_1.lora_B.weight"
+    proj = "base_model.model.multi_modal_projector.linear_1.lora_B.weight"
     assert merge.adapter_key_to_base_key(proj, pairs) == \
         "multi_modal_projector.linear_1.weight"
 

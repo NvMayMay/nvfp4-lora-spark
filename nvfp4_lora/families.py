@@ -194,25 +194,37 @@ FAMILIES: dict[str, dict] = {
     # so confirm it before a text run; the VISION side is what this cycle exercises.
     "llama4": {
         "auto_class": "image_text_to_text",
-        "expert_prefix": None,
-        "peft_scope": r"^model\.language_model\.",
+        # Routed experts assemble from per-expert on-disk keys; the NVFP4Experts3D
+        # module path == the on-disk key prefix (identity, no `model.` wrapper), so both
+        # halves are "language_model." (the experts live under language_model.model.*).
+        "expert_prefix": ("language_model.", "language_model."),
+        # Llama4ForConditionalGeneration exposes its submodules at the TOP LEVEL
+        # (language_model / vision_model / multi_modal_projector) with NO `model.`
+        # wrapper, so the safetensors keys ARE the model param paths -> key mapping is
+        # IDENTITY and the scopes carry no `model.` prefix. This differs from mistral3,
+        # which wraps everything under `model.`. Verified by a meta-build of the real
+        # Llama-4-Scout-109B-A17B-NVFP4 checkpoint (2026-07-05): its params are
+        # language_model.model.layers.* / vision_model.model.layers.* /
+        # multi_modal_projector.linear_1, matching the on-disk keys exactly.
+        "peft_scope": r"^language_model\.model\.",
         "freeze": ("vision_model", "multi_modal_projector"),
         "skip_st_prefixes": ("vision_model.", "multi_modal_projector."),
-        "st_to_model": (
-            ("language_model.model.", "model.language_model."),
-            ("language_model.lm_head.", "lm_head."),
-        ),
-        "meta_allowed_prefixes": ("model.vision_model.", "model.multi_modal_projector."),
-        "moe_experts_class": None,
+        "st_to_model": None,
+        "meta_allowed_prefixes": ("vision_model.", "multi_modal_projector."),
+        # Scout stores routed experts PER-EXPERT on disk
+        # (experts.N.{gate,up,down}_proj.*) but the transformers model fuses them into a
+        # 3D Llama4TextExperts (gate_up_proj + down_proj), so the loader assembles the
+        # per-expert NVFP4 tensors into the fused-3D layout (same path as mistral4/glm4).
+        "moe_experts_class": "Llama4TextExperts",
         # --- VLM vision-LoRA (llama4_vision_model tower + projector; both bf16) ---
-        "vision_peft_scope": r"^model\.vision_model\.",
+        "vision_peft_scope": r"^vision_model\.",
         "vision_target_suffixes": ("q_proj", "k_proj", "v_proj", "o_proj",
                                    "fc1", "fc2", "linear_1"),
         "projector_modules": ("multi_modal_projector",),
         "vision_st_prefixes": ("vision_model.", "multi_modal_projector."),
         "vision_st_to_model": (
-            ("vision_model.", "model.vision_model."),
-            ("multi_modal_projector.", "model.multi_modal_projector."),
+            ("vision_model.", "vision_model."),
+            ("multi_modal_projector.", "multi_modal_projector."),
         ),
         "vision_freeze": ("language_model",),
     },

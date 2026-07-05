@@ -386,9 +386,18 @@ class NVFP4Experts3D(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        top_k_index: torch.Tensor,
-        top_k_weights: torch.Tensor,
+        top_k_index: torch.Tensor | None = None,
+        top_k_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        # Llama4TextMoe calls experts(routed_in) with NO top-k args: it applies routing
+        # (repeat tokens per expert, scale by router scores, sum) around the experts
+        # module, so the experts are a DENSE per-expert MLP over (num_experts, tokens,
+        # hidden). Other MoE blocks (Mistral4/GLM/Qwen3.5) pass sparse top-k routing in.
+        if top_k_index is None:
+            x = hidden_states.view(self.num_experts, -1, self.hidden_dim)
+            outs = [self._down_linear(self._gate_up_acted(x[e], e), e)
+                    for e in range(self.num_experts)]
+            return torch.stack(outs, 0).reshape(-1, self.hidden_dim)
         if self.grouped_experts:
             return self._forward_grouped(hidden_states, top_k_index, top_k_weights)
         return self._forward_per_expert(hidden_states, top_k_index, top_k_weights)
@@ -786,10 +795,16 @@ def replace_moe_experts_with_nvfp4_3d(
     for name, module in list(model.named_modules()):
         if module.__class__.__name__ != target_cls_name:
             continue
-        # Old module exposes num_experts/hidden_dim/intermediate_dim
+        # Read the expert dims from the source module. Different MoE
+        # implementations name them differently: the naive-MoE classes
+        # (Mistral4/GLM/Qwen3.5) expose hidden_dim/intermediate_dim, while
+        # Llama4TextExperts exposes hidden_size/(intermediate_size|expert_dim).
         num_experts = int(module.num_experts)
-        hidden_dim = int(module.hidden_dim)
-        intermediate_dim = int(module.intermediate_dim)
+        hidden_dim = int(getattr(module, "hidden_dim", None)
+                         or getattr(module, "hidden_size"))
+        intermediate_dim = int(getattr(module, "intermediate_dim", None)
+                               or getattr(module, "intermediate_size", None)
+                               or getattr(module, "expert_dim"))
         new_module = NVFP4Experts3D(
             num_experts=num_experts,
             hidden_dim=hidden_dim,
