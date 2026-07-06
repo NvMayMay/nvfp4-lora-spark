@@ -199,17 +199,37 @@ LLM weights; serve the merged VLM as a plain model (no `--enable-lora`).
 
 ---
 
-## Phase 3 — validation on Box A
+## Phase 3 — validation on Box A (DONE 2026-07-06, end-to-end green)
 
-- Extend `--dry-run` to synthesize an IMAGE batch for `both` (today it is text-only and skips
-  the processor, `train:1209,1422-1430`), so the OOM preflight actually exercises tower
-  activations + GPU image preproc (the R4 concern on nemotron's 0.55-util config). Or
-  document the gap loudly.
-- GPU: `nemotron_omni`, small mixed set (vqa-rad image rows + text-QA rows), r16, bs1, capped
-  tiles/seq. Confirm: force-native; both wrap-halves > 0; grad-gate passes; loss drops on
-  both halves; save → split → merge tower → serve → (runtime-LoRA or merged) LLM half →
-  sanity inference. PLUMBING validation, not a metric claim. Periodic checkpoints per the
-  training-safety policy.
+Full pipeline validated on `nemotron_omni`, mixed set (40 vqa-rad image rows + 20 text-QA
+rows), r16, bs1, 1-tile, 30 updates: **train → split → merge tower → merge LLM → serve →
+image + text inference.** PLUMBING validation, not a metric claim.
+
+- **Train:** force-native fired (bf16 q/k/v were peft → native); paired passes wrapped 18
+  text-bf16 + 130 tower/projector; `both_freeze_enable` per-half assert (text 36 / vision
+  260); **grad-gate passed** (18/18 text lora_B + 130 vision lora_B); ran all 30 updates
+  through MIXED image+text batches. Saved a 25 MB both-adapter (260 tower + 36 LLM keys) with
+  the `both` config block.
+- **Two runtime findings + fixes (what CPU tests could not catch):**
+  1. nemotron's training `forward()` MANDATES `pixel_values` and runs the tower
+     unconditionally — a text-only row crashed run 1. Fix: `mm_text_only_bypass` (family flag)
+     + `build_text_only_bypass_forward` — image batch hits the real forward; text-only batch
+     runs `language_model` directly (tower out of the graph, no wasted tower compute).
+  2. `merge_lora_into_nvfp4` cannot merge the bf16 LLM half of a VLM: it is single-backbone
+     (no backbone prefix in a multi-backbone VLM) AND pre-rejects bf16 targets. Fix: the LLM
+     half is bf16, so it merges through the SAME dequant-free `merge_vision_lora` path via a
+     new `--prefix-pair language_model.:language_model.` override. `split_both_adapter` now
+     emits that command.
+- **Split → merge:** splitter → 260 tower / 36 LLM sub-adapters; tower merge (130 bf16
+  targets) → tower-merged base; LLM merge (18 bf16 q/k/v, `--prefix-pair`) → fully-merged
+  VLM. delta/base ratios 0.002–0.018 (sane light-FT deltas).
+- **Serve:** the fully-merged VLM serves as a PLAIN model (no `--enable-lora`); arch resolved,
+  ModelOpt FP8+NVFP4 quant preserved (merge only touched bf16 weights). Sanity: a vqa-rad
+  brain scan → "Brain"; "capital of France?" → "Paris". Both paths work.
+- **Not done (documented gap):** the `--dry-run` OOM preflight still synthesizes a text-only
+  batch and skips the processor (`train:1209,1422-1430`), so it does not exercise tower
+  activations / GPU image preproc — a real both run at higher seq/tiling could still OOM
+  where dry-run said OK. Left as a follow-up.
 
 ---
 

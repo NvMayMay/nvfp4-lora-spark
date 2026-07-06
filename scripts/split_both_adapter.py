@@ -9,21 +9,25 @@ that has no such quantized target. This tool splits the unified adapter by SCOPE
 the `both` block that the trainer writes into `adapter_config.json`) into two standard
 sub-adapters, each consumable by its own merge tool:
 
-    <out>/tower/   -> scripts/merge_vision_lora.py        (bf16 tower + projector)
-    <out>/llm/     -> scripts/merge_lora_into_nvfp4.py    (LLM backbone)
+    <out>/tower/   -> scripts/merge_vision_lora.py                      (bf16 tower + projector)
+    <out>/llm/     -> scripts/merge_vision_lora.py --prefix-pair ...    (bf16 LLM backbone)
 
 v1 serve path (see docs/plans/train_target_both_plan.md, Phase 0): vLLM 0.22.1 cannot
 runtime-LoRA the nemotron VLM (the multimodal wrapper does not declare SupportsLoRA), so BOTH
-halves are MERGED and the result is served as a plain VLM. The merge ORDER matters -- merge
-the tower first, then merge the LLM against the tower-merged base:
+halves are MERGED and the result is served as a plain VLM. Both halves are bf16 (the tower,
+and a nemotron `both` run targets bf16 q/k/v), so both merge via the SAME dequant-free
+merge_vision_lora path -- the LLM half just needs an explicit `--prefix-pair` because it lives
+under a non-vision module prefix. (merge_lora_into_nvfp4 is NOT used: it is single-backbone +
+NVFP4-target only, and drops bf16 targets.) The merge ORDER matters -- tower first, then the
+LLM against the tower-merged base:
 
     python scripts/merge_vision_lora.py --base-model-dir <BASE> \
         --adapter-dir <out>/tower --out-dir <BASE.tower>
-    python scripts/merge_lora_into_nvfp4.py --base-model-dir <BASE.tower> \
-        --lora-adapter-dir <out>/llm --output-dir <BASE.both>
+    python scripts/merge_vision_lora.py --base-model-dir <BASE.tower> \
+        --adapter-dir <out>/llm --out-dir <BASE.both> --prefix-pair language_model.:language_model.
 
-Merging the LLM half is lossless iff its targets are bf16 (nemotron q/k/v); FP8/NVFP4 LLM
-targets take a quantized-merge quality hit (a wrapper-patch runtime-LoRA path is the
+Merging the LLM half is lossless because its targets are bf16 (nemotron q/k/v); FP8/NVFP4 LLM
+targets would take a quantized-merge quality hit (a wrapper-patch runtime-LoRA path is the
 quality-preserving alternative, deferred -- see the plan).
 
 Pure-Python, no torch import at module top: the key classification is unit-testable without a
@@ -57,6 +61,16 @@ def module_path_of(adapter_key: str) -> str:
             f"(a `both` adapter should not carry expert-LoRA or other key shapes)")
     inner = adapter_key[len(_ADAPTER_PREFIX):]
     return _LORA_SUFFIX_RE.sub("", inner)
+
+
+def scope_to_prefix(scope: str) -> str:
+    """The literal module prefix an anchored scope regex matches.
+
+    `^language_model\\.` -> `language_model.`  ;  `^model\\.language_model\\.` -> `model.language_model.`
+    Used to build the `--prefix-pair` for merging the LLM half via merge_vision_lora.
+    """
+    s = scope.lstrip("^")
+    return re.sub(r"\\(.)", r"\1", s)
 
 
 def classify_keys(keys, vision_peft_scope: str, projector_scopes) -> tuple[list, list]:
@@ -169,6 +183,11 @@ def split_both_adapter(adapter_dir: str | Path, output_dir: str | Path) -> dict:
         "tower_keys": len(tower_keys), "llm_keys": len(llm_keys),
         "base_model": base_model,
         "tower_dir": str(tower_dir), "llm_dir": str(llm_dir),
+        # Module prefix of the LLM half, for merge_vision_lora's --prefix-pair. Identity
+        # (MEM==DISK) for families whose LLM in-memory path equals its on-disk path (nemotron);
+        # a family whose st_to_model rewrites the LLM prefix (e.g. mistral's language_model.model.)
+        # needs the DISK side adjusted to match its on-disk keys.
+        "llm_prefix": scope_to_prefix(both["text_peft_scope"]),
     }
     return summary
 
@@ -184,11 +203,15 @@ def main(argv=None) -> int:
 
     s = split_both_adapter(args.adapter_dir, args.output_dir)
     print(json.dumps(s, indent=2))
+    p = s["llm_prefix"]
     print("\nNext (fully-merge, v1 serve path -- ORDER MATTERS):")
     print(f"  python scripts/merge_vision_lora.py --base-model-dir <BASE> \\")
     print(f"      --adapter-dir {s['tower_dir']} --out-dir <BASE.tower>")
-    print(f"  python scripts/merge_lora_into_nvfp4.py --base-model-dir <BASE.tower> \\")
-    print(f"      --lora-adapter-dir {s['llm_dir']} --output-dir <BASE.both>")
+    # The LLM half is bf16 (target q/k/v) -> same dequant-free merge as the tower, via
+    # merge_vision_lora with an explicit --prefix-pair (NOT merge_lora_into_nvfp4, which is
+    # single-backbone + NVFP4-target only). Merge it AGAINST the tower-merged base.
+    print(f"  python scripts/merge_vision_lora.py --base-model-dir <BASE.tower> \\")
+    print(f"      --adapter-dir {s['llm_dir']} --out-dir <BASE.both> --prefix-pair {p}:{p}")
     print("  # then: serve <BASE.both> as a plain VLM (NO --enable-lora; the nemotron VLM")
     print("  #       wrapper does not support runtime-LoRA on vLLM 0.22.1).")
     return 0

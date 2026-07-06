@@ -269,6 +269,11 @@ FAMILIES: dict[str, dict] = {
         # but the Mamba-hybrid LM output (NemotronHCausalLMOutput) has no past_key_values field ->
         # a gated LM-output hook adds past_key_values=None so the packing succeeds.
         "mm_lm_output_add_past_kv": True,
+        # The training forward REQUIRES pixel_values + runs the vision tower unconditionally
+        # (only generate() handles no-image). A `--train-target both` run interleaves TEXT-ONLY
+        # rows, which have no pixel_values -> a gated wrapper (both only) routes text-only
+        # batches straight through the language_model, skipping the tower/scatter.
+        "mm_text_only_bypass": True,
         # Routed experts materialize as PER-EXPERT nn.Linear (experts.N.{up,down}_proj), not a
         # fused-3D block -> loaded by replace_nvfp4_modules; no 3D assembly, no expert_prefix.
         "expert_prefix": None,

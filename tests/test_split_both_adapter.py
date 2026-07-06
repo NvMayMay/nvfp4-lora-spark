@@ -117,6 +117,30 @@ def test_split_refuses_non_both_adapter(tmp_path):
     assert "not a `--train-target both`" in str(e.value)
 
 
+def test_scope_to_prefix():
+    assert S.scope_to_prefix(r"^language_model\.") == "language_model."
+    assert S.scope_to_prefix(r"^model\.language_model\.") == "model.language_model."
+
+
+def test_summary_carries_llm_prefix(tmp_path):
+    adir = _make_both_adapter(tmp_path / "both", _TOWER, _LLM)
+    s = S.split_both_adapter(adir, tmp_path / "out")
+    assert s["llm_prefix"] == "language_model."       # feeds merge_vision_lora --prefix-pair
+
+
+def test_merge_vision_lora_prefix_pair_maps_llm_key_identity():
+    """The LLM half merges via merge_vision_lora with an identity --prefix-pair; verify the
+    tool maps an LLM adapter key to its on-disk base weight key under that pair."""
+    mvl_path = Path(__file__).resolve().parent.parent / "scripts" / "merge_vision_lora.py"
+    spec = importlib.util.spec_from_file_location("merge_vision_lora", mvl_path)
+    mvl = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mvl)
+    pairs = [("language_model.", "language_model.")]
+    k = "base_model.model.language_model.backbone.layers.3.mixer.q_proj.lora_A.weight"
+    assert mvl.adapter_key_to_base_key(k, pairs) == \
+        "language_model.backbone.layers.3.mixer.q_proj.weight"
+
+
 def test_split_refuses_when_a_scope_is_empty(tmp_path):
     # Only LLM keys -> zero tower keys -> refuse (R6: both scopes must be present).
     a1 = _make_both_adapter(tmp_path / "llmonly", [], _LLM)

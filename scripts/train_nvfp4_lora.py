@@ -652,6 +652,37 @@ def assert_vision_grads_flow(model, log_fn, *, train_target: str = "vision",
            lora_params=len(lora_params), lora_B_checked=len(b_params) - len(zero_a))
 
 
+def build_text_only_bypass_forward(orig_forward, language_model):
+    """Forward wrapper for a `--train-target both` run on a VLM whose training forward MANDATES
+    pixel_values (e.g. NemotronH-Omni runs the tower unconditionally; only generate() handles
+    no-image). An IMAGE batch (pixel_values present) hits `orig_forward` UNCHANGED; a text-only
+    batch runs `language_model` directly on token embeddings, so the tower stays out of the
+    graph (no tower grad from text rows) with no wasted tower compute. Returns a plain function
+    to assign to `model.forward`.
+    """
+    vocab = language_model.config.vocab_size
+
+    def _forward(**kw):
+        if kw.get("pixel_values", None) is not None:
+            return orig_forward(**kw)                          # image row: real forward, untouched
+        input_ids = kw["input_ids"]
+        inputs_embeds = language_model.get_input_embeddings()(input_ids)  # embed hook -> grad
+        out = language_model(inputs_embeds=inputs_embeds,
+                             attention_mask=kw.get("attention_mask"),
+                             use_cache=False, return_dict=True)
+        logits = out.logits
+        loss = None
+        labels = kw.get("labels")
+        if labels is not None:
+            sl = logits[..., :-1, :].contiguous().view(-1, vocab)
+            st = labels[..., 1:].contiguous().view(-1).to(sl.device)
+            loss = torch.nn.functional.cross_entropy(sl, st)   # ignore_index=-100 default
+        from transformers.modeling_outputs import CausalLMOutputWithPast
+        return CausalLMOutputWithPast(loss=loss, logits=logits, past_key_values=None)
+
+    return _forward
+
+
 # =========================================================================
 # Training loop
 # =========================================================================
@@ -1450,6 +1481,37 @@ def main():
                 return out
             model.language_model.register_forward_hook(_add_past_kv)
             _compat.append("lm_output_past_kv")
+        # (c) Text-only bypass (BOTH only): this VLM's training forward requires pixel_values and
+        # runs the tower unconditionally, so a text-only row (no image) crashes. Wrap forward so
+        # an IMAGE batch hits the model's OWN tested forward unchanged, while a text-only batch
+        # (no pixel_values) runs the language_model directly on token embeddings -- the tower
+        # stays out of the graph (no tower grad from text rows), no wasted tower compute.
+        if family.get("mm_text_only_bypass") and family.get("_train_target") == "both" \
+                and hasattr(model, "language_model"):
+            _orig_forward = model.forward
+            _lm = model.language_model
+            _vocab = _lm.config.vocab_size
+
+            def _both_text_bypass_forward(**kw):
+                if kw.get("pixel_values", None) is not None:
+                    return _orig_forward(**kw)                    # image row: untouched real forward
+                input_ids = kw["input_ids"]
+                inputs_embeds = _lm.get_input_embeddings()(input_ids)  # embed_nonleaf hook -> grad
+                out = _lm(inputs_embeds=inputs_embeds,
+                          attention_mask=kw.get("attention_mask"),
+                          use_cache=False, return_dict=True)
+                logits = out.logits
+                loss = None
+                labels = kw.get("labels")
+                if labels is not None:
+                    sl = logits[..., :-1, :].contiguous().view(-1, _vocab)
+                    st = labels[..., 1:].contiguous().view(-1).to(sl.device)
+                    loss = torch.nn.functional.cross_entropy(sl, st)  # ignore_index=-100 default
+                from transformers.modeling_outputs import CausalLMOutputWithPast
+                return CausalLMOutputWithPast(loss=loss, logits=logits, past_key_values=None)
+
+            model.forward = _both_text_bypass_forward
+            _compat.append("text_only_bypass")
         if _compat:
             log("forward_compat_hooks", installed=_compat)
 

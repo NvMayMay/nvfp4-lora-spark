@@ -270,3 +270,50 @@ def test_mixed_image_text_batch_is_rejected():
     with pytest.raises(ValueError) as e:
         c([img, txt])
     assert "mixing image and text-only" in str(e.value)
+
+
+# =========================================================================
+# Text-only bypass (BOTH on a VLM whose forward mandates pixel_values)
+# =========================================================================
+
+class _StubLM(nn.Module):
+    """A minimal stand-in for `model.language_model`: embeds ids, applies a head."""
+    def __init__(self, vocab=10, d=4):
+        super().__init__()
+        self.emb = nn.Embedding(vocab, d)
+        self.head = nn.Linear(d, vocab)
+        cfg = type("cfg", (), {})()
+        cfg.vocab_size = vocab
+        self.config = cfg
+
+    def get_input_embeddings(self):
+        return self.emb
+
+    def forward(self, inputs_embeds=None, attention_mask=None, use_cache=None, return_dict=None):
+        return type("out", (), {"logits": self.head(inputs_embeds)})()
+
+
+def test_text_only_bypass_delegates_image_and_bypasses_text(train_mod):
+    lm = _StubLM()
+    sentinel = object()
+
+    def _orig(**kw):
+        return sentinel
+
+    fwd = train_mod.build_text_only_bypass_forward(_orig, lm)
+
+    # IMAGE batch (pixel_values present) -> the model's own forward, untouched.
+    assert fwd(pixel_values=torch.zeros(1, 3, 4, 4), input_ids=torch.tensor([[1, 2]])) is sentinel
+
+    # TEXT-only batch (no pixel_values) -> LLM path with a finite CE loss + LLM grad.
+    ids = torch.tensor([[1, 2, 3, 4]])
+    labels = torch.tensor([[-100, -100, 3, 4]])
+    out = fwd(input_ids=ids, attention_mask=torch.ones_like(ids), labels=labels)
+    assert out.loss is not None and torch.isfinite(out.loss)
+    assert tuple(out.logits.shape) == (1, 4, 10)
+    out.loss.backward()
+    assert lm.head.weight.grad is not None    # the LLM adapter would receive gradient
+
+    # A text batch with no supervised labels still returns (loss None), never crashes on no image.
+    out2 = fwd(input_ids=ids, attention_mask=torch.ones_like(ids))
+    assert out2.loss is None
