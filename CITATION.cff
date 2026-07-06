@@ -10,7 +10,7 @@ type: software
 authors:
   - family-names: Freitag
     given-names: Niklas
-version: "1.9"
+version: "1.9.0"
 date-released: "2026-07-06"
 license: Apache-2.0
 url: "https://github.com/NvMayMay/nvfp4-lora-spark"
