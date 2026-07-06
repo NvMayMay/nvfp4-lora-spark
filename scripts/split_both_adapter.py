@@ -9,26 +9,23 @@ that has no such quantized target. This tool splits the unified adapter by SCOPE
 the `both` block that the trainer writes into `adapter_config.json`) into two standard
 sub-adapters, each consumable by its own merge tool:
 
-    <out>/tower/   -> scripts/merge_vision_lora.py                      (bf16 tower + projector)
-    <out>/llm/     -> scripts/merge_vision_lora.py --prefix-pair ...    (bf16 LLM backbone)
+    <out>/tower/   -> scripts/merge_vision_lora.py           (bf16 tower + projector, always)
+    <out>/llm/     -> depends on the LLM TARGET QUANT (see below)
 
-v1 serve path (see docs/plans/train_target_both_plan.md, Phase 0): vLLM 0.22.1 cannot
-runtime-LoRA the nemotron VLM (the multimodal wrapper does not declare SupportsLoRA), so BOTH
-halves are MERGED and the result is served as a plain VLM. Both halves are bf16 (the tower,
-and a nemotron `both` run targets bf16 q/k/v), so both merge via the SAME dequant-free
-merge_vision_lora path -- the LLM half just needs an explicit `--prefix-pair` because it lives
-under a non-vision module prefix. (merge_lora_into_nvfp4 is NOT used: it is single-backbone +
-NVFP4-target only, and drops bf16 targets.) The merge ORDER matters -- tower first, then the
-LLM against the tower-merged base:
-
-    python scripts/merge_vision_lora.py --base-model-dir <BASE> \
-        --adapter-dir <out>/tower --out-dir <BASE.tower>
-    python scripts/merge_vision_lora.py --base-model-dir <BASE.tower> \
-        --adapter-dir <out>/llm --out-dir <BASE.both> --prefix-pair language_model.:language_model.
-
-Merging the LLM half is lossless because its targets are bf16 (nemotron q/k/v); FP8/NVFP4 LLM
-targets would take a quantized-merge quality hit (a wrapper-patch runtime-LoRA path is the
-quality-preserving alternative, deferred -- see the plan).
+v1 serve path (see docs/plans/train_target_both_plan.md): vLLM 0.22.1 cannot runtime-LoRA these
+VLM wrappers (they do not declare SupportsLoRA), so BOTH halves are MERGED and served as a
+plain VLM, tower first then LLM against the tower-merged base. The LLM-half merge tool depends
+on the LLM's attention quant (this tool can't tell -- it reads only the adapter config, not the
+base; check the run's target_coverage.json):
+  * bf16 attention (e.g. Nemotron q/k/v): the SAME dequant-free merge as the tower, via
+    merge_vision_lora with an explicit --prefix-pair (the LLM lives under a non-vision prefix).
+    Lossless. NOTE: --prefix-pair is MEM:DISK; identity only when the LLM in-memory path equals
+    its on-disk path (Nemotron). A family whose st_to_model rewrites the LLM prefix (mistral's
+    language_model.model.) needs the DISK side adjusted.
+  * NVFP4 attention, compressed-tensors (e.g. Pixtral/Mistral-Small): merge_lora_into_ct_nvfp4
+    (family-aware, handles the multi-backbone VLM). Lossy in principle (dequant->add->requant),
+    near-lossless for a light FT.
+  * NVFP4 attention, ModelOpt single-backbone LLM: merge_lora_into_nvfp4.
 
 Pure-Python, no torch import at module top: the key classification is unit-testable without a
 model, and the tensor copy uses safetensors directly.
@@ -204,16 +201,22 @@ def main(argv=None) -> int:
     s = split_both_adapter(args.adapter_dir, args.output_dir)
     print(json.dumps(s, indent=2))
     p = s["llm_prefix"]
-    print("\nNext (fully-merge, v1 serve path -- ORDER MATTERS):")
+    print("\nNext -- fully-merge (v1 serve path); ORDER MATTERS (tower first, then LLM):")
+    print("  # 1) tower half (always bf16):")
     print(f"  python scripts/merge_vision_lora.py --base-model-dir <BASE> \\")
     print(f"      --adapter-dir {s['tower_dir']} --out-dir <BASE.tower>")
-    # The LLM half is bf16 (target q/k/v) -> same dequant-free merge as the tower, via
-    # merge_vision_lora with an explicit --prefix-pair (NOT merge_lora_into_nvfp4, which is
-    # single-backbone + NVFP4-target only). Merge it AGAINST the tower-merged base.
+    # The LLM merge tool depends on the LLM TARGET QUANT (this tool can't tell -- it only reads
+    # the adapter config, not the base). Check target_coverage.json next to the adapter.
+    print("  # 2) LLM half -- pick by the LLM target quant (see the run's target_coverage.json):")
+    print(f"  #    bf16 attention (e.g. Nemotron q/k/v) -> same dequant-free merge as the tower:")
     print(f"  python scripts/merge_vision_lora.py --base-model-dir <BASE.tower> \\")
     print(f"      --adapter-dir {s['llm_dir']} --out-dir <BASE.both> --prefix-pair {p}:{p}")
-    print("  # then: serve <BASE.both> as a plain VLM (NO --enable-lora; the nemotron VLM")
-    print("  #       wrapper does not support runtime-LoRA on vLLM 0.22.1).")
+    print(f"  #    NVFP4 attention, compressed-tensors (e.g. Pixtral / Mistral-Small):")
+    print(f"  python scripts/merge_lora_into_ct_nvfp4.py --base-model-dir <BASE.tower> \\")
+    print(f"      --lora-adapter-dir {s['llm_dir']} --output-dir <BASE.both>")
+    print(f"  #    NVFP4 attention, ModelOpt single-backbone LLM -> scripts/merge_lora_into_nvfp4.py")
+    print("  # then: serve <BASE.both> as a PLAIN VLM (no --enable-lora; the VLM wrappers do not")
+    print("  #       support runtime-LoRA on vLLM 0.22.1).")
     return 0
 
 

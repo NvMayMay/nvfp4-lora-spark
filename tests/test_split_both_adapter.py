@@ -110,6 +110,41 @@ def test_split_roundtrip(tmp_path):
     assert lcfg["target_modules"] == ["q_proj", "k_proj", "v_proj"] and lcfg["train_target"] == "text"
 
 
+def test_split_mistral3_shaped_adapter(tmp_path):
+    """A non-nemotron layout splits correctly: mistral3 towers under model.vision_tower. /
+    model.multi_modal_projector., LLM under model.language_model., with the PEFT-doubled
+    model.model. wrapper prefix. Exercises the scope match on a second family shape."""
+    tower = [
+        "base_model.model.model.vision_tower.transformer.layers.0.attention.q_proj.lora_A.weight",
+        "base_model.model.model.vision_tower.transformer.layers.0.attention.q_proj.lora_B.weight",
+        "base_model.model.model.multi_modal_projector.linear_1.lora_A.weight",
+        "base_model.model.model.multi_modal_projector.linear_1.lora_B.weight",
+    ]
+    llm = [
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_A.weight",
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_B.weight",
+    ]
+    d = tmp_path / "m3both"
+    d.mkdir(parents=True)
+    save_file({k: torch.zeros(2, 2) for k in tower + llm}, str(d / "adapter_model.safetensors"))
+    cfg = {
+        "base_model_name_or_path": "/base", "r": 16, "lora_alpha": 32, "train_target": "both",
+        "both": {
+            "text_target_modules": ["q_proj"], "vision_target_modules": ["q_proj"],
+            "text_peft_scope": r"^model\.language_model\.",
+            "vision_peft_scope": r"^model\.vision_tower\.|^model\.multi_modal_projector\.",
+            "projector_scopes": [r"^model\.multi_modal_projector\."],
+        },
+    }
+    (d / "adapter_config.json").write_text(json.dumps(cfg))
+    s = S.split_both_adapter(d, tmp_path / "out")
+    assert s["tower_keys"] == 4 and s["llm_keys"] == 2
+    # NON-identity vs on-disk (mistral's on-disk LLM prefix is language_model.model.); the
+    # printed --prefix-pair DISK side needs adjusting -- but mistral's LLM is NVFP4 anyway, so
+    # its LLM half merges via merge_lora_into_ct_nvfp4 (family-aware), not the bf16 --prefix-pair.
+    assert s["llm_prefix"] == "model.language_model."
+
+
 def test_split_refuses_non_both_adapter(tmp_path):
     adir = _make_both_adapter(tmp_path / "plain", _TOWER, _LLM, both_block=False)
     with pytest.raises(SystemExit) as e:

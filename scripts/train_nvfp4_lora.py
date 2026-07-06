@@ -1361,7 +1361,10 @@ def main():
     # Vision/both run: build the model's AutoProcessor + the multimodal collate. Text mode
     # never constructs any of this (zero VLM plumbing on the text path).
     collate_fn = (lambda b: collate_batch(b, tok.pad_token_id))
-    if args.train_target in ("vision", "both") and not args.dry_run:
+    # Built even under --dry-run for vision/both: the OOM preflight synthesizes a real IMAGE
+    # batch through this collator so it exercises the tower + image preproc (a text-only probe
+    # would bypass the tower for `both` and crash a vision forward that mandates pixel_values).
+    if args.train_target in ("vision", "both"):
         from transformers import AutoProcessor
         from nvfp4_lora.mm_data import (MultimodalCollator, MultimodalJsonlDataset,
                                         resolve_image_token_ids)
@@ -1633,32 +1636,49 @@ def main():
     optim = torch.optim.AdamW(trainable_params, lr=args.learning_rate, weight_decay=args.weight_decay)
 
     if args.dry_run:
-        # Preflight OOM probe. Everything memory-relevant (full load, LoRA attach,
-        # gradient checkpointing, optimizer state) is already constructed above; the
-        # only thing left to exercise is a real forward+backward at the configured
-        # shape. We synthesize one max-length batch (the worst case the real run
-        # will see) rather than touching the dataset, then exit without saving.
+        # Preflight OOM probe. Everything memory-relevant (full load, LoRA attach, gradient
+        # checkpointing, optimizer state) is already constructed above; the only thing left is a
+        # real forward+backward at the configured shape. We synthesize batches rather than
+        # touching the dataset. The peak the REAL run sees is the max over the batch KINDS it
+        # will actually train on:
+        #   text        -> a max-length text batch (LLM worst case).
+        #   vision      -> an IMAGE batch (tower + projector + image preproc). A text-only probe
+        #                  is invalid: no text-only rows, and the forward mandates pixel_values.
+        #   both        -> BOTH: the text-only bypass path AND an image batch; report the max.
+        def _probe(batch, kind):
+            torch.cuda.reset_peak_memory_stats()
+            batch = _move_batch_to_device(batch, device, compute_dtype=dtype)
+            out = model(**batch)
+            (out.loss / args.grad_accum).backward()
+            optim.zero_grad(set_to_none=True)
+            peak = round(torch.cuda.max_memory_allocated() / 1e9, 2)
+            log("dry_run_probe", kind=kind, batch_size=args.batch_size,
+                max_length=args.max_length, loss=round(out.loss.item(), 4),
+                cuda_max_allocated_gb=peak)
+            return peak
+
         snap_post_load = memory_snapshot()
-        torch.cuda.reset_peak_memory_stats()
-        synth = torch.randint(
-            0, int(tok.vocab_size), (args.batch_size, args.max_length),
-            dtype=torch.long, device=device,
-        )
-        batch = {
-            "input_ids": synth,
-            "labels": synth.clone(),
-            "attention_mask": torch.ones_like(synth),
-        }
-        out = model(**batch)
-        loss = out.loss / args.grad_accum
-        loss.backward()
+        peaks = {}
+        # Text/LLM worst case: valid for text, and for `both` (text-only rows take the bypass).
+        if args.train_target != "vision":
+            synth = torch.randint(0, int(tok.vocab_size), (args.batch_size, args.max_length),
+                                  dtype=torch.long, device=device)
+            peaks["text"] = _probe({"input_ids": synth, "labels": synth.clone(),
+                                    "attention_mask": torch.ones_like(synth)}, "text")
+        # Tower/image path: exercises the vision tower + projector + on-device image preproc.
+        if args.train_target in ("vision", "both"):
+            from PIL import Image
+            dummy_ex = {
+                "messages": [
+                    {"role": "user", "content": [{"type": "image"},
+                                                 {"type": "text", "text": "describe the image"}]},
+                    {"role": "assistant", "content": "ok"}],
+                "images": [Image.new("RGB", (512, 512), (127, 127, 127))]}
+            peaks["image"] = _probe(mm_collate([dummy_ex]), "image")
         snap_post_backward = memory_snapshot()
-        optim.zero_grad(set_to_none=True)
-        log("dry_run_ok",
-            batch_size=args.batch_size, max_length=args.max_length,
-            loss=round(out.loss.item(), 4),
-            post_load=snap_post_load, post_backward=snap_post_backward,
-            cuda_max_allocated_gb=round(torch.cuda.max_memory_allocated() / 1e9, 2))
+        log("dry_run_ok", train_target=args.train_target, peaks_gb=peaks,
+            worst_gb=(max(peaks.values()) if peaks else None),
+            post_load=snap_post_load, post_backward=snap_post_backward)
         return
 
     updates_per_epoch = max(1, math.ceil(len(train_loader) / args.grad_accum))

@@ -86,6 +86,21 @@ ADAPTER_PREFIX = "base_model.model."
 #   base_model.model.model.language_model.layers.0.mlp.experts.0.gate_proj...
 #       -> ("language_model.model.layers.0.mlp.experts.0.gate_proj", ...)
 
+def resolve_text_backbone_prefix(family: dict) -> tuple[str, str]:
+    """(in_memory_prefix, on_disk_prefix) for the text backbone the adapter targets.
+
+    `st_to_model[0]` is the family's PRIMARY rewrite rule, stored as (on_disk, in_memory) --
+    i.e. the semantic text-backbone prefix. Prefer it; fall back to `expert_prefix` (mem, disk)
+    only when a family declares no `st_to_model`. Reading `expert_prefix` directly is fragile:
+    it coincides with the text prefix for qwen3_5_moe/mistral3 but would mis-map on a family
+    whose experts live under a different prefix than the attention (codex review).
+    """
+    if family.get("st_to_model"):
+        st_prefix, mem_prefix = family["st_to_model"][0]
+        return mem_prefix, st_prefix
+    return tuple(family["expert_prefix"])
+
+
 def make_qkv_regex(st_text_prefix: str) -> re.Pattern:
     """q/k/v projections under the family's on-disk text-backbone prefix."""
     return re.compile(
@@ -403,15 +418,7 @@ def main() -> int:
     # Adapter-key translation and the q/k/v shared-scale rule come from the
     # family registry, so they match the layout the trainer used at load time.
     model_type, family = resolve_family(args.base_model_dir)
-    # The semantic need is the TEXT-BACKBONE prefix (in-memory <-> on-disk). st_to_model[0]
-    # is exactly that (the primary rewrite rule); prefer it. Fall back to expert_prefix only
-    # when a family declares no st_to_model. (Reading expert_prefix directly is fragile: it
-    # coincides with the text prefix for qwen3_5_moe/mistral3 but would mis-map on a family
-    # whose experts live under a different prefix than the attention. Codex review.)
-    if family.get("st_to_model"):
-        st_prefix, mem_prefix = family["st_to_model"][0]
-    else:
-        mem_prefix, st_prefix = family["expert_prefix"]
+    mem_prefix, st_prefix = resolve_text_backbone_prefix(family)
     qkv_re = make_qkv_regex(st_prefix)
     print(f"[merge] family  = {model_type} (mem={mem_prefix!r} -> disk={st_prefix!r})")
 

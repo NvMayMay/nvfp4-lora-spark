@@ -278,6 +278,31 @@ GPU-validated on three vision-stack architectures, **at different depths**:
 Vision adapters have **no vLLM runtime-LoRA path** (vLLM applies LoRA to the LLM backbone
 only), so the vision serve story is merge-to-bf16-base.
 
+### Fine-tune the LLM *and* the tower together (`--train-target both`)
+
+`both` LoRA-trains the LLM backbone **and** the bf16 tower/projector in one run, from a
+**mixed** dataset (image+text rows interleaved with text-only rows). Where `vision` only
+re-describes the image (frozen LLM) and `text` only re-decides the answer (frozen tower),
+`both` moves both -- for a task needing new perception *and* new reasoning/format.
+
+The halves live on **separate LoRA scopes** in one adapter: the LLM half on the native
+NVFP4/FP8/bf16 path (forced native, so a bf16-attention LLM can't silently drop to PEFT), the
+tower half on the bf16 path. A first-**image**-backward grad gate asserts both halves receive
+gradient (all-nonzero on the dense tower, `>=1` on the text half -- a MoE LLM routes only a
+subset of experts per batch). Text-only rows run natively (Pixtral's HF forward) or through a
+gated bypass (Nemotron's forward mandates an image). Serve = split the unified adapter
+(`scripts/split_both_adapter.py`) -> merge each half -> serve the merged VLM plain.
+
+GPU-validated **fully end to end (train -> split -> merge -> serve -> image+text inference)**
+on two architectures with different LLM quant:
+
+- **Nemotron-Omni** (bf16 attention): the LLM half merges losslessly into the bf16 `q/k/v`.
+- **Pixtral** (Mistral-Small-3.2-24B, NVFP4 attention): the LLM half merges via the
+  compressed-tensors path (`scripts/merge_lora_into_ct_nvfp4.py`); the merged VLM serves +
+  answers.
+
+A plumbing / capability result (both halves train, merge, and serve), not a metric-lift claim.
+
 ### Known issues on GB10 (DGX Spark)
 
 Consolidated in [`nvfp4_lora/gb10_prep.py`](nvfp4_lora/gb10_prep.py):
