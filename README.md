@@ -1,5 +1,10 @@
 # nybbloris
 
+[![CPU tests](https://github.com/NvMayMay/nvfp4-lora-spark/actions/workflows/ci.yml/badge.svg)](https://github.com/NvMayMay/nvfp4-lora-spark/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![Hardware: GB10 / DGX Spark](https://img.shields.io/badge/hardware-GB10%20%2F%20DGX%20Spark-76B900.svg)](#target-hardware)
+
 **Fine-tune a 100B+ MoE on the 4-bit weights NVIDIA actually ships — on one desk-side box — and prove the adapter didn't silently die.**
 
 NVIDIA and partners ship the largest open MoE families in **NVFP4** (4-bit) so models
@@ -41,6 +46,21 @@ NVFP4-attention one (Pixtral / Mistral-Small-3.2-24B). See
 [Fine-tune the vision tower of a VLM](#fine-tune-the-vision-tower-of-a-vlm---train-target-vision).
 
 ![Fine-tune any NVFP4 model from 8B to 122B on one GB10; Command-A is the unregistered generic-fallback case](plots/reach_map.png)
+
+## Contents
+
+- [Install](#install)
+- [60 seconds, no model download: does my adapter actually bind?](#60-seconds-no-model-download-does-my-adapter-actually-bind)
+- [The loop](#the-loop)
+- [On-ramp: reproduce a real before/after in ~30 minutes (public 8B)](#on-ramp-reproduce-a-real-beforeafter-in-30-minutes-public-8b)
+- [A note on serving speed](#a-note-on-serving-speed)
+- [How it works](#how-it-works) — [Why NVFP4](#why-nvfp4-not-plain-fp4) · [The unified trainer](#the-unified-trainer)
+- [Supported models](#supported-models) — [generic fallback](#any-other-nvfp4-model-generic-fallback) · [vision tower](#fine-tune-the-vision-tower-of-a-vlm---train-target-vision) · [LLM + tower together](#fine-tune-the-llm-and-the-tower-together---train-target-both) · [GB10 known issues](#known-issues-on-gb10-dgx-spark)
+- [Target hardware](#target-hardware)
+- [Correctness checks](#correctness-checks)
+- [Repository layout](#repository-layout)
+- [Documentation](#documentation)
+- [Scope](#scope) · [Contributing](#contributing) · [License](#license) · [Citation](#citation)
 
 ## Install
 
@@ -283,8 +303,10 @@ GPU-validated on three vision-stack architectures, **at different depths**:
   Llama-4-specific dense expert forward added to load it is checked by grad-flow + finite loss,
   **not** a numerical-parity test vs the reference forward.
 
-Vision adapters have **no vLLM runtime-LoRA path** (vLLM applies LoRA to the LLM backbone
-only), so the vision serve story is merge-to-bf16-base.
+A **vision-tower** adapter has **no vLLM runtime-LoRA path** (vLLM applies LoRA to the LLM
+backbone only), so the tower serve story is merge-to-bf16-base. The **LLM backbone** of these
+VLMs is a different matter -- see [the `both` section](#fine-tune-the-llm-and-the-tower-together---train-target-both)
+for serving an LLM-half adapter live via runtime-LoRA.
 
 ### Fine-tune the LLM *and* the tower together (`--train-target both`)
 
@@ -310,6 +332,17 @@ on two architectures with different LLM quant:
   answers.
 
 A plumbing / capability result (both halves train, merge, and serve), not a metric-lift claim.
+
+**Serving the LLM half live (runtime-LoRA, no merge).** The tower half must merge, but the LLM
+half can instead be served as a live vLLM adapter -- the 4-bit backbone is never rewritten.
+Export it with [`scripts/export_llm_lora.py`](scripts/export_llm_lora.py) (drops the vision keys,
+keeps the attention LoRA) and serve with `--enable-lora`. Pixtral / Mistral-Small VLMs
+(`Mistral3ForConditionalGeneration`) support this in stock vLLM; the Nemotron-Omni wrapper
+(`NemotronH_Nano_VL_V2`) does not declare LoRA support, so the repo ships an in-tree vLLM plugin
+([`nvfp4_lora/vllm_plugins/nemotron_vl_lora.py`](nvfp4_lora/vllm_plugins/nemotron_vl_lora.py),
+opt-in via `NEMOTRON_ENABLE_LLM_LORA=1` in `serve/run_nemotron_omni_vision_merged.sh`) that adds
+it. GPU-validated on Nemotron-Omni: it serves with `--enable-lora`, and a base-vs-adapter logprob
+delta on a fixed prompt confirms the adapter changes the forward (not a silent un-adapted base).
 
 ### Known issues on GB10 (DGX Spark)
 
@@ -376,6 +409,20 @@ tests/                       # CPU-only suite run by CI; no GPU required by cons
 results/                     # published bench + validation artifacts (committed eval JSON)
 ```
 
+## Documentation
+
+Full guide index in **[docs/README.md](docs/README.md)**. The most-used entry points:
+
+| To... | Read |
+|---|---|
+| Reproduce the 8B before/after (public base + dataset) | [REPRODUCE_SPIDER.md](REPRODUCE_SPIDER.md) |
+| Stand up the exact stack (deps, versions, CUDA) | [REPRODUCE.md](REPRODUCE.md) |
+| Walk the full CLI end to end (train → inspect → serve → verify) | [docs/WORKED_EXAMPLE.md](docs/WORKED_EXAMPLE.md) |
+| Serve a model (host-venv recipe, UMA gotchas, runtime-by-checkpoint) | [docs/SERVING.md](docs/SERVING.md) |
+| Diagnose a failure by its signature | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
+| Port a new NVFP4 family | [docs/PORTING.md](docs/PORTING.md) |
+| See every measured number (memory / context / throughput) | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) |
+
 ## Scope
 
 - The unified trainer accepts any `--target-modules` whose coverage checks pass; the
@@ -390,7 +437,9 @@ results/                     # published bench + validation artifacts (committed
 ## Contributing
 
 Issues and pull requests are welcome. For larger changes (new model family loaders, native
-FP4 training paths, dynamic-LoRA-at-CUTLASS work), open an issue first to align on scope.
+FP4 training paths, dynamic-LoRA-at-CUTLASS work), open an issue first to align on scope. See
+**[CONTRIBUTING.md](CONTRIBUTING.md)** for dev setup, the CPU test suite, and what CI expects;
+release history is in **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## License
 

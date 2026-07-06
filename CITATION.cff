@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use nybbloris, please cite it as below."
+title: "nybbloris: LoRA fine-tuning and runtime-LoRA serving for NVFP4 MoE on consumer Blackwell"
+abstract: >-
+  LoRA fine-tuning and runtime-LoRA serving for NVFP4 (4-bit) mixture-of-experts models on a
+  single DGX Spark (GB10, 128 GB unified memory). Trains the adapter on the served 4-bit weights
+  directly (no BF16 round-trip, no re-quant drift) and ships a binding contract that proves the
+  adapter changed the forward pass at serve time rather than silently serving the un-adapted base.
+type: software
+authors:
+  - name: "nybbloris contributors"
+version: "1.9"
+date-released: "2026-07-06"
+license: Apache-2.0
+url: "https://github.com/NvMayMay/nvfp4-lora-spark"
+repository-code: "https://github.com/NvMayMay/nvfp4-lora-spark"
+keywords:
+  - nvfp4
+  - lora
+  - mixture-of-experts
+  - quantization
+  - dgx-spark
+  - blackwell
+  - vllm
