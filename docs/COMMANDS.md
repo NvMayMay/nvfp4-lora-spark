@@ -40,9 +40,11 @@ nybbloris inspect --base-model-dir models/Llama-3.1-8B-Instruct-NVFP4 \
 | `--json` | emit the plan as JSON on stdout (suppresses the human report) |
 | `--json-out PATH` | also write the plan object to a file |
 
-Verdicts (also exit codes, so CI can branch): `PASS` binds + serves as-is (`0`) · `NEEDS-REKEY`
-binds after a re-key, which `serve --rekey auto` handles (`3`) · `BLOCKED-ROUTED` routed-expert
-MoE, needs `--moe-backend emulation` (`4`) · `FAIL`/`EMPTY` does not bind (`1`).
+Verdicts (also exit codes, so CI can branch): `PASS` binds + serves as-is (`0`) ·
+`NO-OP`/`NEEDS-REKEY` binds only after a re-key, which `serve --rekey auto` handles (`3`) ·
+`BLOCKED-ROUTED` routed-expert MoE, needs `--moe-backend emulation` (`4`) · `FAIL`/`EMPTY` does
+not bind (`1`). (`NO-OP` = the adapter's keys resolve to zero base modules as-is: a silent no-op
+until re-keyed.)
 
 ### `nybbloris train`
 
@@ -89,7 +91,8 @@ nybbloris serve --base-model-dir models/Llama-3.1-8B-Instruct-NVFP4 \
 | `--rekey {auto,off}` | auto-re-key a silent-no-op adapter to the serve layout (default `auto`) |
 | `--fix-lm-head` | auto-dequantize a quantized `lm_head` vLLM can't load |
 | `--moe-backend` | force a MoE backend; `emulation` applies routed-expert LoRA live |
-| `--verify` / `--verify-only` | run the apply-check: a base-vs-adapter logprob delta on `--val-file` (identical logprobs prove a no-op; a moved delta proves it applies) |
+| `--verify` / `--verify-only` | run the apply-check: a base-vs-adapter logprob delta (identical logprobs prove a no-op; a moved delta proves it applies) |
+| `--val-file` | the JSONL whose prompts drive `--verify` (required with it) |
 | `--dry-run` | print the resolved vLLM command without launching |
 | `--host` / `--port` / `--max-model-len` / `--gpu-memory-utilization` | standard serve knobs |
 

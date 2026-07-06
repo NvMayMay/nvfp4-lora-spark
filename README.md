@@ -91,10 +91,10 @@ way a 4-bit fine-tune dies is a silent no-op at serve:
 nybbloris inspect \
     --base-model-dir models/Llama-3.1-8B-Instruct-NVFP4 \
     --adapter-dir    adapters/my_run/best
-# VERDICT: PASS            binds + serves live as-is
-#          NEEDS-REKEY     binds only after re-key (serve --rekey auto handles it)
-#          BLOCKED-ROUTED  routed-expert MoE: serve --moe-backend emulation (live), not merge-only
-#          FAIL / EMPTY    does not bind to this base (wrong base / no LoRA tensors)
+# VERDICT: PASS               binds + serves live as-is
+#          NO-OP / NEEDS-REKEY  binds only after re-key (serve --rekey auto handles it)
+#          BLOCKED-ROUTED     routed-expert MoE: serve --moe-backend emulation (live), not merge-only
+#          FAIL / EMPTY       does not bind to this base (wrong base / no LoRA tensors)
 ```
 
 Those verdicts are exit codes too (`0 / 3 / 4 / 1`), so a CI gate can branch on them.
