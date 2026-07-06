@@ -39,6 +39,7 @@ def test_families_registry_contents(train_mod):
         "qwen3",
         "llama",
         "llama4",
+        "NemotronH_Nano_Omni_Reasoning_V3",
     }
     for fam in train_mod.FAMILIES.values():
         assert fam["auto_class"] in ("causal_lm", "image_text_to_text")

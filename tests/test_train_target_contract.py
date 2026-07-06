@@ -189,6 +189,30 @@ def test_V7_all_vision_families_invert(fam):
     assert re.compile(v["peft_scope"]).search(entry["vision_st_to_model"][0][1] + "layers.0.self_attn.q_proj")
 
 
+@pytest.mark.parametrize("fam_name,projector,linear_path", [
+    ("llama4", "multi_modal_projector", "multi_modal_projector.linear_1"),
+    ("NemotronH_Nano_Omni_Reasoning_V3", "mlp1", "mlp1.1"),
+])
+def test_V8_top_level_projector_scope_anchors_at_module_path(fam_name, projector, linear_path):
+    """Regression: a TOP-LEVEL projector (no `model.` wrapper) must anchor at `^<name>\\.`,
+    NOT the first-vision-rule head. The old heuristic derived the prefix from the first
+    `vision_st_to_model` rule (the *tower* prefix, e.g. `vision_model.`) and mis-anchored the
+    projector to `^vision_model\\.<name>\\.`, which never matched -> the projector silently
+    never trained. llama4 shipped with this latent bug (never GPU-vision-run); nemotron_omni's
+    `mlp1` Sequential is the same top-level shape. Both are fixed via `vision_projector_mem_prefix`.
+    """
+    entry = _entry(fam_name)
+    scopes = F._vision_projector_scopes(entry)
+    assert scopes == (r"^" + re.escape(projector) + r"\.",)
+    scope_re = re.compile(scopes[0])
+    assert scope_re.search(linear_path)                          # real top-level Linear matches
+    assert scope_re.search("vision_model." + linear_path) is None  # old broken anchor does NOT
+    # The vision view stashes the projector scopes for PATH-based Linear selection (the
+    # projector's Sequential-indexed Linears can't be matched by `vision_target_suffixes`).
+    v = family_view(entry, "vision")
+    assert v["_projector_scopes"] == scopes
+
+
 # =========================================================================
 # X -- XOR disjointness
 # =========================================================================

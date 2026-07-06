@@ -404,6 +404,13 @@ def main(argv=None) -> int:
     ap.add_argument("--family-config", type=Path, default=None,
                     help="explicit family spec (the --family-config escape hatch); "
                          "must carry the vision_* fields")
+    ap.add_argument("--prefix-pair", action="append", default=None, metavar="MEM:DISK",
+                    help="Override the tower prefix pairs with explicit MEM:DISK module-prefix "
+                         "pairs (repeatable). Use to merge a NON-vision bf16 adapter, e.g. the "
+                         "LLM half of a --train-target both split: "
+                         "`--prefix-pair language_model.:language_model.`. Bypasses the "
+                         "vision-family requirement; the adapter keys drive the mapping. The "
+                         "merge is the same dequant-free bf16 delta-add (targets must be bf16).")
     ap.add_argument("--dry-run", action="store_true",
                     help="report adapter->base coverage + target storage, write nothing")
     ap.add_argument("--self-test", action="store_true",
@@ -431,16 +438,28 @@ def main(argv=None) -> int:
     model_type, family = resolve_family(
         args.base_model_dir, family_config=args.family_config
     )
-    if not family_supports_vision(family):
-        raise SystemExit(
-            f"model_type={model_type!r} declares no vision scope, so it has no "
-            f"--train-target vision adapter to merge. Vision families: add "
-            f"vision_peft_scope / vision_st_to_model to its FAMILIES entry (see "
-            f"mistral3), or pass --family-config."
-        )
-    prefix_pairs = vision_prefix_pairs(family)
-    print(f"[merge] family  = {model_type} (vision prefixes: "
-          f"{[m for m, _ in prefix_pairs]})")
+    if args.prefix_pair:
+        # Explicit override: merge a bf16 adapter under arbitrary module prefixes (the LLM half
+        # of a --train-target both split -> `language_model.:language_model.`). The adapter keys
+        # drive the mapping, so no vision-family requirement. Same bf16 merge downstream.
+        prefix_pairs = []
+        for pp in args.prefix_pair:
+            if ":" not in pp:
+                ap.error(f"--prefix-pair must be MEM:DISK, got {pp!r}")
+            mem, disk = pp.split(":", 1)
+            prefix_pairs.append((mem, disk))
+        print(f"[merge] explicit prefix pairs (bf16, non-vision): {prefix_pairs}")
+    else:
+        if not family_supports_vision(family):
+            raise SystemExit(
+                f"model_type={model_type!r} declares no vision scope, so it has no "
+                f"--train-target vision adapter to merge. Vision families: add "
+                f"vision_peft_scope / vision_st_to_model to its FAMILIES entry (see "
+                f"mistral3), or pass --family-config."
+            )
+        prefix_pairs = vision_prefix_pairs(family)
+        print(f"[merge] family  = {model_type} (vision prefixes: "
+              f"{[m for m, _ in prefix_pairs]})")
 
     lora_map, cfg, scale = load_adapter(args.adapter_dir, prefix_pairs)
     print(f"[merge] {len(lora_map)} vision LoRA targets, r={cfg['r']} "

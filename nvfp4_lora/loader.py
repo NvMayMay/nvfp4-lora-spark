@@ -150,13 +150,25 @@ def build_target_inventory(model_dir: str | Path, target_suffixes: Sequence[str]
 
     keys = set(_load_weight_map(model_dir).keys())
     prefixes = list_weight_module_prefixes(keys)
-    vision_mode = family is not None and family.get("_train_target") == "vision"
+    train_target = family.get("_train_target") if family is not None else None
+    vision_mode = train_target == "vision"
+    both_mode = train_target == "both"
     if vision_mode:
         # Restrict to the tower + projector on-disk prefixes; everything else
         # (the frozen NVFP4 text backbone) is not a vision target.
         keep = tuple(family.get("vision_st_prefixes", ()))
         prefixes = {p for p in prefixes if keep and p.startswith(keep)}
         layer_re = _LAYER_RE_VISION
+    elif both_mode:
+        # `both` inventories the TEXT suffixes here. The both view un-skipped the tower for
+        # LOADING, but the tower is not a text target: re-exclude vision_st_prefixes so a
+        # tower Linear whose leaf name collides with a text suffix (a Pixtral tower's
+        # `q_proj`/`down_proj`) cannot inflate the text coverage counts. (The vision half is
+        # inventoried separately with the vision suffixes restricted to the tower.)
+        skip = tuple(family.get("skip_st_prefixes", ())) + tuple(family.get("vision_st_prefixes", ()))
+        if skip:
+            prefixes = {p for p in prefixes if not p.startswith(skip)}
+        layer_re = _LAYER_RE_TEXT
     else:
         # Drop modules outside the training graph (e.g. nemotron_h `mtp.*`,
         # multimodal towers) so they cannot inflate trainable-target counts.
@@ -757,6 +769,7 @@ def replace_bf16_targets(
     lora_dropout: float = 0.0,
     device: torch.device = torch.device("cuda"),
     dtype: torch.dtype = torch.bfloat16,
+    projector_scopes: Sequence[str] = (),
 ) -> int:
     """Wrap plain-BF16 TARGET Linears (under the family's peft_scope) in BF16LoRALinear.
 
@@ -765,15 +778,29 @@ def replace_bf16_targets(
     natively alongside NVFP4/FP8 targets in one adapter, instead of being dropped (a native
     run can't host PEFT). `peft_scope` anchors to the text backbone, so out-of-scope BF16
     (MTP/speculation heads, vision towers) is left frozen. Returns the count wrapped.
+
+    `projector_scopes` (vision runs) select bf16 Linears by PATH regardless of suffix: a
+    vision projector may be an `nn.Sequential` whose Linears have non-distinctive leaf names
+    (e.g. nemotron_omni's `mlp1.1`/`mlp1.3`) that can't be listed in `target_lora_suffixes`.
+    Any bf16 `nn.Linear` under a projector scope is wrapped; matches are de-duplicated with
+    the suffix path (a Linear is wrapped at most once).
     """
     import re
 
     target_set = set(target_lora_suffixes)
     scope_re = re.compile(peft_scope) if peft_scope else None
+    proj_res = [re.compile(p) for p in projector_scopes]
+
+    def _is_target(name: str) -> bool:
+        # Projector: any Linear under a projector scope, regardless of leaf suffix.
+        if any(pr.search(name) for pr in proj_res):
+            return True
+        # Backbone / tower: suffix must match AND be in the peft scope.
+        return (name.rsplit(".", 1)[-1] in target_set
+                and (scope_re is None or scope_re.search(name)))
+
     hits = [(name, mod) for name, mod in model.named_modules()
-            if isinstance(mod, nn.Linear)
-            and name.rsplit(".", 1)[-1] in target_set
-            and (scope_re is None or scope_re.search(name))]
+            if isinstance(mod, nn.Linear) and _is_target(name)]
     count = 0
     for name, orig in hits:
         parent, attr = _get_parent(model, name)

@@ -118,6 +118,43 @@ def test_mistral_qkv_regex_matches_its_layout(merge_ct):
     assert not qkv_re.match("model.language_model.layers.0.self_attn.q_proj")
 
 
+def test_resolve_text_backbone_prefix_prefers_st_to_model(merge_ct):
+    """The CT merge derives its prefix from st_to_model[0] (the text-backbone rule), not
+    expert_prefix -- correct for the general case, same result for these families."""
+    for name in ("mistral3", "qwen3_5_moe"):
+        fam = FAMILIES[name]
+        mem, st = merge_ct.resolve_text_backbone_prefix(fam)
+        exp_st, exp_mem = fam["st_to_model"][0]          # stored (on_disk, in_memory)
+        assert (mem, st) == (exp_mem, exp_st)
+
+
+def test_resolve_text_backbone_prefix_falls_back_to_expert(merge_ct):
+    """A family with no st_to_model falls back to expert_prefix."""
+    fam = FAMILIES["glm4_moe"]
+    assert fam.get("st_to_model") is None
+    assert merge_ct.resolve_text_backbone_prefix(fam) == tuple(fam["expert_prefix"])
+
+
+def test_scale_groups_warns_on_incomplete_qkv_trio(merge_ct, capsys):
+    """A partial q/k/v merge breaks vLLM's fused-qkv shared-scale invariant -> loud warning."""
+    _, st = merge_ct.resolve_text_backbone_prefix(FAMILIES["mistral3"])
+    qkv_re = merge_ct.make_qkv_regex(st)
+    prefixes = [
+        # layer 0: q + v only (NO k) -> incomplete trio.
+        "language_model.model.layers.0.self_attn.q_proj",
+        "language_model.model.layers.0.self_attn.v_proj",
+        # layer 1: full trio -> fine.
+        "language_model.model.layers.1.self_attn.q_proj",
+        "language_model.model.layers.1.self_attn.k_proj",
+        "language_model.model.layers.1.self_attn.v_proj",
+    ]
+    groups = merge_ct.scale_groups(prefixes, qkv_re)
+    out = capsys.readouterr().out
+    assert "INCOMPLETE" in out
+    # The complete trio is still grouped correctly.
+    assert any(len(g) == 3 and all("layers.1" in p for p in g) for g in groups)
+
+
 # ---------------------------------------------------------------------------
 # ModelOpt/Nemotron prefix derivation
 # ---------------------------------------------------------------------------

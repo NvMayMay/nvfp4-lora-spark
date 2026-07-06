@@ -86,6 +86,21 @@ ADAPTER_PREFIX = "base_model.model."
 #   base_model.model.model.language_model.layers.0.mlp.experts.0.gate_proj...
 #       -> ("language_model.model.layers.0.mlp.experts.0.gate_proj", ...)
 
+def resolve_text_backbone_prefix(family: dict) -> tuple[str, str]:
+    """(in_memory_prefix, on_disk_prefix) for the text backbone the adapter targets.
+
+    `st_to_model[0]` is the family's PRIMARY rewrite rule, stored as (on_disk, in_memory) --
+    i.e. the semantic text-backbone prefix. Prefer it; fall back to `expert_prefix` (mem, disk)
+    only when a family declares no `st_to_model`. Reading `expert_prefix` directly is fragile:
+    it coincides with the text prefix for qwen3_5_moe/mistral3 but would mis-map on a family
+    whose experts live under a different prefix than the attention (codex review).
+    """
+    if family.get("st_to_model"):
+        st_prefix, mem_prefix = family["st_to_model"][0]
+        return mem_prefix, st_prefix
+    return tuple(family["expert_prefix"])
+
+
 def make_qkv_regex(st_text_prefix: str) -> re.Pattern:
     """q/k/v projections under the family's on-disk text-backbone prefix."""
     return re.compile(
@@ -140,6 +155,17 @@ def scale_groups(prefixes: list[str], qkv_re: re.Pattern) -> list[list[str]]:
             qkv[m.group("layer")].append(p)
         else:
             singles.append([p])
+    # vLLM fuses q/k/v into one qkv_proj and REQUIRES an equal weight_global_scale across the
+    # trio. A merge that touches only some of a layer's q/k/v gives the merged members a new
+    # shared max while the untouched member keeps its base scale -> the fused-scale invariant
+    # breaks at serve. Surface incomplete trios loudly (codex review); previously only visible
+    # in --dry-run's group print.
+    incomplete = {layer: len(v) for layer, v in qkv.items() if len(v) not in (0, 3)}
+    if incomplete:
+        print(f"[merge] WARNING: {len(incomplete)} attention layer(s) have an INCOMPLETE q/k/v "
+              f"trio (sizes {sorted(set(incomplete.values()))}); vLLM's fused qkv_proj needs all "
+              f"three merged together with one shared scale. Target q_proj,k_proj,v_proj "
+              f"uniformly. Example: {sorted(incomplete)[:2]}")
     groups = [sorted(v) for _, v in sorted(qkv.items())] + sorted(singles)
     return groups
 
@@ -181,6 +207,12 @@ def dequant_merge(packed, gs_fp8, global_scale, A, B, scale, device):
     if tuple(delta.shape) != tuple(dequant.shape):
         raise ValueError(f"delta shape {tuple(delta.shape)} != base {tuple(dequant.shape)}")
     merged = dequant.to(torch.float32) + delta
+    # A non-finite merged weight (bad A/B/scale) would requantize to garbage and write a
+    # silently-broken checkpoint -- fail loudly instead (codex review).
+    if not torch.isfinite(merged).all():
+        raise ValueError(
+            f"non-finite merged weight ({torch.isnan(merged).sum().item()} NaN, "
+            f"{torch.isinf(merged).sum().item()} Inf); check the adapter tensors / scale")
     return merged, dequant, delta
 
 
@@ -386,7 +418,7 @@ def main() -> int:
     # Adapter-key translation and the q/k/v shared-scale rule come from the
     # family registry, so they match the layout the trainer used at load time.
     model_type, family = resolve_family(args.base_model_dir)
-    mem_prefix, st_prefix = family["expert_prefix"]
+    mem_prefix, st_prefix = resolve_text_backbone_prefix(family)
     qkv_re = make_qkv_regex(st_prefix)
     print(f"[merge] family  = {model_type} (mem={mem_prefix!r} -> disk={st_prefix!r})")
 
