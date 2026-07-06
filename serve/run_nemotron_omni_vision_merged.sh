@@ -5,6 +5,9 @@
 # RADIO tower + mlp1 projector, which vLLM's runtime-LoRA path does NOT touch), so we serve
 # the merged checkpoint as a plain VLM -- the fine-tune lives in the merged tower weights.
 #
+# Optional runtime LLM LoRA:
+#   NEMOTRON_ENABLE_LLM_LORA=1 LLM_LORA_ADAPTER_DIR=/path/to/exported/llm ./serve/run_...
+#
 # THIS ARCH'S GB10 GOTCHAS (learned the hard way -- see gb10_serving_recipes memory / docs):
 #  * FIRST serve compiles the Mamba2 SSD Triton kernels (58 autotune configs) -> ~16 min the
 #    FIRST time on a cold ~/.triton/cache, then cached -> ~2.5 min on later serves. Be patient;
@@ -35,6 +38,10 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.55}"
 MAX_IMAGE_TILES="${MAX_IMAGE_TILES:-1}"
 
+NEMOTRON_ENABLE_LLM_LORA="${NEMOTRON_ENABLE_LLM_LORA:-0}"
+LLM_LORA_ADAPTER_DIR="${LLM_LORA_ADAPTER_DIR:-}"
+LLM_LORA_NAME="${LLM_LORA_NAME:-nemotron-omni-llm-lora}"
+
 if [ ! -f "$MERGED_DIR/model.safetensors.index.json" ]; then
   echo "ERROR: no model.safetensors.index.json in $MERGED_DIR" >&2
   echo "       Run scripts/merge_vision_lora.py to produce the merged VLM first." >&2
@@ -43,6 +50,37 @@ fi
 
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export TRITON_PRINT_AUTOTUNING="${TRITON_PRINT_AUTOTUNING:-1}"
+
+LORA_FLAGS=()
+
+append_vllm_plugin() {
+  local plugin="$1"
+  if [ -z "${VLLM_PLUGINS:-}" ]; then
+    export VLLM_PLUGINS="$plugin"
+    return
+  fi
+  case ",${VLLM_PLUGINS}," in
+    *",${plugin},"*) ;;
+    *) export VLLM_PLUGINS="${VLLM_PLUGINS},${plugin}" ;;
+  esac
+}
+
+if [ "$NEMOTRON_ENABLE_LLM_LORA" = "1" ]; then
+  : "${LLM_LORA_ADAPTER_DIR:?Set LLM_LORA_ADAPTER_DIR to scripts/export_llm_lora.py output}"
+  if [ ! -f "${LLM_LORA_ADAPTER_DIR}/adapter_config.json" ]; then
+    echo "ERROR: no adapter_config.json in LLM_LORA_ADAPTER_DIR=${LLM_LORA_ADAPTER_DIR}" >&2
+    exit 1
+  fi
+  if ! compgen -G "${LLM_LORA_ADAPTER_DIR}/adapter_model*.safetensors" >/dev/null; then
+    echo "ERROR: no adapter_model*.safetensors in LLM_LORA_ADAPTER_DIR=${LLM_LORA_ADAPTER_DIR}" >&2
+    exit 1
+  fi
+
+  append_vllm_plugin "nemotron_vl_lora"
+  LORA_FLAGS+=(--enable-lora --lora-modules "${LLM_LORA_NAME}=${LLM_LORA_ADAPTER_DIR}")
+  echo "Runtime LLM LoRA enabled: ${LLM_LORA_NAME}=${LLM_LORA_ADAPTER_DIR}" >&2
+  echo "VLLM_PLUGINS=${VLLM_PLUGINS}" >&2
+fi
 
 source "${NVFP4_SERVE_VENV}/bin/activate"
 export PATH="${NVFP4_SERVE_VENV}/bin:$PATH"   # so the spawned EngineCore finds ninja
@@ -54,4 +92,5 @@ exec vllm serve "$MERGED_DIR" \
     --mm-processor-kwargs "{\"max_num_tiles\":${MAX_IMAGE_TILES}}" \
     --max-model-len "$MAX_MODEL_LEN" \
     --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
-    --kv-cache-dtype fp8
+    --kv-cache-dtype fp8 \
+    "${LORA_FLAGS[@]}"

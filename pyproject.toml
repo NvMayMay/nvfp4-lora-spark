@@ -32,6 +32,12 @@ vision = ["pillow>=10"]
 [project.scripts]
 nybbloris = "nybbloris.cli:main"
 
+# vLLM discovers this at serve time and calls register() (in the EngineCore
+# subprocess too), which registers a SupportsLoRA subclass of the Nemotron VLM
+# wrapper so its LLM half can be served as runtime-LoRA. No-op unless vLLM loads it.
+[project.entry-points."vllm.general_plugins"]
+nemotron_vl_lora = "nvfp4_lora.vllm_plugins.nemotron_vl_lora:register"
+
 [project.urls]
 Repository = "https://github.com/NvMayMay/nvfp4-lora-spark"
 
@@ -48,7 +54,7 @@ Repository = "https://github.com/NvMayMay/nvfp4-lora-spark"
 # "<script> not found at <path>" and exit 1 rather than crashing if run from a
 # bare wheel). We package the two importable libraries; scripts/ is intentionally
 # distributed via the git clone, not vendored as package data.
-packages = ["nvfp4_lora", "nybbloris"]
+packages = ["nvfp4_lora", "nvfp4_lora.vllm_plugins", "nybbloris"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
