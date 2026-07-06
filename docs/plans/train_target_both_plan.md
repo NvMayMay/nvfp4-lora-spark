@@ -235,17 +235,23 @@ image + text inference.** PLUMBING validation, not a metric claim.
 
 ## Deferred (OUT of v1, documented as such)
 
-- **Other VLMs (mistral3/Pixtral, llama4/Scout, mistral4).** TRAINING now generalizes:
-  end-to-end (train→serve) is validated on nemotron, and TRAINING is validated on mistral3/
-  Pixtral too (2026-07-06 smoke — grad-gate passed with NVFP4-LLM + bf16-tower dual-scope; ran
-  mixed image+text with NO bypass, so its standard HF forward handles text-only natively; the
-  bypass was nemotron-specific). The remaining blocker is **MERGE→SERVE for an NVFP4-LLM VLM**:
-  Pixtral's LLM is NVFP4 (compressed-tensors `weight_packed`+scales), so the clean bf16
-  `--prefix-pair` merge does NOT apply — the NVFP4 LLM-half merge for a MULTI-backbone VLM is
-  unbuilt (both merge tools are single-backbone) and is lossy anyway (→ the runtime-LoRA wrapper
-  patch). Nemotron served end-to-end precisely because its attention is bf16 (clean merge).
-  Scout also still can't serve on one box. Net: `both` TRAINS on any vision family; it fully
-  SERVES today only on bf16-attention VLMs.
+- **Other VLMs (mistral3/Pixtral, llama4/Scout, mistral4).** TRAIN + MERGE now generalize;
+  only SERVE of an NVFP4-LLM VLM is gated (on a vLLM bug, not our code).
+  - TRAIN: validated on mistral3/Pixtral (2026-07-06 smoke — grad-gate passed with NVFP4-LLM +
+    bf16-tower dual-scope; ran mixed image+text with NO bypass; the bypass was nemotron-specific).
+  - MERGE: **CORRECTION — the earlier "NVFP4 multi-backbone merge is unbuilt" was wrong.** That
+    was the ModelOpt tool (`merge_lora_into_nvfp4`, single-backbone). Pixtral is compressed-
+    tensors, and `merge_lora_into_ct_nvfp4` is family-aware: it merged the Pixtral both LLM half
+    correctly (tower + LLM, per-tensor cosine 0.9996–1.0). Codex-reviewed "safe-with-a-guard";
+    hardened (derive prefix from `st_to_model[0]` not `expert_prefix`; finite-value guard;
+    incomplete-q/k/v-trio warning). NVFP4 merge is lossy in principle (Phase 0) but near-lossless
+    for this light FT.
+  - SERVE (the only remaining Pixtral gap, orthogonal to both/merge): vLLM 0.22.1's
+    PixtralProcessor fails on the startup dummy `[IMG]` with no image. PROVEN not-our-merge:
+    config + all processor files are BYTE-IDENTICAL base vs merged, so the base fails identically.
+  - Scout also still can't serve on one box.
+  - Net: `both` TRAINS + MERGES on bf16-LLM (nemotron) AND NVFP4-LLM (Pixtral) VLMs; it fully
+    SERVES today on nemotron; Pixtral serve is gated on a pre-existing vLLM/Pixtral bug.
 - bs>1 / homogeneous bucketing (interacts with seeded-shuffle resume replay).
 - per-half LoRA rank/alpha (paired passes keep the door open).
 - expert-LoRA + `both` (hard-rejected in v1; additive later).
