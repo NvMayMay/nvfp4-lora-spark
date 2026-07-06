@@ -494,17 +494,24 @@ def family_view(fam: dict, train_target: str = "text", *, include_projector: boo
                                 `replace_bf16_targets` / target-suffix matching that
                                 text mode uses now selects the tower + projector)
 
-    A `_train_target="vision"` tag lets the loader's inventory/translator take the
-    vision branch. Refuses (SystemExit, porting hint) a family that declares no
+    `both` returns a NEW dict that LOADS the tower exactly like `vision` (same
+    skip/meta/st_to_model inversions) but KEEPS the LLM trainable: `freeze` stays the
+    registry value (the non-trained towers) instead of `vision_freeze`, and the text +
+    vision LoRA scopes are carried SEPARATELY (`_text_peft_scope` / `_vision_peft_scope`)
+    for two paired bf16 passes, with `peft_scope` pinned to the text scope.
+
+    A `_train_target` tag ("vision"/"both") lets the loader's inventory/translator take
+    the tower-loading branch. Refuses (SystemExit, porting hint) a family that declares no
     `vision_peft_scope`, mirroring the unsupported-family message style.
     """
     if train_target == "text":
         return fam
-    if train_target != "vision":
-        raise ValueError(f"train_target must be 'text' or 'vision', got {train_target!r}")
+    if train_target not in ("vision", "both"):
+        raise ValueError(
+            f"train_target must be 'text', 'vision', or 'both', got {train_target!r}")
     if not family_supports_vision(fam):
         raise SystemExit(
-            f"--train-target vision is not supported for this family "
+            f"--train-target {train_target} is not supported for this family "
             f"(model_type has no `vision_peft_scope`). Known vision families: "
             f"{sorted(k for k, v in FAMILIES.items() if family_supports_vision(v))}. "
             f"To port a VLM, add `vision_peft_scope` / `vision_target_suffixes` / "
@@ -522,10 +529,12 @@ def family_view(fam: dict, train_target: str = "text", *, include_projector: boo
     scopes = [base_scope]
     if include_projector:
         scopes.extend(_vision_projector_scopes(fam))
-    effective_scope = "|".join(scopes)
+    vision_scope = "|".join(scopes)
 
+    # BOTH targets (vision, both) LOAD + materialize the tower and translate its on-disk
+    # keys -- the divergence is only in what is FROZEN and how LoRA is scoped (below).
     view = dict(fam)
-    view["_train_target"] = "vision"
+    view["_train_target"] = train_target
     view["_include_projector"] = include_projector
     # Projector scopes stashed for PATH-BASED target selection: a projector may be an
     # `nn.Sequential` whose Linears have non-distinctive leaf names (nemotron_omni's
@@ -540,9 +549,24 @@ def family_view(fam: dict, train_target: str = "text", *, include_projector: boo
     )
     base_rules = tuple(fam["st_to_model"]) if fam.get("st_to_model") is not None else ()
     view["st_to_model"] = base_rules + tuple(fam.get("vision_st_to_model", ()))
-    view["freeze"] = tuple(fam.get("vision_freeze", ()))
-    view["peft_scope"] = effective_scope
     view["vision_st_prefixes"] = vision_st_prefixes
+
+    if train_target == "vision":
+        # Freeze the TEXT backbone; LoRA only the bf16 tower + projector.
+        view["freeze"] = tuple(fam.get("vision_freeze", ()))
+        view["peft_scope"] = vision_scope
+    else:  # both
+        # KEEP the registry freeze (the NON-trained towers, e.g. nemotron's sound tower);
+        # the LLM stays trainable. load_model's freeze loop then freezes the freshly-wrapped
+        # tower LoRA A/B (they live under those submodules), which freeze_all_then_enable_lora
+        # RE-ENABLES -- so that call is LOAD-BEARING for `both`, not a safety belt. Carry the
+        # two scopes SEPARATELY for the two paired bf16 passes (text targets under the text
+        # scope, tower/projector under the vision scope); pin `peft_scope` to the TEXT scope
+        # so any stray consumer (attach_peft_lora, the vision log) behaves text-like.
+        view["freeze"] = tuple(fam.get("freeze", ()))
+        view["peft_scope"] = fam["peft_scope"]
+        view["_text_peft_scope"] = fam["peft_scope"]
+        view["_vision_peft_scope"] = vision_scope
     return view
 
 

@@ -338,6 +338,7 @@ def load_model(
     # the view's vision peft_scope. Text runs pass the registry entry verbatim (the
     # view is the identity), so nothing below changes for them.
     is_vision = family.get("_train_target") == "vision"
+    is_both = family.get("_train_target") == "both"
     cfg = AutoConfig.from_pretrained(str(model_dir), trust_remote_code=True)
     # Some multimodal families (e.g. NemotronH-Omni) declare NO Flash-Attention-2 support and
     # default to it, so from_config raises unless we force eager. The family opts in via
@@ -433,7 +434,35 @@ def load_model(
     # weights are loaded; family peft_scope keeps out-of-scope BF16 (MTP heads / vision
     # towers) frozen. No-op when there are no in-scope BF16 targets (e.g. the 3.6, whose
     # attention is FP8).
-    if lora_mode == "native":
+    if lora_mode == "native" and is_both:
+        # `both`: TWO paired passes with disjoint (scope, suffixes). Pass A wraps text bf16
+        # targets under the TEXT scope with projector_scopes=() (the projector belongs to
+        # pass B, not the text pass). Pass B wraps the bf16 tower + projector under the
+        # VISION scope. De-dup between passes is automatic: BF16LoRALinear is an nn.Module,
+        # not an nn.Linear, and replace_bf16_targets only collects nn.Linear, so pass B
+        # inherently skips anything pass A wrapped (no double-wrap).
+        vision_suffixes = list(family.get("_vision_target_suffixes", ()))
+        n_text_bf16 = replace_bf16_targets(
+            model, target_suffixes, family.get("_text_peft_scope"),
+            r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout,
+            device=device, dtype=dtype, projector_scopes=(),
+        )
+        n_vis_bf16 = replace_bf16_targets(
+            model, vision_suffixes, family.get("_vision_peft_scope"),
+            r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout,
+            device=device, dtype=dtype, projector_scopes=family.get("_projector_scopes", ()),
+        )
+        print(f"[load] both: wrapped {n_text_bf16} text-bf16 + {n_vis_bf16} tower/projector "
+              f"BF16LoRALinear (co-trained natively)", flush=True)
+        # Per-HALF wrap assert: a single total count can hide a zero-wrapped half. The tower
+        # half must be > 0 here; the text half is asserted after freeze/enable (it may be all
+        # NVFP4/FP8 native with zero bf16, which is legitimate).
+        if n_vis_bf16 == 0:
+            raise SystemExit(
+                "--train-target both wrapped ZERO tower/projector Linears (pass B): check "
+                "--vision-target-modules and that the tower fell in the vision scope")
+        _stage("post-bf16-targets")
+    elif lora_mode == "native":
         n_bf16 = replace_bf16_targets(
             model, target_suffixes, family.get("peft_scope"),
             r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout,
@@ -560,22 +589,57 @@ def _move_batch_to_device(batch: dict, device, compute_dtype: torch.dtype = torc
     return {k: _move(v) for k, v in batch.items()}
 
 
-def assert_vision_grads_flow(model, log_fn) -> None:
-    """First-backward gradient gate for a vision run (plan section 5.2).
+def assert_vision_grads_flow(model, log_fn, *, train_target: str = "vision",
+                             is_vision_param=None) -> None:
+    """First-(image-)backward gradient gate for a vision or both run (plan section 5.2).
 
-    After the FIRST loss.backward(), every vision/projector LoRA `lora_B` must carry a
-    non-zero grad: dL/dB flows iff the autograd graph through the frozen 4-bit LLM is
-    intact. A severed graph (the no_grad-on-LLM footgun) shows up here as zero/None grad
-    on lora_B -> hard stop before wasting a run. lora_A can legitimately be zero on step
-    1 (B is zero-initialized, so dL/dA == 0), so its zero-grad is only a warning.
+    After the first backward on an image-containing batch, `lora_B` grads prove the autograd
+    graph is intact through the frozen 4-bit LLM (dL/dB flows iff so). A severed graph (the
+    no_grad-on-LLM footgun) shows up as zero/None grad on lora_B. lora_A can legitimately be
+    zero on step 1 (B is zero-initialized, so dL/dA == 0), so its zero-grad is only a warning.
+
+    `vision` (default, 2-arg call unchanged): EVERY trainable lora_B must be non-zero.
+    `both`: the VISION half keeps ALL-nonzero (the tower is dense), but the TEXT half needs
+    only >=1 non-zero lora_B -- a MoE LLM stores routed experts as per-expert Linears, so one
+    batch exercises only the routed subset and an all-nonzero text check would hard-fail every
+    healthy run. `is_vision_param(name)` splits the halves. lora_B/lora_A are matched by suffix
+    (`.endswith`) so expert blocks' `lora_B_gate_up`/`lora_B_down` never leak into the check.
     """
     lora_params = {n: p for n, p in model.named_parameters() if p.requires_grad}
     if not lora_params:
-        raise SystemExit("vision mode selected but no trainable params after freeze/enable")
-    zero_b = [n for n, p in lora_params.items()
-              if ".lora_B" in n and (p.grad is None or not p.grad.abs().sum().item() > 0)]
-    zero_a = [n for n, p in lora_params.items()
-              if ".lora_A" in n and (p.grad is None or not p.grad.abs().sum().item() > 0)]
+        raise SystemExit(
+            f"--train-target {train_target}: no trainable params after freeze/enable")
+
+    def _has_grad(p) -> bool:
+        return p.grad is not None and p.grad.abs().sum().item() > 0
+
+    b_params = {n: p for n, p in lora_params.items() if n.endswith(".lora_B")}
+    a_params = {n: p for n, p in lora_params.items() if n.endswith(".lora_A")}
+
+    if train_target == "both":
+        assert is_vision_param is not None, "both grad-gate needs an is_vision_param splitter"
+        vis_b = {n: p for n, p in b_params.items() if is_vision_param(n)}
+        txt_b = {n: p for n, p in b_params.items() if not is_vision_param(n)}
+        # Vision half: ALL-nonzero (a severed graph / mis-scoped tower wrap must trip here).
+        zero_vis = [n for n, p in vis_b.items() if not _has_grad(p)]
+        if zero_vis:
+            raise SystemExit(
+                f"severed vision autograd graph: zero/None grad on {len(zero_vis)} tower/"
+                f"projector lora_B on the first image batch (the no_grad-on-LLM footgun): "
+                f"{zero_vis[:8]}")
+        # Text half: >=1 nonzero (a MoE LLM routes only a subset of experts per batch).
+        if txt_b and not any(_has_grad(p) for p in txt_b.values()):
+            raise SystemExit(
+                f"no gradient on ANY of {len(txt_b)} text/LLM lora_B on the first image batch; "
+                f"the LLM adapter is not training (check --target-modules / the text scope)")
+        log_fn("both_first_image_grad_check", result="pass",
+               vision_lora_B=len(vis_b), text_lora_B=len(txt_b),
+               text_lora_B_with_grad=sum(1 for p in txt_b.values() if _has_grad(p)))
+        return
+
+    # vision (and the 2-arg default): every lora_B non-zero.
+    zero_b = [n for n, p in b_params.items() if not _has_grad(p)]
+    zero_a = [n for n, p in a_params.items() if not _has_grad(p)]
     if zero_b:
         raise SystemExit(
             f"severed autograd graph: zero/None grad on {len(zero_b)} lora_B param(s) "
@@ -585,7 +649,7 @@ def assert_vision_grads_flow(model, log_fn) -> None:
     if zero_a:
         log_fn("warn_lora_A_zero_grad_step1", names=zero_a[:8])
     log_fn("first_backward_grad_check", result="pass",
-           lora_params=len(lora_params), lora_B_checked=len(lora_params) - len(zero_a))
+           lora_params=len(lora_params), lora_B_checked=len(b_params) - len(zero_a))
 
 
 # =========================================================================
@@ -621,8 +685,14 @@ def evaluate(model, loader, device, compute_dtype: torch.dtype = torch.bfloat16)
 def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
                          lora_mode: str, base_model_dir: str,
                          lora_r: int, lora_alpha: int, lora_dropout: float,
-                         target_suffixes) -> None:
-    """Atomic (tmp+rename) adapter save for either LoRA mechanism."""
+                         target_suffixes, both_meta: dict | None = None) -> None:
+    """Atomic (tmp+rename) adapter save for either LoRA mechanism.
+
+    `both_meta` (a `--train-target both` run) records the two-scope structure -- text vs
+    vision suffixes and their scopes -- so the merge/serve splitter can route the unified
+    adapter's keys (tower -> merge into base; LLM -> merge or runtime-LoRA) without
+    re-deriving scope membership from key prefixes alone.
+    """
     import shutil
     from safetensors.torch import save_file as safe_save_file
 
@@ -716,6 +786,10 @@ def _save_adapter_atomic(model, tokenizer, dest_dir: Path, log_fn, *,
                 "experimental": True,
                 "note": "train-side native stacked layout; runtime serving is GPU-gated (docs/plans/expert_lora_scope.md)",
             }
+        if both_meta is not None:
+            cfg["train_target"] = "both"
+            # target_modules above is the TEXT half only; the full two-scope record lives here.
+            cfg["both"] = both_meta
         (tmp_dir / "adapter_config.json").write_text(json.dumps(cfg, indent=2))
     else:
         from peft.utils import get_peft_model_state_dict
@@ -964,14 +1038,17 @@ def main():
                          "quantized in the checkpoint. Required in --train-target text; "
                          "in vision mode it defaults to the family's vision_target_suffixes "
                          "(or use --vision-target-modules).")
-    ap.add_argument("--train-target", choices=("text", "vision"), default="text",
+    ap.add_argument("--train-target", choices=("text", "vision", "both"), default="text",
                     help="What to fine-tune. 'text' (default) is byte-for-byte today's "
                          "behaviour: LoRA on the (NVFP4/FP8/BF16) text backbone, tower "
                          "frozen/skipped, no multimodal plumbing. 'vision' freezes the "
                          "text backbone and trains the bf16 vision tower + multimodal "
                          "projector via BF16LoRALinear on the multimodal data path "
-                         "(needs an AutoProcessor + an images sidecar). Only families "
-                         "declaring a vision scope support it (mistral3/mistral4, llama4).")
+                         "(needs an AutoProcessor + an images sidecar). 'both' trains the "
+                         "LLM backbone (--target-modules) AND the tower/projector "
+                         "(--vision-target-modules) in one run from a mixed image+text "
+                         "dataset; requires --batch-size 1. Only families declaring a "
+                         "vision scope support vision/both (mistral3/mistral4, llama4).")
     ap.add_argument("--vision-target-modules", default=None,
                     help="Comma-separated projection suffixes for --train-target vision "
                          "(overrides --target-modules and the family default). E.g. "
@@ -1053,6 +1130,22 @@ def main():
         ap.error("--train-file is required unless --dry-run is set")
     if args.train_target == "text" and not args.target_modules:
         ap.error("--target-modules is required unless --train-target vision")
+    if args.train_target == "both" and not args.target_modules:
+        ap.error("--train-target both requires --target-modules (the LLM/text LoRA suffixes); "
+                 "the vision suffixes come from --vision-target-modules or the family default")
+    if args.train_target in ("vision", "both") and args.expert_lora_r:
+        ap.error(
+            f"--expert-lora-r is not supported with --train-target {args.train_target}: the "
+            "routed experts are not in the trained set here, yet the trainer would still "
+            "create + SAVE a zero-delta expert adapter (freeze_all_then_enable_lora does not "
+            "re-enable NVFP4Experts3D params, but the save path emits any block with "
+            "lora_r>0). Drop --expert-lora-r.")
+    if args.train_target == "both" and args.batch_size > 1:
+        ap.error(
+            "--train-target both requires --batch-size 1: a batch mixing image and text-only "
+            "rows drops the later rows' pixel_values (the collator derives image keys from the "
+            "first row), silently corrupting training. bs>1 homogeneous bucketing is a future "
+            "item.")
 
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -1095,6 +1188,11 @@ def main():
     if args.train_target == "vision":
         log("train_target_vision", model_type=model_type,
             vision_peft_scope=family["peft_scope"], include_projector=args.include_projector)
+    elif args.train_target == "both":
+        log("train_target_both", model_type=model_type,
+            text_peft_scope=family.get("_text_peft_scope"),
+            vision_peft_scope=family.get("_vision_peft_scope"),
+            include_projector=args.include_projector)
 
     from nvfp4_lora.linear import set_train_dequant_cache_gb
     set_train_dequant_cache_gb(args.train_dequant_cache_gb)
@@ -1110,6 +1208,20 @@ def main():
         if not target_suffixes:
             ap.error("no vision target suffixes: pass --vision-target-modules or use a "
                      "family with vision_target_suffixes")
+    elif args.train_target == "both":
+        # TWO suffix lists: TEXT (--target-modules) drives the mode decision + native
+        # NVFP4/FP8 LoRA on the LLM; VISION (--vision-target-modules or the family default)
+        # selects the bf16 tower Linears for pass B (the projector is path-scoped separately).
+        target_suffixes = [m.strip() for m in args.target_modules.split(",") if m.strip()]
+        vtm = args.vision_target_modules
+        vsuffixes = list(vtm.split(",")) if vtm else list(family.get("vision_target_suffixes", ()))
+        vision_suffixes = [m.strip() for m in vsuffixes if m and m.strip()]
+        if not vision_suffixes and not family.get("_projector_scopes"):
+            ap.error("--train-target both: no vision target suffixes and no projector scope to "
+                     "train; pass --vision-target-modules or use a family with "
+                     "vision_target_suffixes")
+        # Stash on the view so load_model's pass B reads them (no signature change).
+        family["_vision_target_suffixes"] = vision_suffixes
     else:
         target_suffixes = [m.strip() for m in args.target_modules.split(",") if m.strip()]
     lora_mode, coverage = detect_lora_mode(
@@ -1117,11 +1229,14 @@ def main():
         allow_partial_targets=args.allow_partial_targets,
         family=family,
     )
-    if args.train_target == "vision" and lora_mode != "native":
-        # Vision targets are unquantized bf16, so detect_lora_mode returns "peft"; the
-        # native BF16LoRALinear path is what wraps + co-trains them (uniform save/merge
-        # keys, exercised by test_bf16_lora_linear). Force it.
-        log("force_native_vision", prev_mode=lora_mode)
+    if args.train_target in ("vision", "both") and lora_mode != "native":
+        # bf16 targets (the whole tower; also e.g. nemotron's bf16 attention on the LLM)
+        # classify as "peft"; the native BF16LoRALinear path is what wraps + co-trains them
+        # (uniform save/merge keys, exercised by test_bf16_lora_linear). For `both`, PEFT mode
+        # would be doubly wrong: replace_bf16_targets is gated on native (so NEITHER half wraps)
+        # and attach_peft_lora's PeftModel re-pathing breaks the native save/grad-gate. Force it.
+        log("force_native_vision" if args.train_target == "vision" else "force_native_both",
+            prev_mode=lora_mode)
         lora_mode = "native"
     # Force native for EXPERT-ONLY runs on a fused-3D family: with no attention/MLP
     # targets, detect_lora_mode has nothing NVFP4 to classify and defaults to peft,
@@ -1165,6 +1280,15 @@ def main():
     coverage["model_type"] = model_type
     coverage["model_dir"] = str(model_dir)
     coverage["train_target"] = args.train_target
+    if args.train_target == "both" and vision_suffixes:
+        # The `coverage` above is the TEXT half (tower re-excluded, see build_target_inventory's
+        # both branch). Record the VISION half separately, restricted to the tower, so the QC
+        # artifact reports both halves without either polluting the other.
+        from nvfp4_lora.loader import build_target_inventory as _bti
+        _vis_view = dict(family)
+        _vis_view["_train_target"] = "vision"
+        coverage["vision_inventory"] = _bti(model_dir, vision_suffixes, family=_vis_view)
+        coverage["vision_targets"] = list(vision_suffixes)
     (Path(args.output_dir) / "target_coverage.json").write_text(
         json.dumps(coverage, indent=2, sort_keys=True)
     )
@@ -1203,10 +1327,10 @@ def main():
         log("tokenizer_loaded", backend="hf",
             vocab_size=tok.vocab_size, pad_id=tok.pad_token_id)
 
-    # Vision run: build the model's AutoProcessor + the multimodal collate. Text mode
+    # Vision/both run: build the model's AutoProcessor + the multimodal collate. Text mode
     # never constructs any of this (zero VLM plumbing on the text path).
     collate_fn = (lambda b: collate_batch(b, tok.pad_token_id))
-    if args.train_target == "vision" and not args.dry_run:
+    if args.train_target in ("vision", "both") and not args.dry_run:
         from transformers import AutoProcessor
         from nvfp4_lora.mm_data import (MultimodalCollator, MultimodalJsonlDataset,
                                         resolve_image_token_ids)
@@ -1235,10 +1359,21 @@ def main():
     # In --dry-run we synthesize one batch later, so skip dataset/dataloader
     # construction entirely (no train-file needed, no tokenization cost).
     if not args.dry_run:
-        if args.train_target == "vision":
+        if args.train_target in ("vision", "both"):
             train_ds = MultimodalJsonlDataset(args.train_file, max_examples=args.max_train_examples)
             val_ds = (MultimodalJsonlDataset(args.val_file, max_examples=args.max_val_examples)
                       if args.val_file else [])
+            if args.train_target == "both":
+                # The grad-gate fires on the first IMAGE batch, and the tower half only trains
+                # on image rows. A `both` corpus with zero image rows would never exercise -- or
+                # verify -- the tower; fail loudly at build, not after an epoch of text-only.
+                n_img = sum(1 for paths in train_ds.image_paths if paths)
+                if n_img == 0:
+                    raise SystemExit(
+                        "--train-target both: train set has ZERO image rows; the tower/projector "
+                        "LoRA would never receive gradient. Provide image+text rows or use "
+                        "--train-target text.")
+                log("both_dataset_mix", image_rows=n_img, text_rows=len(train_ds) - n_img)
         else:
             train_ds = ChatJsonlDataset(args.train_file, tok, args.max_length, args.max_train_examples)
             val_ds = (ChatJsonlDataset(args.val_file, tok, args.max_length, args.max_val_examples)
@@ -1285,7 +1420,9 @@ def main():
 
     # Gated forward-compat hooks for exotic VLM forwards (NemotronH-Omni), so its OWN tested
     # forward runs unchanged -- no ~100-line forward re-implementation, robust to upstream edits.
-    if family.get("_train_target") == "vision":
+    # Required for BOTH too: even with a trainable LLM, the embeddings stay frozen, so the
+    # in-place scatter of grad-requiring tower features still hits the frozen-leaf-view trap.
+    if family.get("_train_target") in ("vision", "both"):
         _compat = []
         # (a) Frozen-backbone scatter: the forward writes image features IN-PLACE into a VIEW of
         # the (frozen) input-embedding output; autograd forbids that on a view of a LEAF with
@@ -1320,18 +1457,40 @@ def main():
         model = attach_peft_lora(model, family, target_suffixes,
                                  args.lora_r, args.lora_alpha, args.lora_dropout)
 
-    # Vision run: freeze EVERY param then re-enable exactly the LoRA A/B in scope. This
+    # Vision/both run: freeze EVERY param then re-enable exactly the LoRA A/B in scope. This
     # is the codex-corrected freeze -- it never wraps the frozen 4-bit LLM forward in
-    # torch.no_grad (which would silently zero all vision gradients), and it catches
-    # embeddings / norms / lm_head / router gates without enumerating them.
-    if args.train_target == "vision":
+    # torch.no_grad (which would silently zero all gradients), and it catches embeddings /
+    # norms / lm_head / router gates without enumerating them. LOAD-BEARING for `both`: the
+    # load-time freeze loop (family["freeze"]) froze the freshly-wrapped tower LoRA A/B, and
+    # this RE-ENABLES them (plus the LLM LoRA A/B).
+    if args.train_target in ("vision", "both"):
         n_vis = freeze_all_then_enable_lora(model)
-        log("vision_freeze_enable", trainable_lora_tensors=n_vis,
+        log("freeze_enable", trainable_lora_tensors=n_vis, train_target=args.train_target,
             include_projector=args.include_projector)
         if n_vis == 0:
             raise SystemExit(
-                "vision run has no trainable LoRA params after freeze/enable; check "
-                "--vision-target-modules and that the tower Linears fell in the vision scope")
+                f"--train-target {args.train_target} has no trainable LoRA params after "
+                "freeze/enable; check the target suffixes and that the Linears fell in scope")
+        if args.train_target == "both":
+            # Per-HALF trainable assert: a nonzero TOTAL can still hide a zero-wrapped half
+            # (e.g. good tower targets but wrong LLM suffixes). Split by the view's vision
+            # scope regexes (NOT hand-coded prefixes -- families differ: mistral3 towers are
+            # `model.vision_tower.*`, nemotron's `vision_model.*`).
+            import re as _re
+            _vscope = _re.compile(family.get("_vision_peft_scope") or r"(?!x)x")
+            _proj_res = [_re.compile(p) for p in family.get("_projector_scopes", ())]
+            def _is_vision_param(name: str) -> bool:
+                return bool(_vscope.search(name) or any(pr.search(name) for pr in _proj_res))
+            _trainable = [n for n, p in model.named_parameters() if p.requires_grad]
+            n_text_half = sum(1 for n in _trainable if not _is_vision_param(n))
+            n_vis_half = sum(1 for n in _trainable if _is_vision_param(n))
+            log("both_freeze_enable", trainable_text=n_text_half, trainable_vision=n_vis_half)
+            if n_text_half == 0:
+                raise SystemExit("--train-target both: no trainable TEXT/LLM LoRA params after "
+                                 "freeze/enable; check --target-modules")
+            if n_vis_half == 0:
+                raise SystemExit("--train-target both: no trainable TOWER/projector LoRA params "
+                                 "after freeze/enable; check --vision-target-modules / projector")
 
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_lora_modules = sum(1 for _, m in model.named_modules()
@@ -1459,10 +1618,21 @@ def main():
     model.train()
     update_step = 0
     micro_step = 0
-    # First-backward gradient gate (vision only): the very first backward must land
-    # non-zero grads on the vision LoRA lora_B params, proving the autograd graph
+    # First-(image-)backward gradient gate (vision/both): the first backward on an image
+    # batch must land non-zero grads on the tower LoRA lora_B, proving the autograd graph
     # survives the frozen 4-bit LLM (catches the no_grad footgun before a wasted run).
-    grad_guard_pending = (args.train_target == "vision")
+    grad_guard_pending = (args.train_target in ("vision", "both"))
+    # For `both`, the gate fires on the first IMAGE batch and splits trainable lora_B into
+    # text vs tower halves (asymmetric strictness). Build the splitter once, from the view's
+    # vision scope regexes (not hand-coded prefixes -- families differ).
+    _both_is_vision_param = None
+    if args.train_target == "both":
+        import re as _re_gg
+        _gg_vscope = _re_gg.compile(family.get("_vision_peft_scope") or r"(?!x)x")
+        _gg_proj = [_re_gg.compile(p) for p in family.get("_projector_scopes", ())]
+
+        def _both_is_vision_param(name, _v=_gg_vscope, _p=_gg_proj):
+            return bool(_v.search(name) or any(pr.search(name) for pr in _p))
     run_start = time.time()
     last_update_time = run_start
     window_supervised_tokens = 0
@@ -1471,12 +1641,28 @@ def main():
     best_val_loss = float("inf")
     best_dir = Path(args.output_dir) / "best"
 
+    both_meta = None
+    if args.train_target == "both":
+        both_meta = {
+            "train_target": "both",
+            "text_target_modules": list(target_suffixes),
+            "vision_target_modules": list(vision_suffixes),
+            "text_peft_scope": family.get("_text_peft_scope"),
+            "vision_peft_scope": family.get("_vision_peft_scope"),
+            "projector_scopes": list(family.get("_projector_scopes", ())),
+            "include_projector": bool(args.include_projector),
+            "note": ("both-adapter: contains LLM (text) + tower/projector LoRA keys; split by "
+                     "scope at merge/serve time (tower -> merge into base; LLM -> merge or "
+                     "runtime-LoRA)."),
+        }
+
     def save_to(dest):
         _save_adapter_atomic(
             model, tok, dest, log,
             lora_mode=lora_mode, base_model_dir=args.model_dir,
             lora_r=args.lora_r, lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout, target_suffixes=target_suffixes,
+            both_meta=both_meta,
         )
 
     # Subset-eval loader: when --eval-subset N>0, in-flight evals run over only
@@ -1555,10 +1741,12 @@ def main():
             window_loss_n += 1
             loss = out.loss / args.grad_accum
             loss.backward()
-            if grad_guard_pending:
-                # Run on the FIRST backward, before any optimizer step / grad-accum
-                # divide affects the raw grads.
-                assert_vision_grads_flow(model, log)
+            if grad_guard_pending and (args.train_target != "both" or "pixel_values" in batch):
+                # Run on the first (image-containing, for `both`) backward, before any
+                # optimizer step / grad-accum divide affects the raw grads. A `both` text-only
+                # batch has no tower grad by design, so defer the gate until an image batch.
+                assert_vision_grads_flow(model, log, train_target=args.train_target,
+                                         is_vision_param=_both_is_vision_param)
                 grad_guard_pending = False
             if micro_step % args.grad_accum == 0:
                 total_norm = torch.nn.utils.clip_grad_norm_(trainable_params, args.max_grad_norm)

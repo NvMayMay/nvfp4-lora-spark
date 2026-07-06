@@ -261,11 +261,20 @@ class MultimodalCollator:
         input_ids = enc["input_ids"][0]
         seq_len = int(input_ids.shape[-1])
         if seq_len > self.max_length:
-            raise ValueError(
-                f"example expands to {seq_len} tokens > max_length={self.max_length}; "
-                f"refusing to truncate (would cut a mid-image token run and corrupt the "
-                f"fuse). Use a smaller image or a larger --max-length."
-            )
+            if images:
+                raise ValueError(
+                    f"example expands to {seq_len} tokens > max_length={self.max_length}; "
+                    f"refusing to truncate (would cut a mid-image token run and corrupt the "
+                    f"fuse). Use a smaller image or a larger --max-length."
+                )
+            # TEXT-ONLY row: no image-token run to corrupt, so truncate rather than raise. A
+            # single over-length text row in a mixed `both` corpus must not crash a multi-hour
+            # run at collate time (the pure-text path drops such rows eagerly at construction).
+            input_ids = input_ids[: self.max_length]
+            for _k in ("input_ids", "attention_mask"):
+                if _k in enc:
+                    enc[_k] = enc[_k][:, : self.max_length]
+            seq_len = int(input_ids.shape[-1])
         attn = enc["attention_mask"][0] if "attention_mask" in enc \
             else torch.ones_like(input_ids)
 
@@ -303,6 +312,16 @@ class MultimodalCollator:
 
     def __call__(self, batch: list[dict]) -> dict:
         encoded = [self.encode_example(ex) for ex in batch]
+
+        # Defense-in-depth: a batch mixing image and text-only rows drops pixel_values for the
+        # WHOLE batch (extra_keys below is derived from encoded[0]), silently corrupting the
+        # image rows. `both` enforces batch_size=1 at the CLI, but guard here so the data-loss
+        # path can never execute regardless of caller.
+        has_img = [("pixel_values" in e) for e in encoded]
+        if any(has_img) and not all(has_img):
+            raise ValueError(
+                "MultimodalCollator got a batch mixing image and text-only rows, which drops "
+                "pixel_values for the batch. Use batch_size=1 or homogeneous batches.")
 
         input_ids = pad_sequence([e["input_ids"] for e in encoded],
                                  batch_first=True, padding_value=self.pad_token_id)
