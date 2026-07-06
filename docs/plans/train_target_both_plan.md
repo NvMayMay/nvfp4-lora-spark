@@ -101,24 +101,39 @@ the text pass and mis-attributed).
 
 ---
 
-## Phase 0 — serve/merge spike (PREREQUISITE, zero training)
+## Phase 0 — serve/merge spike (RESOLVED 2026-07-06, zero training)
 
-**Both reviewers: the merge/serve split is the single riskiest surface, and its outcome
-sets the v1 default — so it runs FIRST.** The repo's runtime-LoRA evidence is text-model
-only. Unknowns: does vLLM's `nano_nemotron_vl` path accept `--enable-lora` at all? Does its
-LoRA machinery cover FP8LoRALinear on Mamba2 `in_proj`/`out_proj` (`families.py:239-241`)?
-The Command-A precedent (base serves, `--enable-lora` crashes on a tied-embed arch) says
-this is exactly where VLM serving breaks.
+**Question:** can vLLM 0.22.1 runtime-LoRA the LLM half of the nemotron VLM (so a `both`
+adapter could serve as merged-tower base + swappable LLM LoRA)?
 
-- Spike: existing nemotron vision-merged base + ANY existing text adapter → attempt vLLM
-  `--enable-lora`. Zero training.
-- Outcome drives the default:
-  - runtime-LoRA works on the LLM half → default = **merge tower into base, keep LLM as
-    runtime-LoRA** (the nybbloris thesis; preserves the swappable-LLM value prop).
-  - it does not → default = **fully merge both halves** (document the regression vs the
-    thesis) OR restrict `both`'s LLM targets to LoRA-servable modules.
-- Deliverable: a decision + a serve recipe (or a documented limitation). Nothing in Phase 1
-  is built until this lands.
+**Answer: NO on vLLM 0.22.1** — settled by source introspection alone (no serve/GPU needed):
+- The merged base's arch resolves to the multimodal wrapper class: `registry.py:500`
+  `"NemotronH_Nano_Omni_Reasoning_V3": ("nano_nemotron_vl", "NemotronH_Nano_VL_V2")`.
+- `NemotronH_Nano_VL_V2` does NOT declare `SupportsLoRA` (`nano_nemotron_vl.py:902` bases =
+  `HasInnerState, IsHybrid, SupportsMultiModal, SupportsMultiModalPruning`); vLLM's own
+  `supports_lora(cls)` returns `False`.
+- vLLM hard-errors at startup: `lora_model_runner_mixin.py:37-38`
+  `if not supports_lora(model): raise ValueError(f"{cls} does not support LoRA yet.")`. So
+  `vllm serve <merged> --enable-lora` fails before generating (the Command-A failure shape).
+
+**Key nuance:** the capability exists at the LLM level — standalone `NemotronHForCausalLM`
+returns `supports_lora=True`. It is the multimodal WRAPPER that doesn't expose LoRA, not a
+Mamba/hybrid limitation. A wrapper subclass declaring `SupportsLoRA` + delegating the inner
+LLM's `packed_modules_mapping`/`embedding_modules` could unlock it later — the same shape as
+the Command-A tied-embed `__getattr__` delegation patch (cohere memory). That is a Phase-3+
+vLLM-patch item, not v1.
+
+**v1 default decision (revises §3.6): FULLY MERGE BOTH HALVES.** The splitter emits a
+tower-only sub-adapter merged into the bf16 tower AND an LLM-only sub-adapter merged into the
+LLM weights; serve the merged VLM as a plain model (no `--enable-lora`).
+- Quality: merging the LLM half is LOSSLESS iff its targets are bf16 (nemotron's `q/k/v` are
+  bf16) — bf16 + bf16 delta stays bf16, so the repo's "merge-into-4bit erases the fine-tune"
+  concern does NOT apply to a bf16-attention `both` run. It DOES apply if the LLM targets are
+  FP8 (`o_proj`, Mamba `in/out_proj`) or NVFP4 (routed experts); for those the wrapper-patch
+  runtime-LoRA path is the quality-preserving option, deferred to Phase 3+.
+- Practical guidance for `both` on nemotron: target the bf16 attention (`q_proj,k_proj,
+  v_proj`) so the merge is clean; document that FP8/NVFP4 LLM targets take a merge quality hit
+  until the wrapper patch lands.
 
 ---
 
