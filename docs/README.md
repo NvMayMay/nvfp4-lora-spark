@@ -8,9 +8,10 @@ the quickstart; this page maps everything else.
 
 | Doc | What it covers |
 |---|---|
+| [COMMANDS.md](COMMANDS.md) | **Command reference** — every `nybbloris` subcommand and script, what it does, key flags, a one-line example. |
+| [WORKED_EXAMPLE.md](WORKED_EXAMPLE.md) | Full CLI walkthrough: `train → inspect → serve → verify` (the tutorial the reference complements). |
 | [REPRODUCE_SPIDER.md](../REPRODUCE_SPIDER.md) | Reproduce a real before/after in ~30 min on a public 8B + Spider text-to-SQL. The fastest end-to-end proof. |
 | [REPRODUCE.md](../REPRODUCE.md) | The exact stack: dependencies, versions, CUDA, and the licensing breakdown. |
-| [WORKED_EXAMPLE.md](WORKED_EXAMPLE.md) | Full CLI walkthrough: `train → inspect → serve → verify`. |
 
 ## Serve
 

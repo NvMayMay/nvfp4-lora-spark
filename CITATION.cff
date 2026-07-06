@@ -8,7 +8,8 @@ abstract: >-
   adapter changed the forward pass at serve time rather than silently serving the un-adapted base.
 type: software
 authors:
-  - name: "nybbloris contributors"
+  - family-names: Freitag
+    given-names: Niklas
 version: "1.9"
 date-released: "2026-07-06"
 license: Apache-2.0

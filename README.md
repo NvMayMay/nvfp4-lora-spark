@@ -415,6 +415,7 @@ Full guide index in **[docs/README.md](docs/README.md)**. The most-used entry po
 
 | To... | Read |
 |---|---|
+| Look up any command or flag (CLI + scripts) | [docs/COMMANDS.md](docs/COMMANDS.md) |
 | Reproduce the 8B before/after (public base + dataset) | [REPRODUCE_SPIDER.md](REPRODUCE_SPIDER.md) |
 | Stand up the exact stack (deps, versions, CUDA) | [REPRODUCE.md](REPRODUCE.md) |
 | Walk the full CLI end to end (train → inspect → serve → verify) | [docs/WORKED_EXAMPLE.md](docs/WORKED_EXAMPLE.md) |
