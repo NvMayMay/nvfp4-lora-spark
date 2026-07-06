@@ -43,6 +43,21 @@ fi
 
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
+# --- vLLM 0.22.1 + Pixtral/Mistral3 serve workaround (validated 2026-07-06) ---
+# Serving a Mistral-Small-3.2 (Pixtral-tower) VLM on this vLLM fails at startup with
+#   "Mismatch in `image` token count ... Got ids=[0] ...  Failed to apply PixtralProcessor"
+# unless the three flags below are set. Root cause (vllm/multimodal/processing/processor.py):
+#   * --tokenizer-mode auto (NOT mistral): the mistral_common tokenizer does not insert the
+#     [IMG] image tokens into input_ids the way the HF PixtralProcessor expects (-> ids=[0]).
+#   * --mm-processor-cache-gb 0: the mm-preprocessor CACHE path calls the processor on the
+#     [IMG] prompt with EMPTY mm data (enable_hf_prompt_update=False -> _apply_hf_processor_
+#     text_only passes empty mm_items), which PixtralProcessor rejects. Disabling the cache
+#     takes the working non-cached path.
+#   * --skip-mm-profiling: the max-size dummy image in mm-profiling trips the same mismatch.
+# All three are correctness-safe for a VLM serve. Not both-specific -- any Pixtral VLM.
+TOKENIZER_MODE="${TOKENIZER_MODE:-auto}"
+MM_PROCESSOR_CACHE_GB="${MM_PROCESSOR_CACHE_GB:-0}"
+
 source "${NVFP4_SERVE_VENV}/bin/activate"
 # Multimodal serve: DO NOT pass --language-model-only (we want the vision tower
 # active so images fuse). No --enable-lora: the fine-tune is merged into the base.
@@ -51,8 +66,11 @@ exec vllm serve "$MERGED_DIR" \
     --host "$HOST" --port "$PORT" \
     --tensor-parallel-size 1 \
     --dtype bfloat16 \
-    --tokenizer-mode "${TOKENIZER_MODE:-mistral}" \
+    --tokenizer-mode "$TOKENIZER_MODE" \
     --max-model-len "$MAX_MODEL_LEN" \
     --max-num-seqs "$MAX_NUM_SEQS" \
     --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
+    --mm-processor-cache-gb "$MM_PROCESSOR_CACHE_GB" \
+    --skip-mm-profiling \
+    --limit-mm-per-prompt "${LIMIT_MM_PER_PROMPT:-{\"image\":1}}" \
     --enforce-eager

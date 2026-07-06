@@ -246,12 +246,17 @@ image + text inference.** PLUMBING validation, not a metric claim.
     hardened (derive prefix from `st_to_model[0]` not `expert_prefix`; finite-value guard;
     incomplete-q/k/v-trio warning). NVFP4 merge is lossy in principle (Phase 0) but near-lossless
     for this light FT.
-  - SERVE (the only remaining Pixtral gap, orthogonal to both/merge): vLLM 0.22.1's
-    PixtralProcessor fails on the startup dummy `[IMG]` with no image. PROVEN not-our-merge:
-    config + all processor files are BYTE-IDENTICAL base vs merged, so the base fails identically.
+  - SERVE: was blocked by a vLLM 0.22.1 + PixtralProcessor bug -> now SOLVED via config (no code
+    patch). Serve with `--tokenizer-mode auto --mm-processor-cache-gb 0 --skip-mm-profiling`
+    (baked into `serve/run_mistral24b_vision_merged.sh`; a Pixtral-VLM serving issue, not
+    both-specific). VALIDATED: merged Pixtral both VLM serves + answers (brain scan -> "Brain.",
+    capital -> "Paris."). Root cause diagnosed in
+    `vllm/multimodal/processing/processor.py` (mm-preprocessor cache runs the [IMG] prompt
+    text-only with empty mm_items; mistral tokenizer-mode doesn't expand [IMG] into input_ids) --
+    a genuine upstream vLLM bug, but the config workaround means no vLLM PR is needed for users.
   - Scout also still can't serve on one box.
-  - Net: `both` TRAINS + MERGES on bf16-LLM (nemotron) AND NVFP4-LLM (Pixtral) VLMs; it fully
-    SERVES today on nemotron; Pixtral serve is gated on a pre-existing vLLM/Pixtral bug.
+  - Net: `both` is now FULLY end-to-end (train -> merge -> serve -> infer) on BOTH bf16-LLM
+    (nemotron) AND NVFP4-LLM (Pixtral) VLMs.
 - bs>1 / homogeneous bucketing (interacts with seeded-shuffle resume replay).
 - per-half LoRA rank/alpha (paired passes keep the door open).
 - expert-LoRA + `both` (hard-rejected in v1; additive later).
