@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nybbloris"
-version = "1.6.0"
+version = "1.9.0"
 description = "LoRA fine-tuning and runtime-LoRA serving for NVFP4 MoE models on consumer NVIDIA Blackwell (DGX Spark / GB10)"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -33,8 +33,8 @@ vision = ["pillow>=10"]
 nybbloris = "nybbloris.cli:main"
 
 # vLLM discovers this at serve time and calls register() (in the EngineCore
-# subprocess too), which registers a SupportsLoRA subclass of the Nemotron VLM
-# wrapper so its LLM half can be served as runtime-LoRA. No-op unless vLLM loads it.
+# subprocess too), which adds the SupportsLoRA contract to the Nemotron VLM wrapper
+# in place so its LLM half can be served as runtime-LoRA. No-op unless vLLM loads it.
 [project.entry-points."vllm.general_plugins"]
 nemotron_vl_lora = "nvfp4_lora.vllm_plugins.nemotron_vl_lora:register"
 
