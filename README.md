@@ -32,6 +32,14 @@ runtime-LoRA with the adapter provably applied (teacher-forced summed log-prob o
 SQL over its answer span moves **-28.8 -> -17.4, +11.4 nats** base vs adapter). Writeup:
 [results/cross_arch/command_a_generic_serve/](results/cross_arch/command_a_generic_serve/).
 
+**Vision-language models, too — the tower *and* the LLM.** `--train-target vision` LoRA-tunes
+the bf16 vision tower + projector over the frozen 4-bit LLM (Pixtral end to end, **+4.0 EM** on
+vqa-rad); `--train-target both` trains the **LLM backbone and the tower jointly**, in one run,
+from a mixed image+text dataset. `both` is validated end to end (train -> split -> merge ->
+serve -> image+text inference) on both a bf16-attention VLM (Nemotron-Omni) and an
+NVFP4-attention one (Pixtral / Mistral-Small-3.2-24B). See
+[Fine-tune the vision tower of a VLM](#fine-tune-the-vision-tower-of-a-vlm---train-target-vision).
+
 ![Fine-tune any NVFP4 model from 8B to 122B on one GB10; Command-A is the unregistered generic-fallback case](plots/reach_map.png)
 
 ## Install
