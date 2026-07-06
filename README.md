@@ -247,20 +247,33 @@ backbone is NVFP4. `--train-target vision` freezes the 4-bit backbone and LoRA-t
 the bf16 tower + projector instead (the default `text` mode is byte-for-byte unchanged).
 No new kernels: vision targets are bf16, so they ride the existing bf16-LoRA path.
 
-GPU-validated on two vision-stack architectures, **at different depths**:
+GPU-validated on three vision-stack architectures, **at different depths**:
 
-- **Pixtral** (Mistral-Small-3.2-24B) -- **end to end**: gradients flow through the frozen
-  4-bit LLM into the tower LoRA (first-backward grad gate); merge into the bf16 tower
-  (`scripts/merge_vision_lora.py`, NVFP4 backbone preserved byte-for-byte); serve the
-  **merged** VLM via vLLM. On public **vqa-rad**, normalized exact-match rose
+- **Pixtral** (Mistral-Small-3.2-24B) -- **end to end, with a quality lift**: gradients flow
+  through the frozen 4-bit LLM into the tower LoRA (first-backward grad gate); merge into the
+  bf16 tower (`scripts/merge_vision_lora.py`, NVFP4 backbone preserved byte-for-byte); serve
+  the **merged** VLM via vLLM. On public **vqa-rad**, normalized exact-match rose
   **0.450 -> 0.490 (+4.0 pts, n=451)**, merged vs base -- a deadline-capped ~half-epoch
   adapter on one dataset (an observed result, not a tuned ceiling). Writeup:
   [results/vision_vqa_serve/](results/vision_vqa_serve/).
+- **Nemotron-Omni** (Nemotron-3-Nano-Omni-30B-A3B) -- **full pipeline end to end (train ->
+  merge -> serve -> image inference), but NO metric lift on this demo**: a RADIO ViT tower +
+  `mlp1` projector on a **hybrid Mamba2 + MoE backbone with MIXED FP8 + NVFP4 quant** -- the
+  repo's hardest onboarding (one family entry plus a small `_vision_projector_scopes` library
+  fix -- which also repairs a latent Llama-4 top-level-projector bug -- and several *gated*
+  model-compat hooks for its InternVL-style forward). The tower LoRA trains (grad gate passes),
+  merges, and the merged VLM **serves + answers image queries** (venv vLLM 0.22.1,
+  `serve/run_nemotron_omni_vision_merged.sh`; first serve compiles the Mamba2 Triton kernels
+  ~16 min, then cached). But on vqa-rad the merge is near-flat to slightly negative vs base
+  (~0.65): a **tower-only LoRA over a frozen 30B LLM** doesn't move this metric here (the LLM
+  dominates the answer; a stronger tower delta overfits the small demo set). A breadth /
+  capability result, not a quality-lift one.
 - **Llama-4 vision** (Scout-109B) -- **training-path validated only**: the vision tower
   LoRA attaches and the first-backward grad gate passes (gradients flow through the frozen
   4-bit 109B MoE backbone into the tower), ~73 GB. Merge / serve / eval are **not yet
-  exercised**, and the Llama-4-specific dense expert forward added to load it is checked by
-  grad-flow + finite loss, **not** a numerical-parity test vs the reference forward.
+  exercised** (the 109B is over one GB10's serving budget; 2-box TP is the path), and the
+  Llama-4-specific dense expert forward added to load it is checked by grad-flow + finite loss,
+  **not** a numerical-parity test vs the reference forward.
 
 Vision adapters have **no vLLM runtime-LoRA path** (vLLM applies LoRA to the LLM backbone
 only), so the vision serve story is merge-to-bf16-base.

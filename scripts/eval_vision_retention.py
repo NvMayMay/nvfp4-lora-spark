@@ -183,18 +183,32 @@ def resolve_images(image_parts: list, sidecar: list, base_dir: Path,
 # Generation
 # ---------------------------------------------------------------------------
 
-def gen_answer(base_url, model, messages, max_tokens=32, timeout=600):
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def gen_answer(base_url, model, messages, max_tokens=32, timeout=600,
+               chat_template_kwargs=None, strip_think=False):
     """Greedy short answer via /v1/chat/completions (temperature 0, seed 0).
 
     Returns (text, err). The server applies the model's own chat template and fuses
     the inlined images; we only ask for a short phrase.
+
+    `chat_template_kwargs` (e.g. {"enable_thinking": false}) is passed to the server so a
+    REASONING model (NemotronH-Omni) emits a direct answer instead of a <think> monologue;
+    `strip_think` additionally removes any <think>...</think> that still leaks, so the EM is
+    scored on the answer only. Both are no-ops (defaults) for non-reasoning models (Pixtral).
     """
     body = {"model": model, "messages": messages, "max_tokens": max_tokens,
             "temperature": 0.0, "seed": 0}
+    if chat_template_kwargs:
+        body["chat_template_kwargs"] = chat_template_kwargs
     resp, err = _post(base_url, "/v1/chat/completions", body, timeout)
     if err:
         return None, err
-    return (resp["choices"][0]["message"].get("content") or ""), None
+    text = resp["choices"][0]["message"].get("content") or ""
+    if strip_think:
+        text = _THINK_RE.sub("", text).strip()
+    return text, None
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +264,15 @@ def main():
     ap.add_argument("--n", type=int, default=60)
     ap.add_argument("--max-new-tokens", type=int, default=32)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--chat-template-kwargs", default=None,
+                    help='JSON passed as chat_template_kwargs to the server, e.g. '
+                         '\'{"enable_thinking": false}\' to make a reasoning model (NemotronH-Omni) '
+                         'answer directly instead of emitting a <think> monologue.')
+    ap.add_argument("--strip-think", action="store_true",
+                    help="Strip any <think>...</think> from the response before scoring EM "
+                         "(belt-and-suspenders for reasoning models).")
     args = ap.parse_args()
+    ctk = json.loads(args.chat_template_kwargs) if args.chat_template_kwargs else None
 
     dev_path = Path(args.dev_file)
     base_dir = dev_path.parent
@@ -275,7 +297,8 @@ def main():
         rec = {"gold": gold, "question": question, "pred": {}, "em": {}}
         row_em = {}
         for m in args.models:
-            text, err = gen_answer(args.base_url, m, messages, args.max_new_tokens)
+            text, err = gen_answer(args.base_url, m, messages, args.max_new_tokens,
+                                   chat_template_kwargs=ctk, strip_think=args.strip_think)
             if err:
                 row_em[m] = None
                 em_skips[m] += 1

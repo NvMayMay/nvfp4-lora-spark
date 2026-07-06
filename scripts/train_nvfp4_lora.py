@@ -295,6 +295,27 @@ def _stage(tag: str) -> None:
     print(f"[load-mem] {tag}: rss={snap['process_rss_gb']}GB cuda_free={snap['cuda_free_gb']}GB", flush=True)
 
 
+def _force_attn_implementation(cfg, impl: str, _depth: int = 0) -> None:
+    """Set `_attn_implementation` on a config AND its nested sub-configs (`*_config`).
+
+    from_config's `attn_implementation` kwarg only reaches the top config; a composite
+    multimodal config (llm_config / vision_config / sound_config) needs each sub-config
+    set so a submodule that declares no FA2 support doesn't raise at construction.
+    """
+    if cfg is None or _depth > 4:
+        return
+    try:
+        cfg._attn_implementation = impl
+        cfg._attn_implementation_internal = impl
+    except Exception:
+        pass
+    for key in list(getattr(cfg, "__dict__", {}).keys()):
+        if "config" in key:
+            sub = getattr(cfg, key, None)
+            if hasattr(sub, "__dict__"):
+                _force_attn_implementation(sub, impl, _depth + 1)
+
+
 def load_model(
     model_dir: Path,
     family: dict,
@@ -318,9 +339,19 @@ def load_model(
     # view is the identity), so nothing below changes for them.
     is_vision = family.get("_train_target") == "vision"
     cfg = AutoConfig.from_pretrained(str(model_dir), trust_remote_code=True)
+    # Some multimodal families (e.g. NemotronH-Omni) declare NO Flash-Attention-2 support and
+    # default to it, so from_config raises unless we force eager. The family opts in via
+    # `attn_implementation`; it must be set RECURSIVELY on nested sub-configs (llm/vision/sound),
+    # because from_config's attn_implementation kwarg does not propagate to them.
+    attn_impl = family.get("attn_implementation")
+    if attn_impl:
+        _force_attn_implementation(cfg, attn_impl)
     auto_cls = AutoModelForCausalLM if family["auto_class"] == "causal_lm" else AutoModelForImageTextToText
     with init_empty_weights():
-        model = auto_cls.from_config(cfg, trust_remote_code=True)
+        model = auto_cls.from_config(
+            cfg, trust_remote_code=True,
+            **({"attn_implementation": attn_impl} if attn_impl else {}),
+        )
     _stage("post-meta-build")
 
     model_type = getattr(model.config, "model_type", None)
@@ -407,6 +438,7 @@ def load_model(
             model, target_suffixes, family.get("peft_scope"),
             r=lora_r, lora_alpha=lora_alpha, lora_dropout=lora_dropout,
             device=device, dtype=dtype,
+            projector_scopes=family.get("_projector_scopes", ()),
         )
         if n_bf16:
             print(f"[load] wrapped {n_bf16} BF16 target Linears with BF16LoRALinear "
@@ -504,16 +536,23 @@ def freeze_all_then_enable_lora(model) -> int:
     return n
 
 
-def _move_batch_to_device(batch: dict, device):
+def _move_batch_to_device(batch: dict, device, compute_dtype: torch.dtype = torch.bfloat16):
     """Move a batch to `device`, tolerating non-tensor values.
 
-    Text batches are all tensors, so this is byte-for-byte the old
+    Text batches are all-integer tensors, so this is byte-for-byte the old
     `{k: v.to(device) ...}`; a vision batch may carry `pixel_values` / `image_sizes`
     as a list of per-image tensors (variable patch counts), which this moves
     element-wise. Non-tensors pass through untouched.
+
+    FLOATING-point tensors are also cast to `compute_dtype` (the bf16 the model runs in):
+    an image processor emits `pixel_values` as fp32, but a bf16 vision tower's first matmul
+    needs bf16 inputs (some forwards, e.g. NemotronH-Omni, don't self-cast). Integer tensors
+    (input_ids/labels/attention_mask/image_flags) keep their dtype; a no-op for text batches.
     """
     def _move(v):
         if isinstance(v, torch.Tensor):
+            if compute_dtype is not None and v.is_floating_point():
+                return v.to(device=device, dtype=compute_dtype)
             return v.to(device)
         if isinstance(v, (list, tuple)):
             return type(v)(_move(x) for x in v)
@@ -553,12 +592,12 @@ def assert_vision_grads_flow(model, log_fn) -> None:
 # Training loop
 # =========================================================================
 @torch.no_grad()
-def evaluate(model, loader, device) -> float:
+def evaluate(model, loader, device, compute_dtype: torch.dtype = torch.bfloat16) -> float:
     model.eval()
     total_loss = 0.0
     total_tokens = 0
     for batch in loader:
-        batch = _move_batch_to_device(batch, device)
+        batch = _move_batch_to_device(batch, device, compute_dtype=compute_dtype)
         out = model(**batch)
         # out.loss is CE over SHIFTED tokens (labels[:, 1:] vs logits[:, :-1]),
         # so the token-weight must be the shifted supervised-token count, not the
@@ -943,6 +982,12 @@ def main():
                          "(multi_modal_projector) as a LoRA target (default on). "
                          "--no-include-projector trains the tower only; the projector is "
                          "still materialized + frozen (never left on meta).")
+    ap.add_argument("--max-image-tiles", type=int, default=None,
+                    help="Cap the image processor's dynamic-tiling tile count (for VLMs like "
+                         "NemotronH-Omni whose InternVL-style processor tiles by target "
+                         "resolution up to a large max, exploding the sequence length "
+                         "regardless of source image size). Set to 1-2 for short-answer VQA. "
+                         "No-op if the processor has no `max_num_tiles`.")
     ap.add_argument("--allow-partial-targets", action="store_true",
                     help="DEPRECATED / no-op: a target suffix that is NVFP4 in some "
                          "layers and BF16 in others now co-trains both natively "
@@ -1167,6 +1212,12 @@ def main():
                                         resolve_image_token_ids)
         processor = AutoProcessor.from_pretrained(args.model_dir, trust_remote_code=True)
         proc_cfg = AutoConfig.from_pretrained(args.model_dir, trust_remote_code=True)
+        if args.max_image_tiles is not None:
+            _ip = getattr(processor, "image_processor", None)
+            if _ip is not None and hasattr(_ip, "max_num_tiles"):
+                _old = _ip.max_num_tiles
+                _ip.max_num_tiles = args.max_image_tiles
+                log("image_tiles_capped", was=_old, now=args.max_image_tiles)
         image_token_ids = resolve_image_token_ids(processor, proc_cfg)
         proc_tok = getattr(processor, "tokenizer", None)
         pad_id = getattr(proc_tok, "pad_token_id", None)
@@ -1174,9 +1225,12 @@ def main():
             pad_id = tok.pad_token_id
         mm_collate = MultimodalCollator(
             processor, image_token_ids=image_token_ids,
-            max_length=args.max_length, pad_token_id=pad_id)
+            max_length=args.max_length, pad_token_id=pad_id,
+            add_image_flags=bool(family.get("mm_needs_image_flags", False)),
+            drop_keys=tuple(family.get("mm_drop_keys", ())))
         collate_fn = mm_collate
-        log("processor_loaded", image_token_ids=sorted(image_token_ids), pad_id=pad_id)
+        log("processor_loaded", image_token_ids=sorted(image_token_ids), pad_id=pad_id,
+            add_image_flags=bool(family.get("mm_needs_image_flags", False)))
 
     # In --dry-run we synthesize one batch later, so skip dataset/dataloader
     # construction entirely (no train-file needed, no tokenization cost).
@@ -1215,6 +1269,52 @@ def main():
         expert_lora_dropout=args.expert_lora_dropout,
     )
     log("model_loaded", seconds=round(time.time() - t0, 1))
+
+    # Some trust-remote-code forwards call torch.distributed collectives/get_rank() (e.g.
+    # NemotronH-Omni's InternVL-style forward has a rank-gated debug print) which raise if no
+    # process group exists. Init a trivial single-process group so single-GPU runs work; a
+    # torchrun launch already has one (is_initialized() short-circuits). No-op for other families.
+    # A FileStore rendezvous avoids the TCP MASTER_PORT-collision risk of a fixed port.
+    if family.get("needs_dist_init") and not torch.distributed.is_initialized():
+        _store_path = str(Path(args.output_dir) / ".dist_filestore")
+        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+        _store = torch.distributed.FileStore(_store_path, 1)
+        torch.distributed.init_process_group(
+            backend="gloo", store=_store, world_size=1, rank=0)
+        log("dist_init", backend="gloo", world_size=1, rendezvous="filestore")
+
+    # Gated forward-compat hooks for exotic VLM forwards (NemotronH-Omni), so its OWN tested
+    # forward runs unchanged -- no ~100-line forward re-implementation, robust to upstream edits.
+    if family.get("_train_target") == "vision":
+        _compat = []
+        # (a) Frozen-backbone scatter: the forward writes image features IN-PLACE into a VIEW of
+        # the (frozen) input-embedding output; autograd forbids that on a view of a LEAF with
+        # requires_grad=False. Make the embedding output a NON-leaf (o + a grad-requiring 0).
+        if family.get("mm_embed_grad_hook"):
+            _emb = model.language_model.get_input_embeddings() if hasattr(model, "language_model") \
+                else model.get_input_embeddings()
+            _emb.register_forward_hook(
+                lambda _m, _i, o: o + torch.zeros((), device=o.device,
+                                                  dtype=o.dtype).requires_grad_(True))
+            _compat.append("embed_nonleaf")
+        # (b) Mamba-hybrid output: the omni wrapper packs CausalLMOutputWithPast(
+        # past_key_values=outputs.past_key_values), but the LM's NemotronHCausalLMOutput has no
+        # such field -> add past_key_values=None to the LM output so the packing succeeds.
+        if family.get("mm_lm_output_add_past_kv") and hasattr(model, "language_model"):
+            def _add_past_kv(_m, _i, out):
+                if not hasattr(out, "past_key_values"):
+                    try:
+                        out["past_key_values"] = None
+                    except Exception:
+                        try:
+                            object.__setattr__(out, "past_key_values", None)
+                        except Exception:
+                            pass
+                return out
+            model.language_model.register_forward_hook(_add_past_kv)
+            _compat.append("lm_output_past_kv")
+        if _compat:
+            log("forward_compat_hooks", installed=_compat)
 
     if lora_mode == "peft":
         model = attach_peft_lora(model, family, target_suffixes,
@@ -1277,8 +1377,35 @@ def main():
         except Exception:
             pass
     if hasattr(model, "gradient_checkpointing_enable"):
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    if hasattr(model, "enable_input_require_grads"):
+        try:
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        except (ValueError, NotImplementedError, TypeError) as e:
+            # Some composite multimodal wrappers (e.g. NemotronH-Omni) don't support GC at the
+            # top level. Enable it on the sub-modules that do -- in a vision run the FROZEN LLM
+            # backbone dominates the activation memory, and GC still recomputes its activations
+            # for the backward that carries gradient into the tower -- and continue without it
+            # where unavailable.
+            print(f"[load] top-level gradient checkpointing unavailable ({e}); trying sub-modules",
+                  flush=True)
+            enabled = []
+            for _name in ("language_model", "vision_model"):
+                _sub = getattr(model, _name, None)
+                if _sub is not None and hasattr(_sub, "gradient_checkpointing_enable"):
+                    try:
+                        _sub.gradient_checkpointing_enable(
+                            gradient_checkpointing_kwargs={"use_reentrant": False})
+                        enabled.append(_name)
+                    except (ValueError, NotImplementedError, TypeError):
+                        pass
+            print(f"[load] gradient checkpointing enabled on sub-modules: {enabled or 'none'}",
+                  flush=True)
+    # enable_input_require_grads makes the (frozen) input-embedding OUTPUT require grad so
+    # gradient-checkpointed blocks connect. Some VLM forwards then do an in-place scatter of the
+    # image features into a reshaped VIEW of that leaf (`inputs_embeds[selected] = ...`, e.g.
+    # NemotronH-Omni line ~192), which autograd forbids on a grad-requiring leaf view. In a
+    # vision run the grad-requiring input already arrives via the tower's scatter, so the hook
+    # is unnecessary there -- skip it when the family opts out.
+    if hasattr(model, "enable_input_require_grads") and not family.get("skip_input_require_grads"):
         model.enable_input_require_grads()
 
     trainable_params = [p for p in model.parameters() if p.requires_grad]
@@ -1408,7 +1535,7 @@ def main():
                         resuming = False
                         log("resume_fastforward_done", step=update_step, epoch=epoch)
                 continue
-            batch = _move_batch_to_device(batch, device)
+            batch = _move_batch_to_device(batch, device, compute_dtype=dtype)
             out = model(**batch)
             if not torch.isfinite(out.loss):
                 # A non-finite loss this micro-step means the whole accumulation

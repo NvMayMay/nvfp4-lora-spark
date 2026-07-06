@@ -221,10 +221,85 @@ FAMILIES: dict[str, dict] = {
         "vision_target_suffixes": ("q_proj", "k_proj", "v_proj", "o_proj",
                                    "fc1", "fc2", "linear_1"),
         "projector_modules": ("multi_modal_projector",),
+        # Projector is TOP-LEVEL (no `model.` wrapper) -> anchor the projector scope at
+        # `^multi_modal_projector\.`. Without this the scope would be derived from the first
+        # vision_st_to_model head (`vision_model.`) and mis-anchor to
+        # `^vision_model\.multi_modal_projector\.`, which never matches (silent no-op).
+        "vision_projector_mem_prefix": "",
         "vision_st_prefixes": ("vision_model.", "multi_modal_projector."),
         "vision_st_to_model": (
             ("vision_model.", "vision_model."),
             ("multi_modal_projector.", "multi_modal_projector."),
+        ),
+        "vision_freeze": ("language_model",),
+    },
+    "NemotronH_Nano_Omni_Reasoning_V3": {
+        # Nemotron-3-Nano-Omni-30B-A3B: an OMNI wrapper with TOP-LEVEL submodules
+        # (language_model / vision_model / mlp1 / sound_encoder / sound_projection, NO
+        # `model.` wrapper). Backbone is a hybrid Mamba2 + MoE with MIXED quant: routed
+        # experts NVFP4; Mamba2 in/out_proj + attn o_proj + shared-expert FP8; attn q/k/v +
+        # conv1d/A_log/D/dt_bias + vision + mlp1 + sound bf16. Verified by a meta-build of
+        # the real checkpoint (2026-07-05): AutoModelForCausalLM builds the full omni tree.
+        "auto_class": "causal_lm",  # auto_map registers AutoModel/AutoModelForCausalLM at the
+                                    # omni wrapper (has .vision_model/.mlp1); it is NOT stripped
+                                    # to the text LM. `image_text_to_text` would fail to resolve.
+        # The model declares no Flash-Attention-2 support and defaults to it -> force eager
+        # (set recursively on llm/vision/sound sub-configs by the trainer's load path).
+        "attn_implementation": "eager",
+        # InternVL-style forward: needs an all-ones `image_flags` [num_tiles,1] the processor
+        # doesn't emit, and calls torch.distributed.get_rank() (a debug print) which requires a
+        # process group -> the trainer builds image_flags in the collator + inits a single-proc
+        # group. Both are no-ops for other families.
+        "mm_needs_image_flags": True,
+        "mm_drop_keys": ("num_patches",),  # processor bookkeeping; not a forward() input (no **kwargs)
+        "needs_dist_init": True,  # forward calls torch.distributed.get_rank() for a debug print
+        # The forward scatters image features IN-PLACE into a view of the (frozen) input-embedding
+        # output. Autograd forbids writing grad-requiring values (the tower-LoRA gradient) into a
+        # view of a LEAF with requires_grad=False; upstream InternVL trains the LLM, so ITS
+        # embedding output is a non-leaf and never trips this -- our frozen backbone is exactly the
+        # config that does. Two gated fixes, WITHOUT re-implementing the model's ~100-line forward:
+        #   - `skip_input_require_grads`: skip enable_input_require_grads (it makes the embedding
+        #     output a grad-requiring LEAF -> the same forbidden in-place),
+        #   - `mm_embed_grad_hook`: a forward hook making the embedding output a NON-leaf
+        #     (o + a grad-requiring 0), so the model's own in-place scatter is legal and its tested
+        #     forward runs unchanged. Robust to upstream forward changes (no source duplication).
+        "skip_input_require_grads": True,
+        "mm_embed_grad_hook": True,
+        # The omni wrapper packs CausalLMOutputWithPast(past_key_values=outputs.past_key_values),
+        # but the Mamba-hybrid LM output (NemotronHCausalLMOutput) has no past_key_values field ->
+        # a gated LM-output hook adds past_key_values=None so the packing succeeds.
+        "mm_lm_output_add_past_kv": True,
+        # Routed experts materialize as PER-EXPERT nn.Linear (experts.N.{up,down}_proj), not a
+        # fused-3D block -> loaded by replace_nvfp4_modules; no 3D assembly, no expert_prefix.
+        "expert_prefix": None,
+        "moe_experts_class": None,
+        "peft_scope": r"^language_model\.",
+        "freeze": ("vision_model", "mlp1", "sound_encoder", "sound_projection"),
+        # The RADIO patch_generator's `video_embedder` (2-frame temporal embed) is on disk but
+        # NOT constructed for image-only use, so its weight has no home -> skip it. It is NOT in
+        # vision_st_prefixes, so it stays skipped even in vision mode (where `vision_model.` is
+        # un-skipped to load the rest of the tower). sound_* are the audio tower (unused here).
+        "skip_st_prefixes": ("vision_model.", "mlp1.", "sound_encoder.", "sound_projection.",
+                             "vision_model.radio_model.model.patch_generator.video_embedder."),
+        # EXPLICIT identity rewrite (mandatory): the dynamic st_to_model=None heuristic
+        # requires exactly ONE top-level candidate and RAISES on this 5-tower checkpoint.
+        # Modules are top-level so on-disk keys == in-memory paths (identity).
+        "st_to_model": (("language_model.", "language_model."),),
+        "meta_allowed_prefixes": ("vision_model.", "mlp1.", "sound_encoder.", "sound_projection."),
+        # --- VLM vision-LoRA (RADIO ViT tower + mlp1 projector; both bf16) ---
+        "vision_peft_scope": r"^vision_model\.",
+        # RADIO blocks use FUSED qkv + proj + mlp.fc1/fc2 (129 Linears under
+        # vision_model.radio_model.model.blocks.N.*). `proj` is safe: scoped to vision_model.
+        "vision_target_suffixes": ("qkv", "proj", "fc1", "fc2"),
+        # Projector `mlp1` is an nn.Sequential(RMSNorm, Linear mlp1.1, SquaredReLU, Linear
+        # mlp1.3); the Linears' leaf names ("1"/"3") aren't matchable suffixes, so they are
+        # wrapped by PATH via _projector_scopes. Top-level -> projector mem prefix "".
+        "projector_modules": ("mlp1",),
+        "vision_projector_mem_prefix": "",
+        "vision_st_prefixes": ("vision_model.", "mlp1."),
+        "vision_st_to_model": (
+            ("vision_model.", "vision_model."),
+            ("mlp1.", "mlp1."),
         ),
         "vision_freeze": ("language_model",),
     },
@@ -373,19 +448,29 @@ def family_supports_vision(fam: dict) -> bool:
 
 
 def _vision_projector_scopes(fam: dict) -> tuple[str, ...]:
-    """Anchored regexes matching the projector modules in memory (`model.<name>.`).
+    """Anchored regexes matching the projector modules at their in-memory path.
 
-    Derived from `projector_modules` + the memory prefix carried by
-    `vision_st_to_model` (the rewrite target), so a family whose wrapper prefix is
-    not `model.` still gets the right anchor.
+    The projector's in-memory prefix is the family's explicit
+    `vision_projector_mem_prefix` when present (use ``""`` for a TOP-LEVEL projector
+    module -- llama4's `multi_modal_projector`, nemotron_omni's `mlp1` -- so the
+    scope anchors at `^<name>\\.`). Only when that field is absent do we fall back to
+    the head of the first `vision_st_to_model` rule -- correct for wrapper-prefixed
+    families whose towers live under `model.` (mistral3), WRONG for top-level towers
+    (there the first rule head is the *tower* prefix, e.g. `vision_model.`, which
+    would mis-anchor the projector to `^vision_model\\.<name>\\.` and never match).
     """
-    mem_prefix = "model."
-    for _st, _mem in fam.get("vision_st_to_model", ()):  # e.g. ("vision_tower.", "model.vision_tower.")
-        head = _mem.split(".", 1)[0]
-        if head:
-            mem_prefix = head + "."
-            break
-    return tuple(r"^" + re.escape(mem_prefix + name) + r"\." for name in fam.get("projector_modules", ()))
+    projector_modules = fam.get("projector_modules", ())
+    if not projector_modules:
+        return ()
+    mem_prefix = fam.get("vision_projector_mem_prefix")
+    if mem_prefix is None:
+        mem_prefix = "model."
+        for _st, _mem in fam.get("vision_st_to_model", ()):  # e.g. ("vision_tower.", "model.vision_tower.")
+            head = _mem.split(".", 1)[0]
+            if head:
+                mem_prefix = head + "."
+                break
+    return tuple(r"^" + re.escape(mem_prefix + name) + r"\." for name in projector_modules)
 
 
 def family_view(fam: dict, train_target: str = "text", *, include_projector: bool = True) -> dict:
@@ -442,6 +527,11 @@ def family_view(fam: dict, train_target: str = "text", *, include_projector: boo
     view = dict(fam)
     view["_train_target"] = "vision"
     view["_include_projector"] = include_projector
+    # Projector scopes stashed for PATH-BASED target selection: a projector may be an
+    # `nn.Sequential` whose Linears have non-distinctive leaf names (nemotron_omni's
+    # `mlp1.1`/`mlp1.3`), so they can't be matched by `vision_target_suffixes`. The
+    # loader wraps every bf16 Linear under these scopes regardless of suffix.
+    view["_projector_scopes"] = tuple(_vision_projector_scopes(fam)) if include_projector else ()
     view["skip_st_prefixes"] = tuple(
         p for p in fam.get("skip_st_prefixes", ()) if p not in vision_st_prefixes
     )

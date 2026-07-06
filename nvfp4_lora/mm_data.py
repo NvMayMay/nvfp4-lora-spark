@@ -207,12 +207,22 @@ class MultimodalCollator:
     """
 
     def __init__(self, processor: Any, *, image_token_ids: Sequence[int],
-                 max_length: int, pad_token_id: int, label_pad: int = -100):
+                 max_length: int, pad_token_id: int, label_pad: int = -100,
+                 drop_keys: Sequence[str] = (),
+                 add_image_flags: bool = False):
         self.processor = processor
         self.image_token_ids = set(int(i) for i in image_token_ids)
         self.max_length = max_length
         self.pad_token_id = pad_token_id
         self.label_pad = label_pad
+        # Some InternVL-style forwards (NemotronH-Omni) REQUIRE an `image_flags` [num_tiles, 1]
+        # tensor (all-ones = every tile real) that the processor does not emit; construct it.
+        self.add_image_flags = add_image_flags
+        # Processor outputs that are NOT forward() inputs and must not reach model(**batch).
+        # FAMILY-OWNED (default empty): e.g. NemotronH-Omni sets `num_patches` (InternVL/RADIO
+        # bookkeeping, redundant with image_flags + the image-token count; its forward has no
+        # **kwargs to absorb it). NOT a global default -- a future VLM may legitimately consume it.
+        self.drop_keys = set(drop_keys)
 
     def _render(self, messages, *, add_generation_prompt: bool) -> str:
         return self.processor.apply_chat_template(
@@ -286,7 +296,7 @@ class MultimodalCollator:
         # own contract. Batching concatenates these along dim 0 (see _batch_extra); for
         # bs=1 (V0) the processor's output reaches the model untouched.
         for k, v in enc.items():
-            if k in _TEXT_KEYS:
+            if k in _TEXT_KEYS or k in self.drop_keys:
                 continue
             out[k] = v
         return out
@@ -310,10 +320,13 @@ class MultimodalCollator:
         # (Pixtral/Llama-4 emit variable per-image patch/tile counts). bs=1 (V0)
         # passes the single example's tensors through unchanged; bs>1 stacking is
         # best-effort and re-validated with the real processors at V1.
-        extra_keys = [k for k in encoded[0] if k not in _TEXT_KEYS]
+        extra_keys = [k for k in encoded[0] if k not in _TEXT_KEYS and k not in self.drop_keys]
         for k in extra_keys:
             vals = [e[k] for e in encoded if e.get(k) is not None]
             out[k] = _batch_extra(vals)
+        if self.add_image_flags and isinstance(out.get("pixel_values"), torch.Tensor):
+            # [num_tiles, 1] all-ones: every tile in pixel_values is a real image tile.
+            out["image_flags"] = torch.ones((out["pixel_values"].shape[0], 1), dtype=torch.long)
         return out
 
 

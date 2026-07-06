@@ -757,6 +757,7 @@ def replace_bf16_targets(
     lora_dropout: float = 0.0,
     device: torch.device = torch.device("cuda"),
     dtype: torch.dtype = torch.bfloat16,
+    projector_scopes: Sequence[str] = (),
 ) -> int:
     """Wrap plain-BF16 TARGET Linears (under the family's peft_scope) in BF16LoRALinear.
 
@@ -765,15 +766,29 @@ def replace_bf16_targets(
     natively alongside NVFP4/FP8 targets in one adapter, instead of being dropped (a native
     run can't host PEFT). `peft_scope` anchors to the text backbone, so out-of-scope BF16
     (MTP/speculation heads, vision towers) is left frozen. Returns the count wrapped.
+
+    `projector_scopes` (vision runs) select bf16 Linears by PATH regardless of suffix: a
+    vision projector may be an `nn.Sequential` whose Linears have non-distinctive leaf names
+    (e.g. nemotron_omni's `mlp1.1`/`mlp1.3`) that can't be listed in `target_lora_suffixes`.
+    Any bf16 `nn.Linear` under a projector scope is wrapped; matches are de-duplicated with
+    the suffix path (a Linear is wrapped at most once).
     """
     import re
 
     target_set = set(target_lora_suffixes)
     scope_re = re.compile(peft_scope) if peft_scope else None
+    proj_res = [re.compile(p) for p in projector_scopes]
+
+    def _is_target(name: str) -> bool:
+        # Projector: any Linear under a projector scope, regardless of leaf suffix.
+        if any(pr.search(name) for pr in proj_res):
+            return True
+        # Backbone / tower: suffix must match AND be in the peft scope.
+        return (name.rsplit(".", 1)[-1] in target_set
+                and (scope_re is None or scope_re.search(name)))
+
     hits = [(name, mod) for name, mod in model.named_modules()
-            if isinstance(mod, nn.Linear)
-            and name.rsplit(".", 1)[-1] in target_set
-            and (scope_re is None or scope_re.search(name))]
+            if isinstance(mod, nn.Linear) and _is_target(name)]
     count = 0
     for name, orig in hits:
         parent, attr = _get_parent(model, name)
