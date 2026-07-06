@@ -171,22 +171,31 @@ LLM weights; serve the merged VLM as a plain model (no `--enable-lora`).
 
 ---
 
-## Phase 2 — save / merge / serve routing
+## Phase 2 — save / merge / serve routing (DONE 2026-07-06)
 
-- **Save:** structured record in `adapter_config.json` — text vs vision suffixes, both
-  scopes, `include_projector`, base identity, and the LLM-half intent (`runtime`|`merge`).
-  Not just a `train_target: both` tag (`train:1167` records only the string).
-- **Splitter** (in `merge_vision_lora.py` or a new tool): emit a tower-only sub-adapter
-  (→ merge into the bf16 tower → new merged VLM base) + an LLM-only sub-adapter; REWRITE the
-  LLM sub-adapter's `base_model_name_or_path` to the merged-tower base + re-fingerprint
-  (`train:696` writes the ORIGINAL base, wrong after tower-merge); its `target_modules`
-  carries only text suffixes. Assert BOTH key-scopes present before splitting (R6). Must run
-  BEFORE any rekey/merge tool — `merge_vision_lora.adapter_key_to_base_key` raises on
-  text-backbone keys (`merge_vision_lora.py:118-123`) and `adapter_key_to_base_prefix` raises
-  on tower keys (`families.py:606-611`); feeding a both-adapter to either is a hard crash
-  today (loud, good).
-- **Contract test:** round-trip a both-adapter through the splitter; `check_lora_binding`
-  passes on both halves.
+- **Save (Phase 1):** the native adapter_config carries a `both` block — text vs vision
+  suffixes, both scopes, `include_projector`, base identity — so the splitter routes keys
+  without re-deriving scope membership (`_save_adapter_atomic`, `both_meta`).
+- **Splitter — `scripts/split_both_adapter.py` (new):** reads the unified both-adapter and
+  its `both` block, classifies each `base_model.model.<path>.lora_{A,B}.weight` key by module
+  path against the vision scope + projector scopes, and writes `<out>/tower/` +
+  `<out>/llm/`, each a standard PEFT-shaped sub-adapter (r + lora_alpha + its half's
+  target_modules) that its own merge tool accepts. Self-contained (scopes come from the
+  config, no model/family load) so it is CPU-unit-tested. **R6 guard:** refuses if EITHER
+  scope is empty (a half-trained / mis-scoped adapter) — loud SystemExit, never a silent
+  half-merge. It prints the fully-merge command sequence (tower first, then LLM against the
+  tower-merged base — the Phase-0 v1 default; no `--enable-lora`).
+  - Note: the two existing merge tools take `--base-model-dir` on the CLI, so the LLM base
+    pointer is advisory; the merge ORDER (documented in the tool's output) is what makes the
+    LLM half merge against the tower-merged base.
+- **Contract test — `tests/test_split_both_adapter.py` (5 cases):** module-path parsing,
+  scope partitioning (disjoint + complete), a full round-trip (tower/llm keys land in the
+  right sub-adapter with valid configs), the non-both refusal, and the empty-scope R6 guards.
+  Full suite 372 passed.
+- **Deferred to Phase 3 (needs a real base + GPU):** actually running the two merges on a
+  trained both-adapter and confirming each sub-adapter binds/merges cleanly against the
+  nemotron base (the "binding" validation; there is no standalone `check_lora_binding`
+  function in-repo — it is a merge-run + serve-parity check).
 
 ---
 
