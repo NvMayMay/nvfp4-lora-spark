@@ -235,6 +235,14 @@ image + text inference.** PLUMBING validation, not a metric claim.
 
 ## Deferred (OUT of v1, documented as such)
 
+- **Other VLMs (mistral3/Pixtral, llama4/Scout, mistral4).** CPU logic is family-agnostic +
+  tested on mistral3, but END-TO-END is nemotron-only. Two blockers to generalize: (a) their
+  text-only training forward is unverified (nemotron needed `mm_text_only_bypass`; Pixtral's
+  standard HF forward probably does not, but untested); (b) their LLM attention is NVFP4
+  (Pixtral = compressed-tensors `weight_packed`+scales), so the clean bf16 `--prefix-pair`
+  merge does NOT apply — the NVFP4 LLM-half merge for a MULTI-backbone VLM is unbuilt (both
+  merge tools are single-backbone) and is lossy anyway (→ the runtime-LoRA wrapper patch).
+  Nemotron was the ideal first target precisely because its attention is bf16 (clean merge).
 - bs>1 / homogeneous bucketing (interacts with seeded-shuffle resume replay).
 - per-half LoRA rank/alpha (paired passes keep the door open).
 - expert-LoRA + `both` (hard-rejected in v1; additive later).
