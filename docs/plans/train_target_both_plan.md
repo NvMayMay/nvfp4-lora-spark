@@ -235,14 +235,17 @@ image + text inference.** PLUMBING validation, not a metric claim.
 
 ## Deferred (OUT of v1, documented as such)
 
-- **Other VLMs (mistral3/Pixtral, llama4/Scout, mistral4).** CPU logic is family-agnostic +
-  tested on mistral3, but END-TO-END is nemotron-only. Two blockers to generalize: (a) their
-  text-only training forward is unverified (nemotron needed `mm_text_only_bypass`; Pixtral's
-  standard HF forward probably does not, but untested); (b) their LLM attention is NVFP4
-  (Pixtral = compressed-tensors `weight_packed`+scales), so the clean bf16 `--prefix-pair`
-  merge does NOT apply — the NVFP4 LLM-half merge for a MULTI-backbone VLM is unbuilt (both
-  merge tools are single-backbone) and is lossy anyway (→ the runtime-LoRA wrapper patch).
-  Nemotron was the ideal first target precisely because its attention is bf16 (clean merge).
+- **Other VLMs (mistral3/Pixtral, llama4/Scout, mistral4).** TRAINING now generalizes:
+  end-to-end (train→serve) is validated on nemotron, and TRAINING is validated on mistral3/
+  Pixtral too (2026-07-06 smoke — grad-gate passed with NVFP4-LLM + bf16-tower dual-scope; ran
+  mixed image+text with NO bypass, so its standard HF forward handles text-only natively; the
+  bypass was nemotron-specific). The remaining blocker is **MERGE→SERVE for an NVFP4-LLM VLM**:
+  Pixtral's LLM is NVFP4 (compressed-tensors `weight_packed`+scales), so the clean bf16
+  `--prefix-pair` merge does NOT apply — the NVFP4 LLM-half merge for a MULTI-backbone VLM is
+  unbuilt (both merge tools are single-backbone) and is lossy anyway (→ the runtime-LoRA wrapper
+  patch). Nemotron served end-to-end precisely because its attention is bf16 (clean merge).
+  Scout also still can't serve on one box. Net: `both` TRAINS on any vision family; it fully
+  SERVES today only on bf16-attention VLMs.
 - bs>1 / homogeneous bucketing (interacts with seeded-shuffle resume replay).
 - per-half LoRA rank/alpha (paired passes keep the door open).
 - expert-LoRA + `both` (hard-rejected in v1; additive later).
