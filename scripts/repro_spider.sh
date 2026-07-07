@@ -26,6 +26,17 @@ SERVE_LOG=${SERVE_LOG:-/tmp/repro_spider_serve.log}
 
 step(){ echo; echo "=== $* ==="; }
 
+# --- serve pre-flight: fail BEFORE the multi-hour train if the serve venv is missing ---
+# Step 4 serves on a SEPARATE vLLM 0.22.1 host venv built for GB10 (sm_121), NOT the
+# `pip install -e .` training install. Build it per docs/SERVING.md and point VLLM at its
+# `vllm` binary. This check runs first, on purpose, so you never train for hours then wall.
+if ! command -v "$VLLM" >/dev/null 2>&1; then
+  echo "ERROR: the serve step needs a vLLM 0.22.1 GB10 host venv, but VLLM='$VLLM' was not found."
+  echo "       Build it per docs/SERVING.md, then re-run pointing VLLM at it:"
+  echo "         VLLM=/path/to/serve-venv/bin/vllm bash scripts/repro_spider.sh"
+  exit 1
+fi
+
 step "1/5 base model"
 if [ -f "$MODEL_DIR/config.json" ]; then echo "present: $MODEL_DIR"; else
   hf download nvidia/Llama-3.1-8B-Instruct-NVFP4 --local-dir "$MODEL_DIR"

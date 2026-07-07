@@ -8,6 +8,12 @@ is attached to the 4-bit base at request time, never merged or re-quantized).
 Everything here uses a **public base + public dataset** and a **deterministic** metric
 (no sampling, no database execution), so the numbers are reproducible.
 
+> **The one setup step people miss:** the serve step (section 4) runs on a **separate
+> vLLM 0.22.1 host venv built for GB10** (sm_121), not the `pip install -e .` training
+> install. Build it per [docs/SERVING.md](docs/SERVING.md) and point `--vllm` (or `VLLM=`
+> for `scripts/repro_spider.sh`) at its `vllm` binary. The script now fails fast at the very
+> start if it cannot find that venv, so you never train for hours and then wall at serve.
+
 ## Expected result (full 1034-row dev, 2 epochs, deterministic)
 
 | Spider dev (Llama-3.1-8B-NVFP4) | base | adapter | delta |
