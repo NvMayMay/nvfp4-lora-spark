@@ -47,6 +47,15 @@ NVFP4-attention one (Pixtral / Mistral-Small-3.2-24B). See
 
 ![Fine-tune any NVFP4 model from 8B to 122B on one GB10; Command-A is the unregistered generic-fallback case](plots/reach_map.png)
 
+**Sibling project: [nvfp4-ft-spark](https://github.com/NvMayMay/nvfp4-ft-spark).** The
+training-first sibling of this repo: full-parameter and QAT fine-tuning of an NVFP4 checkpoint on
+one DGX Spark, NVFP4 in and NVFP4 out with no BF16 original, and the result serves as a plain
+NVFP4 checkpoint with no adapter. Use nybbloris for cheap task adaptation via runtime LoRA; use
+nvfp4-ft-spark when you need full-parameter or large-fraction fine-tuning of the quantized model
+itself. On Llama-3.1-8B-Instruct-NVFP4 with Spider (n=1034), its QAT best-checkpoint served W4A16
+lands at 49.7-54.5 EM across 4 runs vs base 36.9, overlapping this repo's runtime-LoRA band of
+42.8-52.5 (3 seeds).
+
 ## Contents
 
 - [Install](#install)
